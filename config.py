@@ -242,7 +242,7 @@ TIME_VERIFY_TOLERANCE = _env_int(
 # Políticas NTP:
 #   keep      -> no tocar la configuración NTP existente.
 #   off       -> desactivar NTP (queda desactivado).
-#   restore   -> desactivar, fijar la hora y volver a activar NTP.
+#   restore   -> desactivar, fijar la hora y restaurar el estado NTP previo.
 #   configure -> configurar servidores NTP y dejar NTP activo.
 NTP_POLICIES: tuple[str, ...] = ("keep", "off", "restore", "configure")
 MAX_NTP_SERVERS = _env_int(

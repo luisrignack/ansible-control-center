@@ -165,7 +165,7 @@ execution_hosts
 
 - `keep`: no tocar.
 - `off`: desactivar y dejar desactivado.
-- `restore`: desactivar, fijar hora y reactivar.
+- `restore`: desactivar, fijar hora y restaurar el estado NTP previo.
 - `configure`: escribir servidores NTP y activar.
 
 ### Best-effort

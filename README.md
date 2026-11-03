@@ -13,7 +13,8 @@ verificación posterior, idempotencia, lotes auditables e historial en SQLite.
 
 ## Estado actual
 
-Fases **P0, P1, P2, P3 y P4 completadas**. Suite de pruebas: **64 tests**.
+Fases **P0–P4 y la primera tanda de P4.1 completadas**. Suite de pruebas:
+**70 tests**.
 
 | Fase | Contenido |
 |---|---|
@@ -22,6 +23,7 @@ Fases **P0, P1, P2, P3 y P4 completadas**. Suite de pruebas: **64 tests**.
 | P2 | Vault real, Ansible real, inyección segura de credenciales, historial |
 | P3 | CSRF, rate limiting, límites CIDR/hosts, cabeceras de seguridad |
 | P4 | Grupo completo, best-effort, lotes, vista previa, verificación, idempotencia, UTC/local, política NTP |
+| P4.1 | DRY RUN visible y persistido, `restore` fiel al estado previo, aviso `TIME`+`keep`, JSON sin caché |
 
 ---
 
@@ -44,9 +46,12 @@ Fases **P0, P1, P2, P3 y P4 completadas**. Suite de pruebas: **64 tests**.
 - **Idempotencia**: no cambia zona horaria ni hora si ya son correctas, salvo
   que se marque “Forzar”.
 - **Semántica explícita UTC/local** para la hora exacta.
-- **Política NTP explícita**: `keep`, `off`, `restore` o `configure`.
+- **Política NTP explícita**: `keep`, `off`, `restore` o `configure`;
+  `restore` devuelve NTP a su estado previo.
 - **RTC opcional**: `hwclock --systohc`.
-- **DRY RUN** activo por defecto (`HORA_ADMIN_DRY_RUN=1`).
+- **DRY RUN** activo por defecto (`HORA_ADMIN_DRY_RUN=1`), visible en el panel,
+  la página de progreso, el detalle del lote y el historial, y persistido en
+  cada lote.
 
 ### Seguridad
 
@@ -298,7 +303,7 @@ Para ejecutar de verdad, define `HORA_ADMIN_DRY_RUN=0` y reinicia el servicio.
 |---|---|
 | `keep` | No toca la configuración NTP existente |
 | `off` | Desactiva NTP y lo deja desactivado |
-| `restore` | Desactiva NTP, fija la hora y lo reactiva |
+| `restore` | Desactiva NTP para fijar la hora y restaura su estado previo (si estaba activo, lo reactiva; si estaba apagado, lo deja apagado) |
 | `configure` | Configura servidores NTP en chrony o systemd-timesyncd y activa NTP |
 
 ---

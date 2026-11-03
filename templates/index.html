@@ -5,6 +5,16 @@
 {% block content %}
 <div class="row">
     <div class="col-12 col-md-8 mx-auto">
+        {% if dry_run %}
+        <div class="alert alert-warning d-flex align-items-center gap-2" role="alert">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <div>
+                <strong>DRY RUN activo:</strong> los playbooks no se ejecutan en los
+                hosts. Solo se simula el resultado. Desactívalo con
+                <code>HORA_ADMIN_DRY_RUN=0</code>.
+            </div>
+        </div>
+        {% endif %}
         <div class="card fade-in">
             <div class="card-header">
                 <h4 class="mb-0"><i class="bi bi-wrench me-2"></i> Formulario de Configuración</h4>
@@ -120,11 +130,17 @@
                                 <option value="{{ policy }}" {% if policy == selected_policy %}selected{% endif %}>
                                     {% if policy == 'keep' %}Mantener NTP sin cambios
                                     {% elif policy == 'off' %}Desactivar NTP (queda desactivado)
-                                    {% elif policy == 'restore' %}Desactivar, fijar hora y reactivar NTP
+                                    {% elif policy == 'restore' %}Desactivar, fijar hora y restaurar el estado previo de NTP
                                     {% else %}Configurar servidores NTP y activar{% endif %}
                                 </option>
                                 {% endfor %}
                             </select>
+                            <div class="form-text">
+                                Con “Hora Exacta” y NTP activo, el reloj puede
+                                volver a sincronizarse; usa <code>off</code>,
+                                <code>restore</code> o <code>configure</code>.
+                                <code>restore</code> devuelve NTP a su estado previo.
+                            </div>
                         </div>
 
                         <!-- Servidores NTP -->

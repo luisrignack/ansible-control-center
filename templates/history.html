@@ -66,6 +66,9 @@
                                     <td>
                                         <span class="badge {% if batch.status == 'success' %}bg-success{% elif batch.status == 'partial' %}bg-warning text-dark{% elif batch.status == 'preview' %}bg-info text-dark{% else %}bg-danger{% endif %}"
                                               data-status="{{ batch.status }}">{{ batch.status }}</span>
+                                        {% if batch.dry_run %}
+                                        <span class="badge bg-warning text-dark" title="Ejecución simulada">DRY RUN</span>
+                                        {% endif %}
                                     </td>
                                     <td>
                                         <small>

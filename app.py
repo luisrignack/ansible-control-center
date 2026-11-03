@@ -54,6 +54,7 @@ from config import (
     CSRF_TIME_LIMIT_SECONDS,
     DEBUG,
     DEFAULT_NTP_SERVERS,
+    DRY_RUN,
     EXEC_RATE_LIMIT,
     EXEC_RATE_WINDOW,
     HSTS_ENABLED,
@@ -436,8 +437,10 @@ def _would_change(
 
     if ntp_policy == "off":
         changed = changed or bool(state.get("ntp"))
-    elif ntp_policy in {"restore", "configure"}:
+    elif ntp_policy == "configure":
         changed = changed or not bool(state.get("ntp"))
+    # ``restore`` devuelve NTP a su estado previo, así que no añade cambios
+    # netos por sí mismo.
 
     return changed
 
@@ -482,6 +485,7 @@ def create_task() -> str:
             "password_hash": "",
             "overall_result": "unknown",
             "completed": False,
+            "dry_run": DRY_RUN,
             "created_at": datetime.now().isoformat(timespec="seconds"),
         }
     return task_id
@@ -548,6 +552,7 @@ def _security_context():
     return {
         "csrf_token": generate_csrf_token,
         "csp_nonce": getattr(g, "csp_nonce", ""),
+        "dry_run": DRY_RUN,
     }
 
 
@@ -850,6 +855,23 @@ def _progress_for(index: int, total: int, start: int = 12, span: int = 85) -> in
     return min(start + int(index / total * span), start + span)
 
 
+def _ntp_keep_warning(
+    action: str, ntp_policy: str, state: Any
+) -> str:
+    """Aviso cuando ``TIME`` se aplica con NTP activo y política ``keep``."""
+    if (
+        action == "TIME"
+        and ntp_policy == "keep"
+        and isinstance(state, dict)
+        and state.get("ntp")
+    ):
+        return (
+            "TIME con NTP activo y política keep: el reloj puede volver a "
+            "sincronizarse. Usa off, restore o configure."
+        )
+    return ""
+
+
 def _run_preview_batch(
     tid: str,
     batch_id: str,
@@ -935,6 +957,15 @@ def _run_preview_batch(
                 f"Vista previa OK (hash {used_hash or 'n/d'})",
                 host=host,
             )
+            warning = _ntp_keep_warning(action, ntp_policy, state)
+            if warning:
+                _append_log(log_lines, f"Advertencia en {host}: {warning}")
+                _append_console(
+                    console_lines,
+                    tid,
+                    f"Advertencia: {warning}",
+                    host=host,
+                )
         else:
             ExecutionBatch.add_host_result(
                 batch_id=batch_id,
@@ -1232,6 +1263,7 @@ def execute_with_progress(
                 "log": ["Iniciando"],
                 "mode": mode,
                 "completed": False,
+                "dry_run": DRY_RUN,
             },
         )
         hosts = resolve_target(ti)
@@ -1322,6 +1354,7 @@ def execute_with_progress(
             ntp_policy=ntp_policy,
             total_hosts=len(hosts),
             status="preview" if mode == "preview" else "running",
+            dry_run=DRY_RUN,
             db_path=db_path,
         )
         update_task(
@@ -1339,6 +1372,7 @@ def execute_with_progress(
                 "operator": operator,
                 "time_mode": time_mode,
                 "ntp_policy": ntp_policy,
+                "dry_run": DRY_RUN,
             },
         )
 
@@ -1454,8 +1488,11 @@ def api_task_status(task_id: str):
     with _tasks_lock:
         task = _tasks.get(task_id)
     if task is None:
-        return jsonify({"status": "not_found", "exists": False})
-    return jsonify({**task, "exists": True})
+        response = jsonify({"status": "not_found", "exists": False})
+    else:
+        response = jsonify({**task, "exists": True})
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 # ---------------------------------------------------------------------------

@@ -7,6 +7,43 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ---
 
+## [P4.1] — 2026-11-03
+
+Primera tanda de hardening del roadmap: visibilidad de simulación, semántica
+fiel de `restore` y avisos de riesgo.
+
+### Añadido
+
+- **DRY RUN visible y persistido:** banner en el panel, badge en progreso,
+  detalle del lote e historial; campo `dry_run` en `execution_batches`
+  (esquema v4) y en el estado de la tarea.
+- **Aviso `TIME` + `keep`:** si NTP está activo, el playbook añade una
+  advertencia de que el reloj puede volver a sincronizarse.
+- **Cabecera `Cache-Control: no-store`** en `/api/task-status/<task_id>`.
+- **Tests nuevos:** migración v3→v4, visibilidad/persistencia de `dry_run`,
+  ejecución real sin marca, `no-store`, aviso `TIME`+`keep` en vista previa y
+  semántica de `restore`/`off`/`configure` en la vista previa.
+
+### Cambiado
+
+- **`restore` restaura el estado NTP previo:** solo reactiva NTP si estaba
+  activo antes; si estaba desactivado, lo deja desactivado. La verificación
+  posterior comprueba ambos casos.
+- **`_would_change`:** `restore` ya no se considera un cambio neto por sí
+  mismo, porque devuelve NTP a su estado inicial.
+- El texto de la política NTP y el runbook de reversión reflejan la nueva
+  semántica.
+
+### Limitaciones restantes de P4.1
+
+- Worker `threads`/`gevent`, timeout > SSE y estado de tareas persistido.
+- Reconciliación de lotes huérfanos y parada ordenada.
+- Confirmación de envío e idempotencia de formularios.
+- Allowlist de redes, hashes con pepper y revisión de cookies/`remember`.
+- CI con linters, `mypy`, `ansible-lint` y cobertura.
+
+---
+
 ## [P4] — 2026-11-03
 
 ### Añadido

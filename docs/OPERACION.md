@@ -97,7 +97,7 @@ inspección, queda como `error` y el resto continúa.
 |---|---|---|
 | `keep` | No toca NTP | Solo `TZ`; con `TIME` NTP puede revertir el cambio |
 | `off` | Desactiva NTP y lo deja off | Equipos que no deben sincronizar |
-| `restore` | Desactiva, fija hora y reactiva NTP | Ajuste puntual con NTP activo |
+| `restore` | Desactiva, fija hora y restaura el estado NTP previo | Ajuste puntual sin cambiar el estado final de NTP |
 | `configure` | Escribe servidores y activa NTP | Estado final deseado con sincronización |
 
 > **Riesgo `TIME` + `keep`:** si NTP sigue activo, puede corregir
@@ -105,8 +105,8 @@ inspección, queda como `error` y el resto continúa.
 > tolerancia y el reloj cambiar después. Para `TIME`, usa `off`, `restore` o
 > `configure`.
 >
-> **Riesgo `restore`:** la implementación actual reactiva NTP aunque estuviera
-> desactivado antes. No es una restauración exacta del estado previo.
+> **`restore`:** conserva el estado previo de NTP. Si estaba activo, se
+> reactiva tras fijar la hora; si estaba desactivado, sigue desactivado.
 
 ### 2.4. Durante la ejecución
 
@@ -274,7 +274,8 @@ guardado en `execution_hosts.before_state`.
 2. Lanza `TIME` en modo `utc` con la hora previa.
 3. Elige la política NTP según `before_state.ntp`:
    - si NTP estaba activo: `restore` o `configure`;
-   - si NTP estaba desactivado: `off` (no uses `restore`, porque lo activaría).
+   - si NTP estaba desactivado: `off` o `restore` (ambos lo dejan
+     desactivado).
 4. Si el salto es grande, coordina ventana de mantenimiento.
 
 ### 5.3. Revertir un lote completo
@@ -480,9 +481,7 @@ desactives la verificación salvo decisión consciente y documentada.
 - Sin rollback automático.
 - Sin retención automática.
 - Estado de tareas en memoria; SSE depende del proceso.
-- `DRY_RUN` invisible en la interfaz y ausente del modelo de datos.
-- `TIME` + `keep` puede ser revertido por NTP.
-- `restore` activa NTP aunque estuviera desactivado.
+- `TIME` + `keep` puede ser revertido por NTP; la aplicación avisa en el lote.
 - Sin RBAC, MFA, allowlist de red ni auditoría independiente.
 - Solo Ubuntu/systemd; IPv6 no probado en el flujo de Ansible.
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Iterator
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def connect(db_path: str) -> sqlite3.Connection:
@@ -195,13 +195,24 @@ def _migrate_v3(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v4(conn: sqlite3.Connection) -> None:
+    """Marca los lotes ejecutados en modo simulación (P4.1)."""
+    _ensure_column(
+        conn,
+        "execution_batches",
+        "dry_run",
+        "dry_run INTEGER NOT NULL DEFAULT 0",
+    )
+
+
 def init_schema(db_path: str) -> None:
     """Crea o migra el esquema de forma idempotente y no destructiva.
 
-    ``_migrate_v1`` y ``_migrate_v3`` se ejecutan siempre porque usan
-    ``CREATE ... IF NOT EXISTS``: así se reparan bases de datos parciales o
-    creadas por versiones antiguas. Las migraciones que transforman datos solo
-    se aplican si la versión registrada en ``PRAGMA user_version`` es anterior.
+    ``_migrate_v1``, ``_migrate_v3`` y ``_migrate_v4`` se ejecutan siempre
+    porque usan ``CREATE ... IF NOT EXISTS`` o ``_ensure_column``: así se
+    reparan bases de datos parciales o creadas por versiones antiguas. Las
+    migraciones que transforman datos solo se aplican si la versión registrada
+    en ``PRAGMA user_version`` es anterior.
     """
     with get_connection(db_path) as conn:
         version = int(conn.execute("PRAGMA user_version").fetchone()[0])
@@ -209,4 +220,5 @@ def init_schema(db_path: str) -> None:
         if version < 2:
             _migrate_v2(conn)
         _migrate_v3(conn)
+        _migrate_v4(conn)
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

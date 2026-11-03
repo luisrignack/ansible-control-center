@@ -241,3 +241,50 @@ def test_all_models_share_the_same_schema(db_path):
 
     assert {"users", "passwords", "executions"} <= tables
     assert int(db_module.SCHEMA_VERSION) >= 2
+
+
+def test_migrates_v3_batches_to_dry_run_column(db_path):
+    """Los lotes creados antes de P4.1 quedan como ejecuciones reales."""
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE execution_batches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                finished_at TEXT,
+                operator TEXT NOT NULL DEFAULT '',
+                action TEXT NOT NULL,
+                value TEXT NOT NULL,
+                target TEXT NOT NULL,
+                time_mode TEXT NOT NULL DEFAULT 'utc',
+                ntp_policy TEXT NOT NULL DEFAULT 'keep',
+                status TEXT NOT NULL DEFAULT 'running',
+                total_hosts INTEGER NOT NULL DEFAULT 0,
+                success_count INTEGER NOT NULL DEFAULT 0,
+                failure_count INTEGER NOT NULL DEFAULT 0,
+                skipped_count INTEGER NOT NULL DEFAULT 0,
+                error_count INTEGER NOT NULL DEFAULT 0,
+                preview_count INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO execution_batches
+                (batch_id, created_at, action, value, target)
+            VALUES ('legacy', '2026-01-01T00:00:00+00:00', 'TZ', 'UTC', '10.0.0.1');
+            """
+        )
+        conn.execute("PRAGMA user_version = 3")
+        conn.commit()
+    finally:
+        conn.close()
+
+    init_schema(db_path)
+
+    assert "dry_run" in _columns(db_path, "execution_batches")
+    with get_connection(db_path) as conn:
+        assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == SCHEMA_VERSION
+        legacy = conn.execute(
+            "SELECT dry_run FROM execution_batches WHERE batch_id = 'legacy'"
+        ).fetchone()
+
+    assert legacy["dry_run"] == 0

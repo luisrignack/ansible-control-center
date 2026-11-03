@@ -133,6 +133,7 @@ class ExecutionBatch:
         skipped_count: int = 0,
         error_count: int = 0,
         preview_count: int = 0,
+        dry_run: bool = False,
     ):
         self.id = id
         self.batch_id = batch_id
@@ -151,6 +152,7 @@ class ExecutionBatch:
         self.skipped_count = int(skipped_count or 0)
         self.error_count = int(error_count or 0)
         self.preview_count = int(preview_count or 0)
+        self.dry_run = bool(dry_run)
 
     @property
     def processed_count(self) -> int:
@@ -193,6 +195,7 @@ class ExecutionBatch:
             "preview_count": self.preview_count,
             "processed_count": self.processed_count,
             "duration_seconds": self.duration_seconds,
+            "dry_run": self.dry_run,
         }
 
     # ------------------------------------------------------------------
@@ -303,6 +306,7 @@ class ExecutionBatch:
         ntp_policy: str = "keep",
         total_hosts: int = 0,
         status: str = "running",
+        dry_run: bool = False,
         db_path: str = None,
     ) -> "ExecutionBatch":
         if db_path is None:
@@ -315,8 +319,8 @@ class ExecutionBatch:
                 """
                 INSERT INTO execution_batches
                     (batch_id, created_at, operator, action, value, target,
-                     time_mode, ntp_policy, status, total_hosts)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     time_mode, ntp_policy, status, total_hosts, dry_run)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     batch_id,
@@ -329,6 +333,7 @@ class ExecutionBatch:
                     ntp_policy,
                     status,
                     int(total_hosts or 0),
+                    1 if dry_run else 0,
                 ),
             )
 
@@ -516,6 +521,7 @@ def _row_to_batch(row) -> ExecutionBatch:
         skipped_count=row["skipped_count"],
         error_count=row["error_count"],
         preview_count=row["preview_count"],
+        dry_run=bool(row["dry_run"]),
     )
 
 

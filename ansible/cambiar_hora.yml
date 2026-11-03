@@ -58,6 +58,14 @@
         hora_errores: []
         hora_advertencias: []
 
+    - name: Avisar de que NTP puede revertir la hora
+      ansible.builtin.set_fact:
+        hora_advertencias: "{{ hora_advertencias + ['TIME con NTP activo y política keep: el reloj puede volver a sincronizarse. Usa off, restore o configure.'] }}"
+      when:
+        - accion == 'TIME'
+        - ntp_policy == 'keep'
+        - hora_antes.ntp | bool
+
     - name: Publicar el estado inicial
       ansible.builtin.debug:
         msg: "HORA_BEFORE_B64={{ hora_antes | to_json | b64encode }}"
@@ -220,8 +228,9 @@
       ansible.builtin.command:
         argv: [timedatectl, set-ntp, "true"]
       when:
-        - ntp_policy in ['restore', 'configure']
-        - (accion == 'TIME') or (not (hora_antes.ntp | bool))
+        - ntp_policy == 'configure' or
+          (ntp_policy == 'restore' and _hora_ntp_off is defined and
+           _hora_ntp_off.changed)
       register: _hora_ntp_on
       changed_when: _hora_ntp_on.rc == 0
 
@@ -270,8 +279,17 @@
       ansible.builtin.set_fact:
         hora_errores: "{{ hora_errores + ['NTP no está activo'] }}"
       when:
-        - ntp_policy in ['restore', 'configure']
+        - ntp_policy == 'configure' or
+          (ntp_policy == 'restore' and hora_antes.ntp | bool)
         - not (hora_despues.ntp | bool)
+
+    - name: Verificar que NTP quedó desactivado al restaurar
+      ansible.builtin.set_fact:
+        hora_errores: "{{ hora_errores + ['NTP debía seguir desactivado (restore)'] }}"
+      when:
+        - ntp_policy == 'restore'
+        - not (hora_antes.ntp | bool)
+        - hora_despues.ntp | bool
 
     - name: Publicar el estado final
       ansible.builtin.debug:

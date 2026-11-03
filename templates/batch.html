@@ -10,6 +10,7 @@
                 <h4 class="mb-0">
                     <i class="bi bi-collection me-2"></i>
                     {% if batch.status == 'preview' %}Vista previa{% else %}Lote de ejecución{% endif %}
+                    {% if batch.dry_run %}<span class="badge bg-warning text-dark ms-2">DRY RUN</span>{% endif %}
                 </h4>
                 <div class="d-flex gap-2">
                     <a href="{{ url_for('history') }}" class="btn btn-sm btn-outline-secondary">
@@ -53,6 +54,17 @@
                     <div class="col-md-4">
                         <div class="small text-secondary">Política NTP</div>
                         <div>{{ batch.ntp_policy }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="small text-secondary">Modo</div>
+                        <div>
+                            {% if batch.dry_run %}
+                                <span class="badge bg-warning text-dark">DRY RUN</span>
+                                <span class="small text-secondary">sin cambios reales</span>
+                            {% else %}
+                                Ejecución real
+                            {% endif %}
+                        </div>
                     </div>
                     <div class="col-md-4">
                         <div class="small text-secondary">Duración</div>
