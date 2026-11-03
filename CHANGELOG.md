@@ -20,9 +20,23 @@ fiel de `restore` y avisos de riesgo.
 - **Aviso `TIME` + `keep`:** si NTP está activo, el playbook añade una
   advertencia de que el reloj puede volver a sincronizarse.
 - **Cabecera `Cache-Control: no-store`** en `/api/task-status/<task_id>`.
+- **Sesiones acotadas:** `session.permanent` en el login, cookie de sesión de
+  8 h por defecto, cookie “recordarme” limitada a 7 días y configuración
+  `REMEMBER_COOKIE_SECURE`/`DURATION`.
+- **Pepper de hashes:** los hashes de contraseñas candidatas pasan a
+  HMAC-SHA256 con pepper persistido en `DATA_DIR` (`HORA_ADMIN_PASSWORD_PEPPER`
+  opcional). Se mantiene compatibilidad de lectura y borrado con hashes
+  SHA-256 heredados.
+- **Reconciliación de lotes huérfanos:** los lotes `running` se marcan como
+  `error` al arrancar y con el comando `reconcile-batches`.
+- **Allowlist de redes:** `HORA_ADMIN_ALLOWED_NETWORKS` restringe IPs y CIDR
+  antes de enumerar o conectar; una entrada inválida impide arrancar.
+- **Gunicorn `gthread`:** 4 hilos por worker y `timeout` de 330 s para que el
+  SSE no bloquee el resto de peticiones ni muera a los 300 s.
 - **Tests nuevos:** migración v3→v4, visibilidad/persistencia de `dry_run`,
   ejecución real sin marca, `no-store`, aviso `TIME`+`keep` en vista previa y
-  semántica de `restore`/`off`/`configure` en la vista previa.
+  semántica de `restore`/`off`/`configure` en la vista previa, cookies de
+  sesión, pepper, allowlist y reconciliación de huérfanos.
 
 ### Cambiado
 
@@ -36,10 +50,8 @@ fiel de `restore` y avisos de riesgo.
 
 ### Limitaciones restantes de P4.1
 
-- Worker `threads`/`gevent`, timeout > SSE y estado de tareas persistido.
-- Reconciliación de lotes huérfanos y parada ordenada.
+- Estado de tareas persistido (el SSE y la consola siguen en memoria).
 - Confirmación de envío e idempotencia de formularios.
-- Allowlist de redes, hashes con pepper y revisión de cookies/`remember`.
 - CI con linters, `mypy`, `ansible-lint` y cobertura.
 
 ---

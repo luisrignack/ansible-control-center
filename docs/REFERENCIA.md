@@ -62,9 +62,11 @@ Campos aceptados por `/`, `/preview` y `/execute`:
 ```bash
 flask --app app init-db
 flask --app app init-admin [--username USUARIO]
+flask --app app reconcile-batches
 ```
 
 - `init-db`: crea o migra el esquema SQLite (idempotente).
+- `reconcile-batches`: cierra los lotes huérfanos en estado `running`.
 - `init-admin`: crea o actualiza el usuario administrador; pide contraseña y
   exige la longitud mínima configurada.
 
@@ -307,9 +309,11 @@ grupos:
 
 - Rutas: `HORA_ADMIN_SECRETS_DIR`, `HORA_ADMIN_DATA_DIR`, `HORA_ADMIN_LOG_DIR`.
 - Sesión: `HORA_ADMIN_SECRET_KEY`, `HORA_ADMIN_SESSION_HOURS`,
-  `HORA_ADMIN_COOKIE_SECURE`.
+  `HORA_ADMIN_REMEMBER_DAYS`, `HORA_ADMIN_COOKIE_SECURE`,
+  `HORA_ADMIN_PASSWORD_PEPPER`.
 - Ejecución: `HORA_ADMIN_DRY_RUN`, `HORA_ADMIN_MAX_HOSTS`,
-  `HORA_ADMIN_MIN_CIDR_PREFIX`, `HORA_ADMIN_MAX_PASSWORDS`,
+  `HORA_ADMIN_MIN_CIDR_PREFIX`, `HORA_ADMIN_ALLOWED_NETWORKS`,
+  `HORA_ADMIN_MAX_PASSWORDS`,
   `HORA_ADMIN_TIME_TOLERANCE`, `HORA_ADMIN_DEFAULT_NTP_SERVERS`.
 - Seguridad: `HORA_ADMIN_CSRF_ENABLED`, `HORA_ADMIN_*_RATE_LIMIT`,
   `HORA_ADMIN_TRUST_PROXY`, `HORA_ADMIN_CSP_ENABLED`,

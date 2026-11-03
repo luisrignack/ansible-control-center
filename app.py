@@ -33,6 +33,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    session,
     stream_with_context,
     url_for,
 )
@@ -71,6 +72,8 @@ from config import (
     RATE_LIMIT_ENABLED,
     REMEMBER_COOKIE_HTTPONLY,
     REMEMBER_COOKIE_SAMESITE,
+    REMEMBER_COOKIE_SECURE,
+    REMEMBER_COOKIE_DURATION_SECONDS,
     SECURITY_HEADERS_ENABLED,
     SESSION_COOKIE_HTTPONLY,
     SESSION_COOKIE_SAMESITE,
@@ -642,6 +645,7 @@ def login():
         if user is not None and user.is_active and user.check_password(password):
             LIMITER.reset(f"login:{client_ip}")
             rotate_csrf_token()
+            session.permanent = True
             login_user(user, remember=bool(request.form.get("remember")))
             next_url = request.args.get("next") or request.form.get("next")
             return redirect(next_url if _is_safe_redirect(next_url) else url_for("index"))
@@ -1771,6 +1775,12 @@ def register_cli(flask_app: Flask) -> None:
         User.create_or_update(username, password, db_path=get_db_path())
         click.echo(f"Usuario administrador '{username}' creado/actualizado.")
 
+    @flask_app.cli.command("reconcile-batches")
+    def reconcile_batches_command():
+        """Marca como error los lotes que quedaron en curso."""
+        count = ExecutionBatch.reconcile_orphans(db_path=get_db_path())
+        click.echo(f"Lotes huérfanos reconciliados: {count}")
+
 
 # ---------------------------------------------------------------------------
 # Factory
@@ -1784,6 +1794,10 @@ def configure_app(flask_app: Flask) -> Flask:
         SESSION_COOKIE_SECURE=SESSION_COOKIE_SECURE,
         REMEMBER_COOKIE_HTTPONLY=REMEMBER_COOKIE_HTTPONLY,
         REMEMBER_COOKIE_SAMESITE=REMEMBER_COOKIE_SAMESITE,
+        REMEMBER_COOKIE_SECURE=REMEMBER_COOKIE_SECURE,
+        REMEMBER_COOKIE_DURATION=timedelta(
+            seconds=REMEMBER_COOKIE_DURATION_SECONDS
+        ),
         PERMANENT_SESSION_LIFETIME=timedelta(
             seconds=PERMANENT_SESSION_LIFETIME_SECONDS
         ),
@@ -1811,6 +1825,16 @@ def configure_app(flask_app: Flask) -> Flask:
 
     login_manager.init_app(flask_app)
     init_db()
+    try:
+        reconciled = ExecutionBatch.reconcile_orphans(db_path=get_db_path())
+    except Exception:  # pragma: no cover - no impedir el arranque
+        logger.exception("No se pudieron reconciliar lotes huérfanos")
+    else:
+        if reconciled:
+            logger.warning(
+                "Se marcaron %s lote(s) huérfano(s) como error al arrancar",
+                reconciled,
+            )
     register_cli(flask_app)
     return flask_app
 

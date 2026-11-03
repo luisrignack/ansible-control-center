@@ -22,6 +22,43 @@ def _effective_limits(
     return max_hosts, min_prefix
 
 
+def _allowed_networks() -> tuple:
+    """Redes permitidas; se lee en tiempo de ejecución para permitir tests."""
+    from config import ALLOWED_NETWORKS
+
+    return ALLOWED_NETWORKS
+
+
+def _ip_allowed(ip: str) -> bool:
+    """Indica si una IP cae dentro de la allowlist configurada."""
+    networks = _allowed_networks()
+    if not networks:
+        return True
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(
+        address.version == network.version and address in network
+        for network in networks
+    )
+
+
+def _network_allowed(
+    network: ipaddress.IPv4Network | ipaddress.IPv6Network,
+) -> bool:
+    """Indica si todo un CIDR está contenido en alguna red permitida."""
+    networks = _allowed_networks()
+    if not networks:
+        return True
+    for allowed in networks:
+        if network.version != allowed.version:
+            continue
+        if network.subnet_of(allowed):
+            return True
+    return False
+
+
 def resolve_single_ip(ip_str: str) -> Optional[str]:
     """Validar y devolver una dirección IP única.
 
@@ -88,6 +125,13 @@ def resolve_cidr_range(
         )
         return []
 
+    if not _network_allowed(network):
+        logger.warning(
+            "Rango rechazado %s: fuera de HORA_ADMIN_ALLOWED_NETWORKS",
+            cidr_str,
+        )
+        return []
+
     hosts: List[str] = []
     for host in network.hosts():
         hosts.append(str(host))
@@ -121,6 +165,11 @@ def resolve_target(
     # IP única o hostname
     ip = resolve_single_ip(target)
     if ip:
+        if not _ip_allowed(ip):
+            logger.warning(
+                "Host rechazado %s: fuera de HORA_ADMIN_ALLOWED_NETWORKS", ip
+            )
+            return []
         return [ip]
     return []
 
@@ -163,10 +212,15 @@ def validate_target(
     if not validate_ip_format(value):
         return "IP o rango CIDR inválido."
     if "/" not in value:
+        if not _ip_allowed(value):
+            return "La IP está fuera de las redes permitidas."
         return None
 
     max_hosts, min_prefix = _effective_limits(max_hosts, min_prefix)
     network = ipaddress.ip_network(value, strict=False)
+
+    if not _network_allowed(network):
+        return "El rango está fuera de las redes permitidas."
 
     if network.version == 4 and network.prefixlen < min_prefix:
         return (

@@ -46,13 +46,13 @@ class TestPasswordModel(unittest.TestCase):
 
         self.assertIsNotNone(record)
         self.assertEqual(record.id, 1)
-        # Hash SHA256 de "test_pass_123" primeros 8 chars
-        self.assertEqual(record.password_hash, "a126d949")
+        expected_hash = PasswordRecord.hash_short("test_pass_123")
+        self.assertEqual(record.password_hash, expected_hash)
 
         # Recuperar
         records = PasswordRecord.get_all_passwords(limit=10, db_path=self.db_path)
         self.assertEqual(len(records), 1)
-        self.assertEqual(records[0].password_hash, "a126d949")
+        self.assertEqual(records[0].password_hash, expected_hash)
 
     def test_delete_password(self):
         """Test eliminar una contraseña."""
@@ -207,3 +207,37 @@ class TestModelsIntegration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+def test_password_hashes_use_pepper_and_accept_legacy_hashes():
+    import hashlib
+
+    from models.password import PasswordRecord
+
+    legacy = hashlib.sha256(b"clave-uno").hexdigest()
+
+    assert PasswordRecord.hash_full("clave-uno") != legacy
+    assert PasswordRecord.hash_full_legacy("clave-uno") == legacy
+    assert PasswordRecord.hash_full("clave-uno") == PasswordRecord.hash_full(
+        "clave-uno"
+    )
+    assert PasswordRecord.matches_hash("clave-uno", legacy)
+    assert PasswordRecord.matches_hash(
+        "clave-uno", PasswordRecord.hash_full("clave-uno")
+    )
+    assert not PasswordRecord.matches_hash("otra", legacy)
+
+
+def test_gunicorn_config_uses_threads_and_outlives_sse():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parent.parent / "gunicorn.conf.py"
+    spec = importlib.util.spec_from_file_location("gunicorn_conf_test", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    assert module.worker_class == "gthread"
+    assert module.threads >= 2
+    # El SSE puede esperar hasta 300 s; el worker debe durar más.
+    assert module.timeout > 300

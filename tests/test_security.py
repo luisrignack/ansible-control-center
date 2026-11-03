@@ -2,6 +2,8 @@
 # Pruebas de CSRF, rate limiting y límites de red (fase P3).
 from __future__ import annotations
 
+import pytest
+
 import app as app_module
 from services import rate_limiter as rate_limiter_module
 from services.csrf import (
@@ -104,3 +106,42 @@ def test_resolve_target_single_ip_and_small_cidr():
 
 def test_resolve_cidr_rejects_range_above_max_hosts():
     assert resolve_target("192.168.1.0/24", max_hosts=10, min_prefix=22) == []
+
+
+def test_allowlist_limits_single_ips_and_cidrs(monkeypatch):
+    import ipaddress
+
+    import config as config_module
+
+    monkeypatch.setattr(
+        config_module,
+        "ALLOWED_NETWORKS",
+        (ipaddress.ip_network("10.0.0.0/24"),),
+    )
+
+    assert resolve_target("10.0.0.5") == ["10.0.0.5"]
+    assert resolve_target("10.0.1.5") == []
+    assert resolve_target("10.0.0.0/28")[0] == "10.0.0.1"
+    assert resolve_target("10.0.1.0/24") == []
+
+    assert validate_target("10.0.0.5") is None
+    assert "permitidas" in validate_target("10.0.1.5")
+    assert "permitidas" in validate_target("10.0.1.0/24")
+
+
+def test_empty_allowlist_keeps_previous_behavior(monkeypatch):
+    import config as config_module
+
+    monkeypatch.setattr(config_module, "ALLOWED_NETWORKS", ())
+    assert resolve_target("192.168.50.10") == ["192.168.50.10"]
+    assert resolve_target("192.168.50.0/30") == [
+        "192.168.50.1",
+        "192.168.50.2",
+    ]
+
+
+def test_invalid_allowlist_entry_is_a_configuration_error():
+    import config as config_module
+
+    with pytest.raises(ValueError, match="ALLOWED_NETWORKS"):
+        config_module._parse_allowed_networks("10.0.0.0/24, no-es-una-red")

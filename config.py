@@ -13,11 +13,15 @@ la contraseña maestra del Vault en este módulo ni en disco.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import os
+import re
 import secrets
 import shutil
 import sys
+import time
+from functools import lru_cache
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -135,9 +139,18 @@ SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_SECURE = _env_bool("HORA_ADMIN_COOKIE_SECURE", False)
 REMEMBER_COOKIE_HTTPONLY = True
 REMEMBER_COOKIE_SAMESITE = "Lax"
+REMEMBER_COOKIE_SECURE = SESSION_COOKIE_SECURE
+REMEMBER_COOKIE_DURATION_SECONDS = _env_int(
+    "HORA_ADMIN_REMEMBER_DAYS", 7, minimum=1, maximum=30
+) * 86400
 PERMANENT_SESSION_LIFETIME_SECONDS = _env_int(
     "HORA_ADMIN_SESSION_HOURS", 8, minimum=1, maximum=72
 ) * 3600
+
+# Pepper para los hashes de contraseñas candidatas guardados en SQLite. Si no
+# se define, se genera un secreto local 0600 en DATA_DIR.
+PASSWORD_PEPPER = os.environ.get("HORA_ADMIN_PASSWORD_PEPPER", "")
+PASSWORD_PEPPER_FILE = DATA_DIR / "password_pepper.key"
 
 MAX_CONTENT_LENGTH = _env_int(
     "HORA_ADMIN_MAX_UPLOAD_BYTES", 2 * 1024 * 1024, minimum=1024
@@ -230,6 +243,33 @@ JOB_RETENTION_HOURS = _env_int("HORA_ADMIN_JOB_RETENTION_HOURS", 24, minimum=1)
 
 # Extensión máxima de un rango CIDR aceptado (p. ej. /24 -> 254 hosts).
 MIN_CIDR_PREFIX = _env_int("HORA_ADMIN_MIN_CIDR_PREFIX", 22, minimum=8, maximum=32)
+
+
+def _parse_allowed_networks(raw: str) -> tuple:
+    """Convierte ``HORA_ADMIN_ALLOWED_NETWORKS`` en redes validadas.
+
+    Vacío significa sin restricción (comportamiento histórico). Una entrada
+    inválida es un error de configuración: es mejor no arrancar que aplicar una
+    allowlist incompleta sin avisar.
+    """
+    networks = []
+    for chunk in re.split(r"[,\s]+", (raw or "").strip()):
+        if not chunk:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(chunk, strict=False))
+        except ValueError as exc:
+            raise ValueError(
+                f"HORA_ADMIN_ALLOWED_NETWORKS contiene una red inválida: "
+                f"{chunk!r}"
+            ) from exc
+    return tuple(networks)
+
+
+# Allowlist opcional de redes de destino. Si está vacía, no se restringe.
+ALLOWED_NETWORKS = _parse_allowed_networks(
+    os.environ.get("HORA_ADMIN_ALLOWED_NETWORKS", "")
+)
 
 # ---------------------------------------------------------------------------
 # P4: ejecución en grupo, verificación e idempotencia
@@ -429,6 +469,59 @@ def get_or_create_secret_key() -> str:
     # Último recurso: clave efímera (las sesiones se invalidan al reiniciar).
     logging.getLogger("hora_admin").warning(
         "No se pudo persistir la clave de sesión; se usará una clave efímera."
+    )
+    return secrets.token_hex(32)
+
+
+@lru_cache(maxsize=1)
+def get_or_create_password_pepper() -> str:
+    """Devuelve el pepper usado en los hashes de contraseñas candidatas.
+
+    Prioridad: variable de entorno > archivo local 0600 > valor efímero. El
+    archivo se crea con ``O_EXCL`` para tolerar varios workers arrancando a la
+    vez: solo uno escribe y el resto lee el mismo secreto.
+    """
+    if PASSWORD_PEPPER:
+        return PASSWORD_PEPPER
+
+    candidates = (PASSWORD_PEPPER_FILE, INSTANCE_DIR / "password_pepper.key")
+    for pepper_file in candidates:
+        try:
+            pepper_file.parent.mkdir(parents=True, exist_ok=True)
+            if pepper_file.exists():
+                pepper = pepper_file.read_text(encoding="utf-8").strip()
+                if pepper:
+                    return pepper
+            pepper = secrets.token_hex(32)
+            try:
+                fd = os.open(
+                    pepper_file,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o600,
+                )
+            except FileExistsError:
+                # Otro worker ganó la carrera; puede tardar un instante en
+                # escribir el valor, así que se reintenta la lectura.
+                for _ in range(5):
+                    pepper = pepper_file.read_text(
+                        encoding="utf-8"
+                    ).strip()
+                    if pepper:
+                        return pepper
+                    time.sleep(0.05)
+                continue
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    handle.write(pepper + "\n")
+            except OSError:
+                continue
+            return pepper
+        except OSError:
+            continue
+
+    logging.getLogger("hora_admin").warning(
+        "No se pudo persistir el pepper de contraseñas; se usará uno efímero "
+        "y los hashes cambiarán al reiniciar."
     )
     return secrets.token_hex(32)
 

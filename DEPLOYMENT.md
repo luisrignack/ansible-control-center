@@ -46,7 +46,7 @@ El script:
 3. Crea `/etc/hora-admin/secrets` (0700), `/var/lib/hora-admin` y
    `/var/log/hora-admin`.
 4. Genera `.env` con una `HORA_ADMIN_SECRET_KEY` aleatoria (0600).
-5. Ejecuta `flask --app app init-db` (esquema v3, migración no destructiva).
+5. Ejecuta `flask --app app init-db` (esquema v4, migración no destructiva).
 6. **No crea el usuario administrador**: ejecuta después
    `flask --app app init-admin`.
 
@@ -124,6 +124,7 @@ flask --app app init-admin
 | `HORA_ADMIN_ADMIN_PASSWORD_MIN_LENGTH` | `12` | Longitud mínima del admin |
 | `HORA_ADMIN_MAX_HOSTS` | `256` | Hosts máximos por ejecución |
 | `HORA_ADMIN_MIN_CIDR_PREFIX` | `22` | Prefijo IPv4 mínimo |
+| `HORA_ADMIN_ALLOWED_NETWORKS` | vacío | Allowlist de redes (vacío = sin restricción) |
 | `HORA_ADMIN_MAX_PASSWORDS` | `200` | Máximo de candidatas |
 | `HORA_ADMIN_MAX_PASSWORD_LENGTH` | `512` | Longitud máxima de candidata |
 | `HORA_ADMIN_PING_TIMEOUT` | `30` | Timeout de ping (s) |
@@ -149,7 +150,10 @@ Variables específicas de Gunicorn (`gunicorn.conf.py`, no de `config.py`):
 |---|---|---|
 | `HORA_ADMIN_BIND` | `127.0.0.1:5000` | Dirección de escucha |
 | `HORA_ADMIN_WORKERS` | `1` | Workers (el estado SSE es por proceso) |
-| `HORA_ADMIN_GUNICORN_TIMEOUT` | `120` | Timeout del worker (s) |
+| `HORA_ADMIN_GUNICORN_WORKER_CLASS` | `gthread` | Clase de worker |
+| `HORA_ADMIN_GUNICORN_THREADS` | `4` | Hilos por worker |
+| `HORA_ADMIN_GUNICORN_TIMEOUT` | `330` | Timeout del worker (s) |
+| `HORA_ADMIN_GUNICORN_GRACEFUL_TIMEOUT` | `30` | Parada ordenada (s) |
 
 Para desarrollo sin `sudo`, define rutas locales:
 
@@ -222,22 +226,15 @@ source .venv/bin/activate
 gunicorn -c gunicorn.conf.py app:app
 ```
 
-> **Aviso SSE + worker `sync`:** con `worker_class = "sync"` y `workers = 1`,
-> una conexión SSE abierta ocupa el único worker y puede bloquear el resto de
-> peticiones. Además, el `timeout` por defecto de Gunicorn (120 s) es menor que
-> el `max_wait` del SSE (300 s), por lo que el worker puede ser reiniciado a
-> mitad de una operación larga.
+> **SSE y worker `gthread`:** se usa un solo worker con 4 hilos y un `timeout`
+> de 330 s (mayor que el `max_wait` de 300 s del SSE). Así una conexión SSE no
+> bloquea el resto de peticiones. Aun así, el estado de las tareas vive en
+> memoria: no aumentes `HORA_ADMIN_WORKERS` sin moverlo antes a un almacén
+> compartido.
 >
-> Opciones mientras no exista estado persistente:
->
-> - subir `HORA_ADMIN_GUNICORN_TIMEOUT` por encima de 300 s (por ejemplo 360);
-> - usar `worker_class = "gthread"` con varios hilos;
-> - usar un solo worker y evitar operaciones concurrentes;
-> - consultar `/api/task-status/<task_id>` como alternativa al SSE.
->
-> Si el proceso se reinicia, `_tasks` se pierde y el lote puede quedar
-> `running` en SQLite. El procedimiento de reconciliación manual está en
-> [docs/OPERACION.md](docs/OPERACION.md#41-el-lote-se-queda-en-running).
+> Si el proceso se reinicia, `_tasks` se pierde. Al arrancar, los lotes que
+> quedaron `running` se marcan automáticamente como `error`
+> (`flask --app app reconcile-batches` permite forzarlo).
 
 ### Servicio systemd
 
@@ -420,11 +417,11 @@ Prueba la restauración periódicamente. El procedimiento completo está en
 - SQLite en modo WAL: al copiar la base de datos en caliente, copia también
   `hora_admin.db-wal` y `hora_admin.db-shm`, o detén el servicio antes.
 - Las migraciones son no destructivas y se aplican al arrancar
-  (`PRAGMA user_version`). Esquema actual: **v3**. Haz copia de seguridad antes
+  (`PRAGMA user_version`). Esquema actual: **v4**. Haz copia de seguridad antes
   de actualizar.
 - El progreso SSE y las tareas viven en memoria: usa un worker o añade un
-  almacén compartido antes de escalar. Con `worker_class=sync` y
-  `timeout=120`, el SSE (hasta 300 s) puede bloquear o perder el worker.
+  almacén compartido antes de escalar. El worker `gthread` con `timeout=330`
+  evita que el SSE bloquee o pierda el worker, pero no persiste las tareas.
 - **Lotes:** cada ejecución crea un registro en `execution_batches` y uno por
   host en `execution_hosts` (estado previo/posterior, error y duración). El
   historial principal es el lote; `executions` se conserva como registro
@@ -493,9 +490,9 @@ python -m pytest -q
 | Todos los hosts fallan por autenticación | Contraseña maestra/vault incorrectos o usuario sin sudo | Prueba la vista previa y revisa el error por host |
 | `HORA_VERIFIED=false` | NTP/VM revirtió la hora o no hay permisos | Revisa política NTP y `before_state`/`after_state` |
 | `TIME` no se mantiene | Política `keep` con NTP activo | Usa `off`, `restore` o `configure` |
-| Lote queda `running` | Proceso reiniciado o timeout de Gunicorn | Cierra el lote manualmente; revisa §5 |
+| Lote queda `running` | Proceso reiniciado o timeout de Gunicorn | Se marca `error` al arrancar; fuerza con `reconcile-batches` |
 | SSE devuelve 404 | `_tasks` perdido tras reinicio | Abre `/batches/<batch_id>` o usa `/api/task-status` |
-| Progreso bloqueado | Worker `sync` único ocupado por SSE | Sube timeout, usa `gthread` o consulta por polling |
+| Progreso bloqueado | SSE en worker sin hilos | Usa `gthread` (por defecto) o consulta por polling |
 | `database is locked` | Escritura concurrente o copia en caliente | WAL y `busy_timeout` ya están activos; evita `VACUUM` en caliente |
 | Vault no descifra | Contraseña maestra cambiada o fichero corrupto | Restaura la copia o usa `ansible-vault rekey` |
 | `hwclock` falla | Contenedor o VM sin RTC accesible | No marques `sync_rtc`; documenta la limitación |

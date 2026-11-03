@@ -481,6 +481,30 @@ class ExecutionBatch:
 
         return ExecutionBatch.get_batch(batch_id, db_path=db_path)
 
+    @staticmethod
+    def reconcile_orphans(db_path: str = None) -> int:
+        """Marca como error los lotes que quedaron ``running`` tras un reinicio.
+
+        Los hilos de ejecución son daemon y el estado vive en memoria: si el
+        proceso muere, el lote no puede cerrarse solo. Al arrancar se cierran
+        los huérfanos para que el historial no muestre lotes eternamente en
+        curso. Devuelve cuántos lotes se reconciliaron.
+        """
+        if db_path is None:
+            db_path = _default_db_path()
+
+        with get_connection(db_path) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE execution_batches
+                SET status = 'error',
+                    finished_at = COALESCE(finished_at, ?)
+                WHERE status = 'running'
+                """,
+                (_now(),),
+            )
+            return int(cursor.rowcount or 0)
+
 
 def _derive_status(
     success: int,

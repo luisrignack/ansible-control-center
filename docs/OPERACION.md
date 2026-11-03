@@ -71,7 +71,8 @@ y deriva el estado global:
 - [ ] `HORA_ADMIN_DRY_RUN=0` si el cambio debe ser real.
 - [ ] Hosts accesibles por SSH y presentes en `known_hosts`.
 - [ ] Usuario con `sudo`/`become` y contraseña correcta en el vault o `.txt`.
-- [ ] Objetivo dentro del rango permitido (`MAX_HOSTS`, `MIN_CIDR_PREFIX`).
+- [ ] Objetivo dentro del rango permitido (`MAX_HOSTS`, `MIN_CIDR_PREFIX`) y,
+      si aplica, de `HORA_ADMIN_ALLOWED_NETWORKS`.
 - [ ] Acción y valor revisados:
   - `TZ` → zona IANA existente (`Europe/Madrid`).
   - `TIME` → `AAAA-MM-DDTHH:MM`; decide `utc` o `local`.
@@ -181,8 +182,8 @@ sqlite3 -header -column /var/lib/hora-admin/hora_admin.db \
 Causas habituales:
 
 - el proceso murió o fue reiniciado durante el lote;
-- el worker de Gunicorn alcanzó su `timeout` (120 s por defecto) mientras el
-  SSE esperaba hasta 300 s;
+- el worker de Gunicorn alcanzó su `timeout` (330 s por defecto) mientras el
+  lote seguía en curso;
 - excepción no capturada antes de `finish_batch` (poco probable: hay
   salvaguarda).
 
@@ -242,13 +243,22 @@ error del motor: revisa host por host y decide si relanzar el subconjunto.
 
 ### 4.5. El progreso SSE no avanza o devuelve 404
 
-- Con `workers=1` y `worker_class=sync`, una conexión SSE puede bloquear el
-  worker. Usa `threads`/`gevent` o consulta `/api/task-status/<task_id>`.
+- Con `workers=1` y `worker_class=gthread`, el SSE no bloquea otros hilos.
+  Como alternativa, consulta `/api/task-status/<task_id>`.
 - Si el proceso se reinició, `_tasks` se perdió: el SSE devolverá 404 aunque el
   lote siga en la base de datos.
 - Si el lote terminó, abre `/batches/<batch_id>` directamente.
 
-### 4.6. “Éxito” en modo simulación
+### 4.6. Lote atascado en `running`
+
+Al arrancar, la aplicación marca los lotes `running` como `error` porque sus
+hilos daemon ya no existen. También puedes forzarlo manualmente:
+
+```bash
+sudo -u hora-admin .venv/bin/flask --app app reconcile-batches
+```
+
+### 4.7. “Éxito” en modo simulación
 
 Con `HORA_ADMIN_DRY_RUN=1` el resultado se simula: `success=True` y
 `verified=True` sin tocar el host. La interfaz no lo distingue visualmente.
@@ -392,7 +402,7 @@ sudo systemctl start hora-admin
 ```
 
 `init-db` es idempotente y aplica migraciones no destructivas. El esquema
-actual es `PRAGMA user_version = 3`.
+actual es `PRAGMA user_version = 4`.
 
 ### 8.2. Rotar la contraseña del administrador
 
@@ -451,9 +461,9 @@ desactives la verificación salvo decisión consciente y documentada.
 - Revisa `/history` tras cada operación sensible.
 - El rate limiting es en memoria y por proceso; con varios workers no es
   global.
-- No hay RBAC, MFA, allowlist de redes ni auditoría de eventos independiente.
-  Un usuario autenticado puede apuntar a cualquier IP/CIDR permitido por los
-  límites globales.
+- No hay RBAC, MFA ni auditoría de eventos independiente. Un usuario
+  autenticado puede apuntar a cualquier IP/CIDR permitido por
+  `HORA_ADMIN_ALLOWED_NETWORKS` y los límites globales.
 
 ---
 
@@ -477,12 +487,11 @@ desactives la verificación salvo decisión consciente y documentada.
 ## 11. Limitaciones operativas conocidas
 
 - Sin paralelismo, cancelación ni reintento selectivo.
-- Sin reconciliación automática de lotes huérfanos.
 - Sin rollback automático.
 - Sin retención automática.
 - Estado de tareas en memoria; SSE depende del proceso.
 - `TIME` + `keep` puede ser revertido por NTP; la aplicación avisa en el lote.
-- Sin RBAC, MFA, allowlist de red ni auditoría independiente.
+- Sin RBAC, MFA ni auditoría independiente.
 - Solo Ubuntu/systemd; IPv6 no probado en el flujo de Ansible.
 
 El análisis detallado y el roadmap están en

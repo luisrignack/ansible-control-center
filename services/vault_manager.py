@@ -269,7 +269,9 @@ class VaultManager:
         remaining = [
             entry
             for entry in entries
-            if entry.get("hash_full") != password_hash_full
+            if not PasswordRecord.matches_hash(
+                entry.get("password", ""), password_hash_full
+            )
         ]
         if len(remaining) == len(entries):
             return False, "No se encontró la contraseña en el vault."

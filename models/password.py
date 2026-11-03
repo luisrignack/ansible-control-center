@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from config import resolve_db_path
+from config import get_or_create_password_pepper, resolve_db_path
 from models.db import get_connection, init_schema
 
 
@@ -20,8 +21,27 @@ class PasswordRecord:
 
     @staticmethod
     def hash_full(password: str) -> str:
-        """SHA-256 completo de una contraseña (nunca se guarda el texto)."""
+        """HMAC-SHA256 con pepper de una contraseña (nunca se guarda el texto)."""
+        return hmac.new(
+            get_or_create_password_pepper().encode("utf-8"),
+            password.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+
+    @staticmethod
+    def hash_full_legacy(password: str) -> str:
+        """Hash SHA-256 sin pepper de versiones anteriores (solo compatibilidad)."""
         return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def matches_hash(password: str, hash_value: str) -> bool:
+        """Compara una contraseña con un hash nuevo o heredado sin filtrar tiempo."""
+        return bool(hash_value) and (
+            hmac.compare_digest(PasswordRecord.hash_full(password), hash_value)
+            or hmac.compare_digest(
+                PasswordRecord.hash_full_legacy(password), hash_value
+            )
+        )
 
     @staticmethod
     def hash_short(password: str) -> str:

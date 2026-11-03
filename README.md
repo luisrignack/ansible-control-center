@@ -14,7 +14,7 @@ verificación posterior, idempotencia, lotes auditables e historial en SQLite.
 ## Estado actual
 
 Fases **P0–P4 y la primera tanda de P4.1 completadas**. Suite de pruebas:
-**70 tests**.
+**77 tests**.
 
 | Fase | Contenido |
 |---|---|
@@ -49,6 +49,14 @@ Fases **P0–P4 y la primera tanda de P4.1 completadas**. Suite de pruebas:
 - **Política NTP explícita**: `keep`, `off`, `restore` o `configure`;
   `restore` devuelve NTP a su estado previo.
 - **RTC opcional**: `hwclock --systohc`.
+- **Sesiones acotadas**: cookie permanente de 8 h por defecto, “recordarme”
+  limitado a 7 días y cookies `HttpOnly`/`SameSite=Lax` (y `Secure` con
+  `HORA_ADMIN_COOKIE_SECURE=1`).
+- **Hashes con pepper**: los hashes de contraseñas candidatas usan
+  HMAC-SHA256 con un pepper persistido en `DATA_DIR`, con compatibilidad de
+  lectura para hashes heredados.
+- **Reconciliación de lotes huérfanos**: al arrancar, los lotes `running` se
+  marcan como `error`; también existe `flask --app app reconcile-batches`.
 - **DRY RUN** activo por defecto (`HORA_ADMIN_DRY_RUN=1`), visible en el panel,
   la página de progreso, el detalle del lote y el historial, y persistido en
   cada lote.
@@ -187,6 +195,7 @@ una `HORA_ADMIN_SECRET_KEY` aleatoria.
 | `HORA_ADMIN_DATA_DIR` | `/var/lib/hora-admin` | SQLite y clave de sesión |
 | `HORA_ADMIN_LOG_DIR` | `/var/log/hora-admin` | Logs |
 | `HORA_ADMIN_SESSION_HOURS` | `8` | Duración de sesión (1–72 h) |
+| `HORA_ADMIN_REMEMBER_DAYS` | `7` | Duración de la cookie “recordarme” (1–30 días) |
 | `HORA_ADMIN_MAX_UPLOAD_BYTES` | `2097152` | Tamaño máximo de subida |
 | `HORA_ADMIN_HOST` / `HORA_ADMIN_PORT` | `127.0.0.1` / `5000` | Servidor de desarrollo |
 
@@ -198,6 +207,7 @@ una `HORA_ADMIN_SECRET_KEY` aleatoria.
 | `HORA_ADMIN_HOST_KEY_CHECKING` | `1` | Verificación estricta de clave SSH |
 | `HORA_ADMIN_MAX_HOSTS` | `256` | Máximo de hosts por ejecución |
 | `HORA_ADMIN_MIN_CIDR_PREFIX` | `22` | Prefijo IPv4 mínimo aceptado |
+| `HORA_ADMIN_ALLOWED_NETWORKS` | vacío | Allowlist de redes separadas por comas (vacío = sin restricción) |
 | `HORA_ADMIN_MAX_PASSWORDS` | `200` | Máximo de contraseñas por vault/archivo |
 | `HORA_ADMIN_MAX_PASSWORD_LENGTH` | `512` | Longitud máxima de una contraseña |
 | `HORA_ADMIN_PING_TIMEOUT` | `30` | Timeout de `ansible -m ping` (s) |
@@ -213,6 +223,7 @@ una `HORA_ADMIN_SECRET_KEY` aleatoria.
 |---|---|---|
 | `HORA_ADMIN_DEBUG` | `0` | Depurador Flask (nunca en producción) |
 | `HORA_ADMIN_COOKIE_SECURE` | `0` | Cookies solo por HTTPS |
+| `HORA_ADMIN_PASSWORD_PEPPER` | generado | Pepper de los hashes de contraseñas (se persiste en `DATA_DIR`) |
 | `HORA_ADMIN_TRUST_PROXY` | `0` | Leer `X-Forwarded-For/Proto` tras proxy |
 | `HORA_ADMIN_HSTS` | según cookie | Cabecera HSTS |
 | `HORA_ADMIN_HSTS_MAX_AGE` | `31536000` | `max-age` de HSTS |
@@ -256,7 +267,10 @@ Estas variables las lee `gunicorn.conf.py`, no `config.py`:
 |---|---|---|
 | `HORA_ADMIN_BIND` | `127.0.0.1:5000` | Dirección de escucha |
 | `HORA_ADMIN_WORKERS` | `1` | Workers (el estado SSE es por proceso) |
-| `HORA_ADMIN_GUNICORN_TIMEOUT` | `120` | Timeout del worker (s) |
+| `HORA_ADMIN_GUNICORN_WORKER_CLASS` | `gthread` | Clase de worker (`gthread` evita bloquear con SSE) |
+| `HORA_ADMIN_GUNICORN_THREADS` | `4` | Hilos por worker con `gthread` |
+| `HORA_ADMIN_GUNICORN_TIMEOUT` | `330` | Timeout del worker (s), mayor que el SSE |
+| `HORA_ADMIN_GUNICORN_GRACEFUL_TIMEOUT` | `30` | Espera de parada ordenada (s) |
 
 ### Reservadas (definidas, aún no aplicadas)
 
@@ -330,6 +344,7 @@ CLI:
 ```bash
 flask --app app init-db
 flask --app app init-admin [--username USUARIO]
+flask --app app reconcile-batches
 ```
 
 ---
@@ -423,8 +438,8 @@ Define `hora_estado` con: `timezone`, `ntp`, `ntp_synchronized`,
 ## Limitaciones conocidas
 
 - **Un worker**: el progreso SSE, la consola y las tareas viven en memoria; con
-  varios workers hace falta un almacén compartido. El worker `sync` y un
-  `timeout` menor que el SSE pueden afectar a operaciones largas.
+  varios workers hace falta un almacén compartido. El worker `gthread` y un
+  `timeout` superior al SSE evitan bloqueos, pero no persisten las tareas.
 - **Consola acotada**: se conservan las últimas 300 líneas y se recorta cada
   línea a 500 caracteres; si el proceso se reinicia, la consola se pierde.
 - **Ejecución secuencial**: los hosts se procesan uno a uno; no hay

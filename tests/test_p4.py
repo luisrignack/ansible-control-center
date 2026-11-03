@@ -522,3 +522,70 @@ def test_preview_warns_about_time_with_keep_and_active_ntp(
 
     assert any("Advertencia" in line for line in status["log"])
     assert any("política keep" in line for line in status["console"])
+
+
+def test_login_cookies_are_hardened(client):
+    response = _post(
+        client,
+        "/login",
+        {
+            "username": "admin",
+            "password": "admin-password-123",
+            "remember": "1",
+        },
+    )
+    assert response.status_code == 302
+
+    cookies = response.headers.getlist("Set-Cookie")
+    session_cookie = next(c for c in cookies if c.startswith("session="))
+    remember_cookie = next(
+        c for c in cookies if c.startswith("remember_token=")
+    )
+
+    # La sesión es permanente y la cookie no es accesible desde JavaScript.
+    assert "HttpOnly" in session_cookie
+    assert "SameSite=Lax" in session_cookie
+    assert "Expires=" in session_cookie
+    assert "Expires=" in remember_cookie
+    assert app_module.app.config[
+        "REMEMBER_COOKIE_DURATION"
+    ].total_seconds() == 604800
+    assert "HttpOnly" in remember_cookie
+    assert "SameSite=Lax" in remember_cookie
+    assert "Secure" not in session_cookie
+
+
+def test_reconcile_orphan_running_batches(tmp_path):
+    db_path = str(tmp_path / "orphans.db")
+    init_schema(db_path)
+
+    ExecutionBatch.create_batch(
+        batch_id="running-1",
+        operator="admin",
+        action="TZ",
+        value="UTC",
+        target="10.0.0.1",
+        status="running",
+        db_path=db_path,
+    )
+    ExecutionBatch.create_batch(
+        batch_id="preview-1",
+        operator="admin",
+        action="TZ",
+        value="UTC",
+        target="10.0.0.1",
+        status="preview",
+        db_path=db_path,
+    )
+
+    assert ExecutionBatch.reconcile_orphans(db_path=db_path) == 1
+
+    running = ExecutionBatch.get_batch("running-1", db_path=db_path)
+    preview = ExecutionBatch.get_batch("preview-1", db_path=db_path)
+    assert running is not None and running.status == "error"
+    assert running.finished_at is not None
+    assert preview is not None and preview.status == "preview"
+    assert preview.finished_at is None
+
+    # Es idempotente: ya no quedan lotes en curso.
+    assert ExecutionBatch.reconcile_orphans(db_path=db_path) == 0
