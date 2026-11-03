@@ -12,6 +12,7 @@
             <div class="card-body p-4">
                 <form id="execForm" method="POST" action="{{ url_for('index') }}"
                     enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="row g-3">
                         <!-- Campo: IP o Rango -->
                         <div class="col-md-6">
@@ -36,8 +37,7 @@
                             <label for="passwordOrigin" class="form-label fw-medium">
                                 <i class="bi bi-lock me-2"></i> Origen de Contraseñas
                             </label>
-                            <select class="form-select form-select-lg" id="passwordOrigin" name="password_origin"
-                                onchange="updatePasswordFields(this.value)">
+                            <select class="form-select form-select-lg" id="passwordOrigin" name="password_origin">
                                 <option value="stored">Contraseñas guardadas en el sistema</option>
                                 <option value="temporal">Archivo temporal (.txt plano)</option>
                             </select>
@@ -71,7 +71,7 @@
                             <label for="action" class="form-label fw-medium">
                                 <i class="bi bi-list me-2"></i> Acción
                             </label>
-                            <select class="form-select" id="action" name="action" onchange="updateValueField(this.value)">
+                            <select class="form-select" id="action" name="action">
                                 <option value="TZ">Zona Horaria (TZ)</option>
                                 <option value="TIME">Hora Exacta (TIME)</option>
                             </select>
@@ -115,7 +115,7 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
 function updatePasswordFields(origin) {
     const stored = origin === 'stored';
     const masterField = document.getElementById('masterPasswordField');
@@ -160,6 +160,16 @@ function updateValueField(action) {
 document.addEventListener('DOMContentLoaded', () => {
     updateValueField('TZ');
     updatePasswordFields('stored');
+
+    const originSelect = document.getElementById('passwordOrigin');
+    originSelect.addEventListener('change', (event) => {
+        updatePasswordFields(event.target.value);
+    });
+
+    const actionSelect = document.getElementById('action');
+    actionSelect.addEventListener('change', (event) => {
+        updateValueField(event.target.value);
+    });
 });
 </script>
 {% endblock %}

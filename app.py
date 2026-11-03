@@ -2,8 +2,9 @@
 """Hora Admin — configuración de hora/zona horaria en Ubuntu vía Ansible.
 
 Incluye autenticación, validación de formularios, progreso SSE, historial en
-SQLite, vault real con ansible-vault y ejecución de Ansible con inyección
-segura de la contraseña candidata (fases P0-P2).
+SQLite, vault real con ansible-vault, ejecución de Ansible con inyección
+segura de la contraseña candidata, CSRF, rate limiting, límites de red y
+cabeceras de seguridad (fases P0-P3).
 """
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import threading
 import time
 import uuid
@@ -23,7 +25,9 @@ from flask import (
     Response,
     abort,
     flash,
+    g,
     jsonify,
+    make_response,
     redirect,
     render_template,
     request,
@@ -43,17 +47,31 @@ from config import (
     ADMIN_USERNAME,
     ALLOWED_PASSWORD_EXTENSIONS,
     COMMON_TIMEZONES,
+    CSP_ENABLED,
+    CSRF_ENABLED,
+    CSRF_TIME_LIMIT_SECONDS,
     DEBUG,
+    EXEC_RATE_LIMIT,
+    EXEC_RATE_WINDOW,
+    HSTS_ENABLED,
+    HSTS_MAX_AGE,
+    LOGIN_RATE_LIMIT,
+    LOGIN_RATE_WINDOW,
     MAX_CONTENT_LENGTH,
     MAX_HOSTS,
     MAX_PASSWORDS,
     MAX_PASSWORD_LENGTH,
     PERMANENT_SESSION_LIFETIME_SECONDS,
+    RATE_LIMIT_ENABLED,
     REMEMBER_COOKIE_HTTPONLY,
     REMEMBER_COOKIE_SAMESITE,
+    SECURITY_HEADERS_ENABLED,
     SESSION_COOKIE_HTTPONLY,
     SESSION_COOKIE_SAMESITE,
     SESSION_COOKIE_SECURE,
+    TRUST_PROXY,
+    VAULT_RATE_LIMIT,
+    VAULT_RATE_WINDOW,
     ensure_directories,
     get_or_create_secret_key,
     resolve_db_path,
@@ -65,8 +83,10 @@ from models.execution import ExecutionRecord
 from models.password import PasswordRecord
 from models.user import User
 from services.ansible_runner import run_ansible_playbook
-from services.host_resolver import resolve_target, validate_ip_format
+from services.csrf import csrf_protect, generate_csrf_token, rotate_csrf_token
+from services.host_resolver import resolve_target, validate_target
 from services.password_tester import test_ansible_ping
+from services.rate_limiter import LIMITER
 from services.secure_temp import secure_temp_file
 from services.vault_manager import VaultManager
 
@@ -111,6 +131,41 @@ def _wants_json() -> bool:
 def _is_safe_redirect(target: Optional[str]) -> bool:
     """Solo permite redirecciones internas (evita open redirect)."""
     return bool(target) and target.startswith("/") and not target.startswith("//")
+
+
+def _client_ip() -> str:
+    """IP del cliente, respetando X-Forwarded-For solo si hay proxy de confianza."""
+    if TRUST_PROXY:
+        forwarded = request.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip() or "unknown"
+    return request.remote_addr or "unknown"
+
+
+def _check_rate_limit(bucket: str, limit: int, window: int) -> Optional[int]:
+    """Devuelve los segundos de espera si se superó el límite, o ``None``."""
+    if not RATE_LIMIT_ENABLED:
+        return None
+    allowed, retry_after = LIMITER.check(bucket, limit, window)
+    return None if allowed else retry_after
+
+
+def _rate_limited_response(retry_after: int, message: str):
+    """Respuesta 429 coherente para HTML y para peticiones AJAX/JSON."""
+    if _wants_json():
+        response = jsonify(
+            {"success": False, "message": message, "retry_after": retry_after}
+        )
+        response.status_code = 429
+    else:
+        response = make_response(
+            render_template(
+                "429.html", message=message, retry_after=retry_after
+            ),
+            429,
+        )
+    response.headers["Retry-After"] = str(retry_after)
+    return response
 
 
 def init_db() -> None:
@@ -242,6 +297,67 @@ def generate_progress_events(task_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Protección CSRF, rate limiting y cabeceras de seguridad
+# ---------------------------------------------------------------------------
+@app.before_request
+def _security_before_request():
+    g.csp_nonce = secrets.token_urlsafe(16)
+    return csrf_protect()
+
+
+@app.context_processor
+def _security_context():
+    return {
+        "csrf_token": generate_csrf_token,
+        "csp_nonce": getattr(g, "csp_nonce", ""),
+    }
+
+
+@app.after_request
+def _security_headers(response):
+    if not SECURITY_HEADERS_ENABLED:
+        return response
+
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault(
+        "Permissions-Policy", "geolocation=(), microphone=(), camera=()"
+    )
+
+    if CSP_ENABLED:
+        nonce = getattr(g, "csp_nonce", "")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            (
+                "default-src 'self'; "
+                f"script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net "
+                "https://fonts.googleapis.com; "
+                "font-src 'self' https://cdn.jsdelivr.net "
+                "https://fonts.gstatic.com; "
+                "img-src 'self' data:; "
+                "connect-src 'self'; "
+                "object-src 'none'; "
+                "base-uri 'self'; "
+                "form-action 'self'; "
+                "frame-ancestors 'none'"
+            ),
+        )
+
+    if HSTS_ENABLED:
+        response.headers.setdefault(
+            "Strict-Transport-Security",
+            f"max-age={HSTS_MAX_AGE}; includeSubDomains",
+        )
+
+    if response.mimetype == "text/html":
+        response.headers.setdefault("Cache-Control", "no-store")
+
+    return response
+
+
+# ---------------------------------------------------------------------------
 # Autenticación
 # ---------------------------------------------------------------------------
 @login_manager.user_loader
@@ -261,11 +377,28 @@ def login():
         return redirect(url_for("index"))
 
     if request.method == "POST":
+        client_ip = _client_ip()
+        retry_after = _check_rate_limit(
+            f"login:{client_ip}", LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW
+        )
+        if retry_after is not None:
+            logger.warning(
+                "Login bloqueado por rate limit para IP %s (%ss)",
+                client_ip,
+                retry_after,
+            )
+            return _rate_limited_response(
+                retry_after,
+                "Demasiados intentos de inicio de sesión. Espera antes de reintentar.",
+            )
+
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         user = User.get_by_username(username, db_path=get_db_path())
 
         if user is not None and user.is_active and user.check_password(password):
+            LIMITER.reset(f"login:{client_ip}")
+            rotate_csrf_token()
             login_user(user, remember=bool(request.form.get("remember")))
             next_url = request.args.get("next") or request.form.get("next")
             return redirect(next_url if _is_safe_redirect(next_url) else url_for("index"))
@@ -294,6 +427,21 @@ def index():
 
 
 def handle_execution():
+    retry_after = _check_rate_limit(
+        f"exec:{current_user.get_id()}:{_client_ip()}",
+        EXEC_RATE_LIMIT,
+        EXEC_RATE_WINDOW,
+    )
+    if retry_after is not None:
+        logger.warning(
+            "Ejecución bloqueada por rate limit para usuario=%s",
+            current_user.get_id(),
+        )
+        return _rate_limited_response(
+            retry_after,
+            "Demasiadas ejecuciones seguidas. Espera antes de reintentar.",
+        )
+
     ti = request.form.get("target_ip", "").strip()
     au = request.form.get("admin_user", "").strip()
     po = request.form.get("password_origin", "stored")
@@ -303,8 +451,9 @@ def handle_execution():
 
     errors = []
 
-    if not ti or not validate_ip_format(ti):
-        errors.append("IP o rango CIDR inválido.")
+    target_error = validate_target(ti)
+    if target_error:
+        errors.append(target_error)
     if not au:
         errors.append("El usuario administrador es obligatorio.")
     if ac not in {"TZ", "TIME"}:
@@ -663,6 +812,21 @@ def _password_response(success: bool, message: str, status: int = 200):
 @login_required
 def passwords():
     if request.method == "POST":
+        retry_after = _check_rate_limit(
+            f"vault:{current_user.get_id()}:{_client_ip()}",
+            VAULT_RATE_LIMIT,
+            VAULT_RATE_WINDOW,
+        )
+        if retry_after is not None:
+            logger.warning(
+                "Operación de vault bloqueada por rate limit para usuario=%s",
+                current_user.get_id(),
+            )
+            return _rate_limited_response(
+                retry_after,
+                "Demasiadas operaciones sobre el vault. Espera antes de reintentar.",
+            )
+
         action = request.form.get("action", "")
         mpw = request.form.get("master_password", "")
 
@@ -833,9 +997,30 @@ def history():
 # ---------------------------------------------------------------------------
 # Errores
 # ---------------------------------------------------------------------------
+@app.errorhandler(400)
+def bad_request(error):
+    message = getattr(error, "description", None) or "Petición no válida."
+    if _wants_json():
+        return jsonify({"success": False, "message": message}), 400
+    return render_template("400.html", message=message), 400
+
+
 @app.errorhandler(404)
 def not_found(_error):
     return render_template("404.html"), 404
+
+
+@app.errorhandler(429)
+def too_many_requests(error):
+    message = getattr(error, "description", None) or "Demasiadas peticiones."
+    retry_after = request.headers.get("Retry-After", "60")
+    if _wants_json():
+        return jsonify({"success": False, "message": message}), 429
+    response = make_response(
+        render_template("429.html", message=message, retry_after=retry_after), 429
+    )
+    response.headers["Retry-After"] = str(retry_after)
+    return response
 
 
 @app.errorhandler(500)
@@ -883,7 +1068,16 @@ def configure_app(flask_app: Flask) -> Flask:
             seconds=PERMANENT_SESSION_LIFETIME_SECONDS
         ),
         MAX_CONTENT_LENGTH=MAX_CONTENT_LENGTH,
+        CSRF_ENABLED=CSRF_ENABLED,
+        CSRF_TIME_LIMIT=CSRF_TIME_LIMIT_SECONDS,
     )
+
+    if TRUST_PROXY:
+        from werkzeug.middleware.proxy_fix import ProxyFix
+
+        flask_app.wsgi_app = ProxyFix(
+            flask_app.wsgi_app, x_for=1, x_proto=1, x_host=0, x_port=0, x_prefix=0
+        )
 
     setup_logging()
     try:

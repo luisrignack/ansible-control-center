@@ -8,6 +8,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -20,3 +22,13 @@ os.environ.setdefault("HORA_ADMIN_LOG_DIR", str(_TMP / "logs"))
 os.environ.setdefault("HORA_ADMIN_SECRET_KEY", "test-secret-key-no-produccion")
 os.environ.setdefault("HORA_ADMIN_DRY_RUN", "1")
 os.environ.setdefault("HORA_ADMIN_DEBUG", "0")
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """Evita que los límites en memoria se acumulen entre pruebas."""
+    from services.rate_limiter import LIMITER
+
+    LIMITER.reset()
+    yield
+    LIMITER.reset()

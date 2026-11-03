@@ -1,4 +1,4 @@
-"""Pruebas de humo de la aplicación web (fases P0/P2)."""
+"""Pruebas de humo de la aplicación web (fases P0-P3)."""
 import io
 import shutil
 import time
@@ -27,10 +27,35 @@ def client(tmp_path, monkeypatch):
         yield test_client
 
 
+def _csrf_token(client) -> str:
+    """Devuelve el token CSRF de la sesión, creando la página si hace falta."""
+    with client.session_transaction() as sess:
+        token = sess.get("_csrf_token")
+    if not token:
+        client.get("/login")
+        with client.session_transaction() as sess:
+            token = sess.get("_csrf_token")
+    return token
+
+
+def _post(client, url, data=None, **kwargs):
+    payload = dict(data or {})
+    payload.setdefault("csrf_token", _csrf_token(client))
+    return client.post(url, data=payload, **kwargs)
+
+
+def _login(client, password="admin-password-123"):
+    return _post(
+        client, "/login", {"username": "admin", "password": password}
+    )
+
+
 def test_login_page_renders(client):
     response = client.get("/login")
     assert response.status_code == 200
     assert b"Acceso Administrativo" in response.data
+    assert b'name="csrf_token"' in response.data
+    assert b'nonce="' in response.data
 
 
 def test_protected_route_redirects_to_login(client):
@@ -40,11 +65,7 @@ def test_protected_route_redirects_to_login(client):
 
 
 def test_login_and_dashboard(client):
-    response = client.post(
-        "/login",
-        data={"username": "admin", "password": "admin-password-123"},
-        follow_redirects=False,
-    )
+    response = _login(client)
     assert response.status_code == 302
 
     dashboard = client.get("/")
@@ -53,32 +74,74 @@ def test_login_and_dashboard(client):
 
 
 def test_invalid_credentials(client):
-    response = client.post(
+    response = _post(
+        client,
         "/login",
-        data={"username": "admin", "password": "incorrecta"},
+        {"username": "admin", "password": "incorrecta"},
         follow_redirects=True,
     )
     assert b"Usuario o contrase" in response.data
 
 
-def test_404_page(client):
-    client.post(
-        "/login",
-        data={"username": "admin", "password": "admin-password-123"},
+def test_post_without_csrf_token_is_rejected(client):
+    _login(client)
+    response = client.post(
+        "/",
+        data={
+            "target_ip": "127.0.0.1",
+            "admin_user": "root",
+            "password_origin": "temporal",
+            "action": "TZ",
+            "value": "UTC",
+        },
     )
+    assert response.status_code == 400
+    assert b"CSRF" in response.data
+
+
+def test_security_headers_are_present(client):
+    response = client.get("/login")
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["Referrer-Policy"] == "no-referrer"
+    csp = response.headers["Content-Security-Policy"]
+    assert "frame-ancestors 'none'" in csp
+    assert "nonce-" in csp
+    nonce = csp.split("'nonce-", 1)[1].split("'", 1)[0]
+    assert f'nonce="{nonce}"' in response.get_data(as_text=True)
+    assert response.headers["Cache-Control"] == "no-store"
+
+
+def test_login_rate_limit(client, monkeypatch):
+    monkeypatch.setattr(app_module, "LOGIN_RATE_LIMIT", 2)
+    monkeypatch.setattr(app_module, "LOGIN_RATE_WINDOW", 60)
+
+    for _ in range(2):
+        response = _post(
+            client, "/login", {"username": "admin", "password": "incorrecta"}
+        )
+        assert response.status_code == 200
+
+    blocked = _post(
+        client, "/login", {"username": "admin", "password": "incorrecta"}
+    )
+    assert blocked.status_code == 429
+    assert "Retry-After" in blocked.headers
+
+
+def test_404_page(client):
+    _login(client)
     response = client.get("/ruta-que-no-existe")
     assert response.status_code == 404
     assert b"404" in response.data
 
 
 def test_index_validation(client):
-    client.post(
-        "/login",
-        data={"username": "admin", "password": "admin-password-123"},
-    )
-    response = client.post(
+    _login(client)
+    response = _post(
+        client,
         "/",
-        data={
+        {
             "target_ip": "no-es-una-ip",
             "admin_user": "root",
             "password_origin": "temporal",
@@ -90,14 +153,46 @@ def test_index_validation(client):
     assert b"IP o rango CIDR" in response.data
 
 
-def test_temporal_txt_requires_txt_file(client):
-    client.post(
-        "/login",
-        data={"username": "admin", "password": "admin-password-123"},
-    )
-    response = client.post(
+def test_index_rejects_invalid_octets(client):
+    _login(client)
+    response = _post(
+        client,
         "/",
-        data={
+        {
+            "target_ip": "999.1.1.1",
+            "admin_user": "root",
+            "password_origin": "temporal",
+            "action": "TZ",
+            "value": "UTC",
+        },
+        follow_redirects=True,
+    )
+    assert b"IP o rango CIDR" in response.data
+
+
+def test_index_rejects_huge_cidr(client):
+    _login(client)
+    response = _post(
+        client,
+        "/",
+        {
+            "target_ip": "10.0.0.0/8",
+            "admin_user": "root",
+            "password_origin": "temporal",
+            "action": "TZ",
+            "value": "UTC",
+        },
+        follow_redirects=True,
+    )
+    assert b"Rango demasiado grande" in response.data
+
+
+def test_temporal_txt_requires_txt_file(client):
+    _login(client)
+    response = _post(
+        client,
+        "/",
+        {
             "target_ip": "127.0.0.1",
             "admin_user": "root",
             "password_origin": "temporal",
@@ -112,13 +207,11 @@ def test_temporal_txt_requires_txt_file(client):
 
 
 def test_temporal_txt_execution_records_history(client):
-    client.post(
-        "/login",
-        data={"username": "admin", "password": "admin-password-123"},
-    )
-    response = client.post(
+    _login(client)
+    response = _post(
+        client,
         "/",
-        data={
+        {
             "target_ip": "127.0.0.1",
             "admin_user": "root",
             "password_origin": "temporal",
@@ -152,10 +245,7 @@ def test_temporal_txt_execution_records_history(client):
     reason="ansible-vault no está instalado",
 )
 def test_delete_password_updates_vault(client):
-    client.post(
-        "/login",
-        data={"username": "admin", "password": "admin-password-123"},
-    )
+    _login(client)
     db_path = app_module.get_db_path()
     vault_file = app_module.get_vault_file()
     ok, message = VaultManager.encrypt_passwords(
@@ -167,9 +257,10 @@ def test_delete_password_updates_vault(client):
     assert ok is True, message
 
     record = PasswordRecord.get_all_passwords(db_path=db_path)[0]
-    response = client.post(
+    response = _post(
+        client,
         "/passwords",
-        data={
+        {
             "action": "delete",
             "password_id": record.id,
             "master_password": "master-test",
@@ -191,10 +282,7 @@ def test_delete_password_updates_vault(client):
     reason="ansible-vault no está instalado",
 )
 def test_delete_password_with_wrong_master_keeps_data(client):
-    client.post(
-        "/login",
-        data={"username": "admin", "password": "admin-password-123"},
-    )
+    _login(client)
     db_path = app_module.get_db_path()
     vault_file = app_module.get_vault_file()
     ok, message = VaultManager.encrypt_passwords(
@@ -206,9 +294,10 @@ def test_delete_password_with_wrong_master_keeps_data(client):
     assert ok is True, message
 
     record = PasswordRecord.get_all_passwords(db_path=db_path)[0]
-    response = client.post(
+    response = _post(
+        client,
         "/passwords",
-        data={
+        {
             "action": "delete",
             "password_id": record.id,
             "master_password": "incorrecta",

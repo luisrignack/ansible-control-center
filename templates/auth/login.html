@@ -15,6 +15,7 @@
         {% endif %}
 
         <form id="loginForm" method="POST" action="{{ url_for('login') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="next" value="{{ request.args.get('next', '') }}">
             <div class="mb-3">
                 <label for="username" class="form-label fw-medium">
@@ -44,7 +45,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 document.addEventListener('DOMContentLoaded', () => {
     // Auto-focus en el campo de usuario
     const usernameInput = document.getElementById('username');

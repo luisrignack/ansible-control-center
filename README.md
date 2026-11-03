@@ -8,7 +8,7 @@ contraseñas candidatas cifradas con `ansible-vault`, progreso en tiempo real
 > **Uso responsable:** la aplicación prueba credenciales contra hosts. Úsala
 > únicamente sobre equipos para los que tengas autorización explícita.
 
-## Estado actual (fases P0, P1 y P2)
+## Estado actual (fases P0, P1, P2 y P3)
 
 Completado en P0:
 
@@ -51,10 +51,19 @@ Completado en P2 (vault y Ansible reales):
 - [x] Borrado sincronizado: elimina la contraseña del vault y de SQLite.
 - [x] Historial real desde la interfaz (éxitos y fallos).
 
-Pendiente (siguiente fase):
+Completado en P3 (seguridad):
 
-- **P3:** CSRF, rate limiting, límites de CIDR/hosts, cabeceras de seguridad y
-      endurecimiento del despliegue.
+- [x] Protección CSRF en todos los formularios y peticiones AJAX, con token
+      ligado a la sesión y caducidad configurable.
+- [x] Rate limiting en login, ejecuciones de Ansible y operaciones del vault.
+- [x] Límites de CIDR/hosts: se rechazan rangos excesivos antes de enumerarlos
+      (evita agotar memoria con `/8` o `0.0.0.0/0`).
+- [x] Validación estricta de IP/CIDR con `ipaddress` (rechaza octetos inválidos).
+- [x] Cabeceras de seguridad: CSP con nonce, `X-Frame-Options`, `nosniff`,
+      `Referrer-Policy`, `Permissions-Policy` y HSTS opcional.
+- [x] `Cache-Control: no-store` en páginas HTML autenticadas.
+- [x] Soporte opcional de proxy inverso (`ProxyFix`) para HTTPS y IP real.
+- [x] Páginas de error `400` y `429`.
 
 ## Requisitos
 
@@ -102,6 +111,16 @@ Se leen de `.env` (opcional) o del entorno real. Las principales:
 | `HORA_ADMIN_DRY_RUN` | `1` | No ejecuta Ansible real |
 | `HORA_ADMIN_HOST_KEY_CHECKING` | `1` | Verificación estricta de la clave SSH |
 | `HORA_ADMIN_DEBUG` | `0` | Depurador Flask (nunca en producción) |
+| `HORA_ADMIN_CSRF_ENABLED` | `1` | Protección CSRF (no desactivar en producción) |
+| `HORA_ADMIN_LOGIN_RATE_LIMIT` | `10` | Intentos de login por ventana |
+| `HORA_ADMIN_LOGIN_RATE_WINDOW` | `300` | Ventana del rate limit de login (s) |
+| `HORA_ADMIN_EXEC_RATE_LIMIT` | `10` | Ejecuciones por ventana |
+| `HORA_ADMIN_VAULT_RATE_LIMIT` | `20` | Operaciones de vault por ventana |
+| `HORA_ADMIN_MAX_HOSTS` | `256` | Máximo de hosts por ejecución |
+| `HORA_ADMIN_MIN_CIDR_PREFIX` | `22` | Prefijo IPv4 mínimo aceptado |
+| `HORA_ADMIN_TRUST_PROXY` | `0` | Leer `X-Forwarded-For/Proto` (solo tras proxy) |
+| `HORA_ADMIN_COOKIE_SECURE` | `0` | Cookies solo por HTTPS |
+| `HORA_ADMIN_HSTS` | según cookie | Cabecera HSTS |
 | `HORA_ADMIN_HOST` / `HORA_ADMIN_PORT` | `127.0.0.1` / `5000` | Servidor de desarrollo |
 
 Copia `.env.example` a `.env` y ajusta los valores. `install.sh` genera una
@@ -171,6 +190,12 @@ python -m pytest -q
   hashes cortos en SQLite para la interfaz.
 - Las credenciales de conexión de Ansible viajan en ficheros temporales `0600`
   y se borran tras cada ejecución; nunca aparecen en la línea de comandos.
-- En producción, usa HTTPS, `HORA_ADMIN_COOKIE_SECURE=1` y un usuario de
-  servicio sin privilegios.
+- CSRF activo por defecto: todos los `POST` exigen token de sesión.
+- Rate limiting en memoria: con varios workers cada proceso lleva su propia
+  ventana. Para escalar, sustituye `services/rate_limiter.py` por Redis.
+- Los rangos CIDR se validan y acotan antes de enumerarse (`MAX_HOSTS` y
+  `MIN_CIDR_PREFIX`).
+- En producción, usa HTTPS, `HORA_ADMIN_COOKIE_SECURE=1`,
+  `HORA_ADMIN_HSTS=1` y un usuario de servicio sin privilegios. Si hay proxy
+  inverso, activa `HORA_ADMIN_TRUST_PROXY=1`.
 - Las credenciales candidatas deben tratarse como material sensible.

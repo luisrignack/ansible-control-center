@@ -27,7 +27,7 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
     const taskId = {{ task_id | tojson }};
     const progressBar = document.getElementById('progressBar');
     const progressMessage = document.getElementById('progressMessage');

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block title %}Demasiadas peticiones{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12 col-md-6 mx-auto text-center py-5">
+        <h1 class="display-4"><i class="bi bi-hourglass-split"></i> 429</h1>
+        <p class="text-secondary">
+            {{ message | default('Has realizado demasiadas peticiones.') }}
+        </p>
+        <p class="text-secondary small">
+            Reintenta en aproximadamente {{ retry_after | default(60) }} segundo(s).
+        </p>
+        <a href="{{ url_for('index') }}" class="btn btn-acento">
+            <i class="bi bi-house me-1"></i> Volver al panel
+        </a>
+    </div>
+</div>
+{% endblock %}

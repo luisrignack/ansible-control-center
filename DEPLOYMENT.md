@@ -3,11 +3,12 @@
 Aplicación web Flask para configurar hora y zona horaria en equipos Ubuntu
 mediante Ansible.
 
-> **Estado (fases P0, P1 y P2):** estructura unificada, arranque, login,
+> **Estado (fases P0-P3):** estructura unificada, arranque, login,
 > validación de formularios, páginas de error, progreso SSE, integridad de
 > datos SQLite (migraciones, WAL y concurrencia), vault real con
-> `ansible-vault`, ejecución Ansible con inyección segura de credenciales y
-> modo temporal `.txt`. El modo `DRY_RUN` sigue activo por defecto.
+> `ansible-vault`, ejecución Ansible con inyección segura de credenciales,
+> modo temporal `.txt`, CSRF, rate limiting, límites CIDR/hosts y cabeceras
+> de seguridad. El modo `DRY_RUN` sigue activo por defecto.
 
 ---
 
@@ -86,8 +87,17 @@ flask --app app init-admin
 | `HORA_ADMIN_HOST_KEY_CHECKING` | `1` | Verificación estricta de host SSH |
 | `HORA_ADMIN_DEBUG` | `0` | Depurador Flask |
 | `HORA_ADMIN_COOKIE_SECURE` | `0` | `1` detrás de HTTPS |
+| `HORA_ADMIN_TRUST_PROXY` | `0` | `1` solo tras proxy de confianza |
+| `HORA_ADMIN_HSTS` | según cookie | Cabecera HSTS |
 | `HORA_ADMIN_SESSION_HOURS` | `8` | Duración de sesión |
 | `HORA_ADMIN_MAX_UPLOAD_BYTES` | `2097152` | Tamaño máximo de subida |
+| `HORA_ADMIN_CSRF_ENABLED` | `1` | Protección CSRF |
+| `HORA_ADMIN_LOGIN_RATE_LIMIT` | `10` | Intentos de login por ventana |
+| `HORA_ADMIN_LOGIN_RATE_WINDOW` | `300` | Ventana de login (s) |
+| `HORA_ADMIN_EXEC_RATE_LIMIT` | `10` | Ejecuciones por ventana |
+| `HORA_ADMIN_VAULT_RATE_LIMIT` | `20` | Operaciones de vault por ventana |
+| `HORA_ADMIN_MAX_HOSTS` | `256` | Hosts máximos por ejecución |
+| `HORA_ADMIN_MIN_CIDR_PREFIX` | `22` | Prefijo IPv4 mínimo |
 
 Para desarrollo sin `sudo`, define rutas locales:
 
@@ -248,11 +258,25 @@ sudo systemctl start hora-admin
 
 ---
 
-## 8. Seguridad y limitaciones conocidas (P0/P1/P2)
+## 8. Seguridad y limitaciones conocidas (P0-P3)
 
 - `DRY_RUN=1` por defecto: no se toca ningún equipo hasta cambiarlo.
 - `DEBUG=0` por defecto; nunca actives el depurador en producción.
 - Login con hash Werkzeug y sesión protegida por Flask-Login.
+- **CSRF:** todos los `POST/PUT/PATCH/DELETE` exigen un token de sesión con
+  caducidad (`HORA_ADMIN_CSRF_TIME_LIMIT`, 8 h por defecto). No desactives
+  `HORA_ADMIN_CSRF_ENABLED` en producción.
+- **Rate limiting:** login (10/5 min), ejecuciones (10/min) y operaciones de
+  vault (20/min) por usuario/IP. Es en memoria y por proceso; con varios
+  workers cada uno lleva su propia ventana. Para escalar, usa Redis.
+- **Límites de red:** se rechazan rangos CIDR con prefijo menor que
+  `HORA_ADMIN_MIN_CIDR_PREFIX` o con más de `HORA_ADMIN_MAX_HOSTS` hosts antes
+  de enumerarlos. La validación usa `ipaddress` (rechaza octetos inválidos).
+- **Cabeceras:** CSP con nonce (sin `unsafe-inline` para scripts),
+  `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer`, `Permissions-Policy` y HSTS opcional.
+- **Proxy inverso:** activa `HORA_ADMIN_TRUST_PROXY=1` solo si nginx/apache es
+  de confianza; así se leen `X-Forwarded-For/Proto` para la IP real y HTTPS.
 - Las contraseñas candidatas se cifran con `ansible-vault`; SQLite solo guarda
   hashes cortos para la interfaz.
 - La contraseña de conexión de Ansible se pasa en un fichero temporal `0600`
@@ -266,8 +290,6 @@ sudo systemctl start hora-admin
   `hora_admin.db-wal` y `hora_admin.db-shm`, o detén el servicio antes.
 - Las migraciones son no destructivas y se aplican al arrancar
   (`PRAGMA user_version`). Haz copia de seguridad antes de actualizar.
-- **Pendiente P3:** CSRF, rate limiting, límites de CIDR/hosts y cabeceras de
-  seguridad.
 - El progreso SSE y las tareas viven en memoria: usa un worker o añade un
   almacén compartido antes de escalar.
 

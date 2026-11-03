@@ -142,6 +142,59 @@ MAX_CONTENT_LENGTH = _env_int(
     "HORA_ADMIN_MAX_UPLOAD_BYTES", 2 * 1024 * 1024, minimum=1024
 )
 
+# ---------------------------------------------------------------------------
+# Protección CSRF
+# ---------------------------------------------------------------------------
+# Todos los POST/PUT/PATCH/DELETE exigen un token ligado a la sesión. El token
+# caduca para limitar la ventana de reutilización de una página abierta.
+CSRF_ENABLED = _env_bool("HORA_ADMIN_CSRF_ENABLED", True)
+CSRF_TIME_LIMIT_SECONDS = _env_int(
+    "HORA_ADMIN_CSRF_TIME_LIMIT", 8 * 3600, minimum=300, maximum=86400
+)
+
+# ---------------------------------------------------------------------------
+# Rate limiting (en memoria, por proceso)
+# ---------------------------------------------------------------------------
+RATE_LIMIT_ENABLED = _env_bool("HORA_ADMIN_RATE_LIMIT_ENABLED", True)
+
+# Intentos de login por IP dentro de la ventana.
+LOGIN_RATE_LIMIT = _env_int(
+    "HORA_ADMIN_LOGIN_RATE_LIMIT", 10, minimum=1, maximum=1000
+)
+LOGIN_RATE_WINDOW = _env_int(
+    "HORA_ADMIN_LOGIN_RATE_WINDOW", 300, minimum=10, maximum=86400
+)
+
+# Ejecuciones de Ansible por usuario/IP.
+EXEC_RATE_LIMIT = _env_int(
+    "HORA_ADMIN_EXEC_RATE_LIMIT", 10, minimum=1, maximum=1000
+)
+EXEC_RATE_WINDOW = _env_int(
+    "HORA_ADMIN_EXEC_RATE_WINDOW", 60, minimum=10, maximum=86400
+)
+
+# Operaciones sobre el vault (cifrar, importar, borrar).
+VAULT_RATE_LIMIT = _env_int(
+    "HORA_ADMIN_VAULT_RATE_LIMIT", 20, minimum=1, maximum=1000
+)
+VAULT_RATE_WINDOW = _env_int(
+    "HORA_ADMIN_VAULT_RATE_WINDOW", 60, minimum=10, maximum=86400
+)
+
+# ---------------------------------------------------------------------------
+# Proxy inverso y cabeceras de seguridad
+# ---------------------------------------------------------------------------
+# Activar solo si la app está detrás de un proxy de confianza: habilita
+# ProxyFix para leer X-Forwarded-For/Proto. Sin proxy, dejar en 0.
+TRUST_PROXY = _env_bool("HORA_ADMIN_TRUST_PROXY", False)
+
+SECURITY_HEADERS_ENABLED = _env_bool("HORA_ADMIN_SECURITY_HEADERS", True)
+CSP_ENABLED = _env_bool("HORA_ADMIN_CSP_ENABLED", True)
+HSTS_ENABLED = _env_bool("HORA_ADMIN_HSTS", SESSION_COOKIE_SECURE)
+HSTS_MAX_AGE = _env_int(
+    "HORA_ADMIN_HSTS_MAX_AGE", 31536000, minimum=0, maximum=63072000
+)
+
 ADMIN_USERNAME = os.environ.get("HORA_ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD_MIN_LENGTH = _env_int(
     "HORA_ADMIN_ADMIN_PASSWORD_MIN_LENGTH", 12, minimum=8, maximum=128
