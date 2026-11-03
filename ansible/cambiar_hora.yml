@@ -1,0 +1,61 @@
+---
+# Playbook de configuración de hora/zona horaria en Ubuntu.
+#
+# Variables esperadas (se pasan con --extra-vars desde la aplicación):
+#   accion: "TZ" o "TIME"
+#   valor:  zona horaria (TZ) o fecha/hora AAAA-MM-DDTHH:MM (TIME)
+#
+# Se usan comandos de systemd/timedatectl para no depender de colecciones
+# externas de Ansible. El playbook requiere privilegios (become).
+- name: Configurar hora y zona horaria
+  hosts: all
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Validar la acción solicitada
+      ansible.builtin.assert:
+        that:
+          - accion in ['TZ', 'TIME']
+        fail_msg: "Acción no válida: {{ accion }}"
+        success_msg: "Acción válida: {{ accion }}"
+
+    - name: Configurar zona horaria
+      ansible.builtin.command:
+        argv:
+          - timedatectl
+          - set-timezone
+          - "{{ valor }}"
+      when: accion == 'TZ'
+      changed_when: true
+
+    - name: Normalizar el formato de fecha/hora
+      ansible.builtin.set_fact:
+        valor_hora: "{{ valor | replace('T', ' ') }}"
+      when: accion == 'TIME'
+
+    - name: Desactivar la sincronización NTP para fijar la hora
+      ansible.builtin.command:
+        argv:
+          - timedatectl
+          - set-ntp
+          - "false"
+      when: accion == 'TIME'
+      changed_when: true
+
+    - name: Configurar la hora exacta
+      ansible.builtin.command:
+        argv:
+          - date
+          - -s
+          - "{{ valor_hora }}"
+      when: accion == 'TIME'
+      changed_when: true
+
+    - name: Sincronizar el reloj hardware
+      ansible.builtin.command:
+        argv:
+          - hwclock
+          - --systohc
+      when: accion == 'TIME'
+      changed_when: true

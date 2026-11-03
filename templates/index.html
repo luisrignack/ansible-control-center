@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block title %}Panel de Control{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12 col-md-8 mx-auto">
+        <div class="card fade-in">
+            <div class="card-header">
+                <h4 class="mb-0"><i class="bi bi-wrench me-2"></i> Formulario de Configuración</h4>
+            </div>
+            <div class="card-body p-4">
+                <form id="execForm" method="POST" action="{{ url_for('index') }}"
+                    enctype="multipart/form-data">
+                    <div class="row g-3">
+                        <!-- Campo: IP o Rango -->
+                        <div class="col-md-6">
+                            <label for="targetIp" class="form-label fw-medium">
+                                <i class="bi bi-globe me-2"></i> IP o Rango
+                            </label>
+                            <input type="text" class="form-control" id="targetIp" name="target_ip"
+                                placeholder="192.168.1.10 o 192.168.1.0/24" required>
+                        </div>
+
+                        <!-- Campo: Usuario administrador -->
+                        <div class="col-md-6">
+                            <label for="adminUser" class="form-label fw-medium">
+                                <i class="bi bi-person-meet me-2"></i> Usuario Admin
+                            </label>
+                            <input type="text" class="form-control" id="adminUser" name="admin_user"
+                                value="ubuntu-admin" required>
+                        </div>
+
+                        <!-- Origen de contraseñas -->
+                        <div class="col-12">
+                            <label for="passwordOrigin" class="form-label fw-medium">
+                                <i class="bi bi-lock me-2"></i> Origen de Contraseñas
+                            </label>
+                            <select class="form-select form-select-lg" id="passwordOrigin" name="password_origin"
+                                onchange="updatePasswordFields(this.value)">
+                                <option value="stored">Contraseñas guardadas en el sistema</option>
+                                <option value="temporal">Archivo temporal (.txt plano)</option>
+                            </select>
+                        </div>
+
+                        <!-- Contraseña Maestra del Vault -->
+                        <div id="masterPasswordField" class="col-12">
+                            <label for="masterPassword" class="form-label fw-medium">
+                                <i class="bi bi-shield-lock me-2"></i> Contraseña Maestra del Vault
+                            </label>
+                            <input type="password" class="form-control" id="masterPassword"
+                                name="master_password" placeholder="Ingresa la contraseña maestra"
+                                autocomplete="current-password" required>
+                        </div>
+
+                        <!-- Archivo temporal .txt -->
+                        <div id="temporalFileField" class="col-12" style="display: none;">
+                            <label for="passwordFile" class="form-label fw-medium">
+                                <i class="bi bi-file-earmark-lock me-2"></i> Archivo de contraseñas (.txt)
+                            </label>
+                            <input type="file" class="form-control" id="passwordFile"
+                                name="password_file" accept=".txt">
+                            <div class="form-text">
+                                Una contraseña por línea. Se ignoran líneas vacías y las que
+                                empiezan con <code>#</code>. El archivo se procesa en memoria.
+                            </div>
+                        </div>
+
+                        <!-- Acción -->
+                        <div class="col-12">
+                            <label for="action" class="form-label fw-medium">
+                                <i class="bi bi-list me-2"></i> Acción
+                            </label>
+                            <select class="form-select" id="action" name="action" onchange="updateValueField(this.value)">
+                                <option value="TZ">Zona Horaria (TZ)</option>
+                                <option value="TIME">Hora Exacta (TIME)</option>
+                            </select>
+                        </div>
+
+                        <!-- Valor dinámico -->
+                        <div id="valueField" class="col-12">
+                            <!-- Se llenará dinámicamente por JS -->
+                        </div>
+
+                        <!-- Botón Ejecutar -->
+                        <div class="col-12">
+                            <button type="submit" class="btn btn-acento w-100 py-3 fw-bold" id="execButton">
+                                <i class="bi bi-play-circle me-2"></i> Ejecutar
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Sección de progreso (hidden por defecto) -->
+<div id="progressSection" class="mt-4" style="display: none;">
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-arrow-repeat me-2"></i> Progreso</h5>
+        </div>
+        <div class="card-body">
+            <div class="progress mb-3">
+                <div class="progress-bar" role="progressbar" style="width: 0%" aria-valuenow="0"
+                    aria-valuemin="0" aria-valuemax="100"></div>
+            </div>
+            <div id="progressMessage" class="small text-muted"></div>
+            <div id="progressLog" style="max-height: 200px; overflow-y: auto; font-size: 0.8rem;"></div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function updatePasswordFields(origin) {
+    const stored = origin === 'stored';
+    const masterField = document.getElementById('masterPasswordField');
+    const masterInput = masterField.querySelector('input');
+    const fileField = document.getElementById('temporalFileField');
+    const fileInput = document.getElementById('passwordFile');
+
+    masterField.style.display = stored ? 'block' : 'none';
+    if (masterInput) masterInput.required = stored;
+
+    fileField.style.display = stored ? 'none' : 'block';
+    if (fileInput) fileInput.required = !stored;
+}
+
+function updateValueField(action) {
+    const valueField = document.getElementById('valueField');
+    valueField.innerHTML = '';
+    
+    if (action === 'TZ') {
+        const dl = document.createElement('datalist');
+        dl.id = 'timezoneList';
+        
+        {% for tz in common_timezones %}
+        const opt = document.createElement('option');
+        opt.value = '{{ tz }}';
+        opt.label = '{{ tz }}';
+        dl.appendChild(opt);
+        {% endfor %}
+        
+        valueField.innerHTML = '<label for="actionValue" class="form-label">Zona Horaria</label>' +
+            '<input list="timezoneList" type="text" class="form-control" id="actionValue" name="value" ' +
+            'placeholder="Ej: America/Argentina/Buenos_Aires" required>';
+        valueField.appendChild(dl);
+    } else if (action === 'TIME') {
+        valueField.innerHTML = '<label for="actionValue" class="form-label">Hora Exacta</label>' +
+            '<input type="datetime-local" class="form-control" id="actionValue" name="value" ' +
+            'required>';
+    }
+}
+
+// Inicializar campos al cargar
+document.addEventListener('DOMContentLoaded', () => {
+    updateValueField('TZ');
+    updatePasswordFields('stored');
+});
+</script>
+{% endblock %}

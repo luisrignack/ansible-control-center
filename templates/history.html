@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Historial de Ejecuciones{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12 col-md-8 mx-auto">
+        <div class="card fade-in">
+            <div class="card-header">
+                <h4 class="mb-0"><i class="bi bi-clock-history me-2"></i> Historial de Ejecuciones</h4>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive p-3">
+                    <table class="table table-borderless mb-0 table-sm">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Hosts</th>
+                                <th>Acción</th>
+                                <th>Valor</th>
+                                <th>Resultado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if executions %}
+                                {% for exec in executions %}
+                                <tr>
+                                    <td>
+                                        <small>{{ exec.timestamp | default('N/A') }}</small>
+                                    </td>
+                                    <td>
+                                        <small>{{ exec.host }}</small>
+                                    </td>
+                                    <td>
+                                        <small>
+                                            {% if exec.action == 'TZ' %}
+                                                <span class="text-info">Zona Horaria</span>
+                                            {% else %}
+                                                <span class="text-warning">Hora Exacta</span>
+                                            {% endif %}
+                                        </small>
+                                    </td>
+                                    <td>
+                                        <small>{{ exec.value | default('N/A') }}</small>
+                                    </td>
+                                    <td>
+                                        <small>
+                                            {% if exec.result == 'success' %}
+                                                <span class="text-success">✓ Éxito</span>
+                                            {% else %}
+                                                <span class="text-danger">✗ Falló</span>
+                                            {% endif %}
+                                        </small>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center py-4">
+                                    <small class="text-secondary">No hay ejecuciones registradas.</small>
+                                </td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

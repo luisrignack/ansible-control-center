@@ -1,0 +1,23 @@
+# Entorno y secretos
+.venv/
+venv/
+.env
+instance/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Base de datos y logs locales
+*.db
+*.sqlite3
+*.log
+
+# Ansible / editor
+*.retry
+.idea/
+.vscode/
