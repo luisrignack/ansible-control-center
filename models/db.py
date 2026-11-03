@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Iterator
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def connect(db_path: str) -> sqlite3.Connection:
@@ -141,17 +141,72 @@ def _migrate_v2(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v3(conn: sqlite3.Connection) -> None:
+    """Añade el modelo de lotes y resultados por host (P4)."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS execution_batches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_id TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL,
+            finished_at TEXT,
+            operator TEXT NOT NULL DEFAULT '',
+            action TEXT NOT NULL,
+            value TEXT NOT NULL,
+            target TEXT NOT NULL,
+            time_mode TEXT NOT NULL DEFAULT 'utc',
+            ntp_policy TEXT NOT NULL DEFAULT 'keep',
+            status TEXT NOT NULL DEFAULT 'running',
+            total_hosts INTEGER NOT NULL DEFAULT 0,
+            success_count INTEGER NOT NULL DEFAULT 0,
+            failure_count INTEGER NOT NULL DEFAULT 0,
+            skipped_count INTEGER NOT NULL DEFAULT 0,
+            error_count INTEGER NOT NULL DEFAULT 0,
+            preview_count INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS execution_hosts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_id TEXT NOT NULL,
+            host TEXT NOT NULL,
+            result TEXT NOT NULL,
+            error TEXT NOT NULL DEFAULT '',
+            duration_ms INTEGER NOT NULL DEFAULT 0,
+            before_state TEXT NOT NULL DEFAULT '',
+            after_state TEXT NOT NULL DEFAULT '',
+            password_hash TEXT NOT NULL DEFAULT '',
+            password_origin TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (batch_id)
+                REFERENCES execution_batches (batch_id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_batches_created_at
+            ON execution_batches (created_at);
+        CREATE INDEX IF NOT EXISTS idx_batches_status
+            ON execution_batches (status);
+        CREATE INDEX IF NOT EXISTS idx_hosts_batch_id
+            ON execution_hosts (batch_id);
+        CREATE INDEX IF NOT EXISTS idx_hosts_host
+            ON execution_hosts (host);
+        CREATE INDEX IF NOT EXISTS idx_hosts_result
+            ON execution_hosts (result);
+        """
+    )
+
+
 def init_schema(db_path: str) -> None:
     """Crea o migra el esquema de forma idempotente y no destructiva.
 
-    ``_migrate_v1`` se ejecuta siempre porque usa ``CREATE ... IF NOT EXISTS``:
-    así se reparan bases de datos parciales o creadas por versiones antiguas.
-    Las migraciones que transforman datos solo se aplican si la versión
-    registrada en ``PRAGMA user_version`` es anterior.
+    ``_migrate_v1`` y ``_migrate_v3`` se ejecutan siempre porque usan
+    ``CREATE ... IF NOT EXISTS``: así se reparan bases de datos parciales o
+    creadas por versiones antiguas. Las migraciones que transforman datos solo
+    se aplican si la versión registrada en ``PRAGMA user_version`` es anterior.
     """
     with get_connection(db_path) as conn:
         version = int(conn.execute("PRAGMA user_version").fetchone()[0])
         _migrate_v1(conn)
         if version < 2:
             _migrate_v2(conn)
+        _migrate_v3(conn)
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

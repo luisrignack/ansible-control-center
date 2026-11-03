@@ -1,0 +1,75 @@
+---
+# Lee el estado del reloj, la zona horaria y NTP del host.
+#
+# Define la variable ``hora_estado`` con un diccionario serializable:
+#   timezone, ntp, ntp_synchronized, local_rtc, utc, local, epoch, rtc
+#
+# Se usan comandos de systemd/timedatectl para no depender de colecciones
+# externas. Todos los comandos son de solo lectura.
+- name: Leer la zona horaria actual
+  ansible.builtin.command:
+    argv: [timedatectl, show, -p, Timezone, --value]
+  register: _hora_tz
+  changed_when: false
+  failed_when: false
+
+- name: Leer el estado de NTP
+  ansible.builtin.command:
+    argv: [timedatectl, show, -p, NTP, --value]
+  register: _hora_ntp
+  changed_when: false
+  failed_when: false
+
+- name: Leer la sincronización NTP
+  ansible.builtin.command:
+    argv: [timedatectl, show, -p, NTPSynchronized, --value]
+  register: _hora_ntp_sync
+  changed_when: false
+  failed_when: false
+
+- name: Leer si el RTC usa hora local
+  ansible.builtin.command:
+    argv: [timedatectl, show, -p, LocalRTC, --value]
+  register: _hora_local_rtc
+  changed_when: false
+  failed_when: false
+
+- name: Leer la fecha UTC
+  ansible.builtin.command:
+    argv: [date, -u, +%Y-%m-%dT%H:%M:%SZ]
+  register: _hora_utc
+  changed_when: false
+  failed_when: false
+
+- name: Leer la fecha local
+  ansible.builtin.command:
+    argv: [date, +%Y-%m-%dT%H:%M:%S%z]
+  register: _hora_local
+  changed_when: false
+  failed_when: false
+
+- name: Leer el instante actual (epoch)
+  ansible.builtin.command:
+    argv: [date, +%s]
+  register: _hora_epoch
+  changed_when: false
+  failed_when: false
+
+- name: Leer el reloj hardware
+  ansible.builtin.command:
+    argv: [hwclock, --show, --utc]
+  register: _hora_rtc
+  changed_when: false
+  failed_when: false
+
+- name: Construir el estado del host
+  ansible.builtin.set_fact:
+    hora_estado:
+      timezone: "{{ _hora_tz.stdout | default('') | trim }}"
+      ntp: "{{ (_hora_ntp.stdout | default('') | trim) | lower == 'yes' }}"
+      ntp_synchronized: "{{ (_hora_ntp_sync.stdout | default('') | trim) | lower == 'yes' }}"
+      local_rtc: "{{ (_hora_local_rtc.stdout | default('') | trim) | lower == 'yes' }}"
+      utc: "{{ _hora_utc.stdout | default('') | trim }}"
+      local: "{{ _hora_local.stdout | default('') | trim }}"
+      epoch: "{{ _hora_epoch.stdout | default('0') | trim | int }}"
+      rtc: "{{ _hora_rtc.stdout | default('') | trim }}"

@@ -1,0 +1,20 @@
+---
+# Playbook de inspección: lee hora, zona horaria, NTP y RTC sin cambiar nada.
+#
+# Salida esperada en stdout:
+#   HORA_STATE_B64=<base64 del JSON de estado>
+#
+# La app decodifica el marcador para mostrar la vista previa y el estado
+# previo/posterior de cada host.
+- name: Inspeccionar el estado de hora y zona horaria
+  hosts: all
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Leer el estado actual
+      ansible.builtin.import_tasks: tasks/leer_estado.yml
+
+    - name: Publicar el estado
+      ansible.builtin.debug:
+        msg: "HORA_STATE_B64={{ hora_estado | to_json | b64encode }}"

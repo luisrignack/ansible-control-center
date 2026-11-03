@@ -3,11 +3,13 @@
 
 Incluye autenticación, validación de formularios, progreso SSE, historial en
 SQLite, vault real con ansible-vault, ejecución de Ansible con inyección
-segura de la contraseña candidata, CSRF, rate limiting, límites de red y
-cabeceras de seguridad (fases P0-P3).
+segura de la contraseña candidata, CSRF, rate limiting, límites de red,
+cabeceras de seguridad y ejecución en grupo con lotes, vista previa,
+verificación e idempotencia (fases P0-P4).
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
@@ -16,8 +18,8 @@ import secrets
 import threading
 import time
 import uuid
-from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
 
 import click
 from flask import (
@@ -51,6 +53,7 @@ from config import (
     CSRF_ENABLED,
     CSRF_TIME_LIMIT_SECONDS,
     DEBUG,
+    DEFAULT_NTP_SERVERS,
     EXEC_RATE_LIMIT,
     EXEC_RATE_WINDOW,
     HSTS_ENABLED,
@@ -59,8 +62,10 @@ from config import (
     LOGIN_RATE_WINDOW,
     MAX_CONTENT_LENGTH,
     MAX_HOSTS,
+    MAX_NTP_SERVERS,
     MAX_PASSWORDS,
     MAX_PASSWORD_LENGTH,
+    NTP_POLICIES,
     PERMANENT_SESSION_LIFETIME_SECONDS,
     RATE_LIMIT_ENABLED,
     REMEMBER_COOKIE_HTTPONLY,
@@ -69,6 +74,7 @@ from config import (
     SESSION_COOKIE_HTTPONLY,
     SESSION_COOKIE_SAMESITE,
     SESSION_COOKIE_SECURE,
+    TIME_VERIFY_TOLERANCE,
     TRUST_PROXY,
     VAULT_RATE_LIMIT,
     VAULT_RATE_WINDOW,
@@ -78,11 +84,12 @@ from config import (
     resolve_vault_file,
     setup_logging,
 )
+from models.batch import ExecutionBatch
 from models.db import init_schema
 from models.execution import ExecutionRecord
 from models.password import PasswordRecord
 from models.user import User
-from services.ansible_runner import run_ansible_playbook
+from services.ansible_runner import apply_host, inspect_host
 from services.csrf import csrf_protect, generate_csrf_token, rotate_csrf_token
 from services.host_resolver import resolve_target, validate_target
 from services.password_tester import test_ansible_ping
@@ -219,6 +226,236 @@ def read_temporal_passwords(uploaded) -> tuple[list[str], Optional[str]]:
         return [], "El archivo no contiene contraseñas válidas."
 
     return passwords, None
+
+
+_TIMEZONE_RE = re.compile(r"^[A-Za-z0-9_+\-]+(?:/[A-Za-z0-9_+\-]+)*$")
+_HOSTNAME_RE = re.compile(
+    r"^(?=.{1,253}$)"
+    r"(?:[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)*\.?$"
+)
+
+
+def _form_bool(name: str) -> bool:
+    """Interpreta un checkbox/valor booleano del formulario."""
+    return request.form.get(name, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+        "si",
+        "sí",
+    }
+
+
+def _parse_ntp_servers(raw: str) -> tuple[List[str], Optional[str]]:
+    """Valida y normaliza una lista de servidores NTP.
+
+    Admite IPs (v4/v6) y nombres DNS separados por comas, espacios o saltos
+    de línea. Devuelve ``(servidores, error)``.
+    """
+    servers: List[str] = []
+    for token in re.split(r"[\s,;]+", raw or ""):
+        token = token.strip()
+        if not token:
+            continue
+        if len(token) > 253:
+            return [], "Un servidor NTP es demasiado largo."
+        try:
+            ipaddress.ip_address(token)
+        except ValueError:
+            if not _HOSTNAME_RE.fullmatch(token):
+                return [], f"Servidor NTP inválido: {token}"
+        if token not in servers:
+            servers.append(token)
+        if len(servers) > MAX_NTP_SERVERS:
+            return [], f"Máximo {MAX_NTP_SERVERS} servidores NTP."
+    return servers, None
+
+
+def _parse_operation_form(
+    default_mode: str = "execute",
+) -> tuple[Optional[Dict[str, Any]], List[str]]:
+    """Valida el formulario completo de vista previa/ejecución (P4).
+
+    Devuelve un diccionario normalizado o una lista de errores. La vista previa
+    y la ejecución comparten exactamente la misma validación para que lo que se
+    previsualiza sea lo que después se ejecuta.
+    """
+    target = request.form.get("target_ip", "").strip()
+    admin_user = request.form.get("admin_user", "").strip()
+    origin = request.form.get("password_origin", "stored").strip()
+    master_password = request.form.get("master_password", "").strip()
+    action = request.form.get("action", "TZ").strip().upper() or "TZ"
+    value = request.form.get("value", "").strip()
+    mode = (
+        request.form.get("mode", default_mode).strip().lower() or default_mode
+    )
+    time_mode = request.form.get("time_mode", "utc").strip().lower() or "utc"
+    ntp_policy = request.form.get("ntp_policy", "keep").strip().lower() or "keep"
+    ntp_servers_raw = request.form.get("ntp_servers", "")
+    sync_rtc = _form_bool("sync_rtc")
+    force = _form_bool("force")
+
+    errors: List[str] = []
+
+    if mode not in {"preview", "execute"}:
+        errors.append("Modo de operación no válido.")
+    target_error = validate_target(target)
+    if target_error:
+        errors.append(target_error)
+    if not admin_user:
+        errors.append("El usuario administrador es obligatorio.")
+    if action not in {"TZ", "TIME"}:
+        errors.append("Acción no válida.")
+    if ntp_policy not in NTP_POLICIES:
+        errors.append("Política NTP no válida.")
+
+    if action == "TIME":
+        if time_mode not in {"utc", "local"}:
+            errors.append("Semántica de hora no válida (utc o local).")
+        if not value:
+            errors.append("La hora exacta es obligatoria.")
+        else:
+            try:
+                parsed = datetime.strptime(
+                    value.replace(" ", "T"), "%Y-%m-%dT%H:%M"
+                )
+                value = parsed.strftime("%Y-%m-%dT%H:%M")
+            except ValueError:
+                errors.append("Formato de hora inválido; use AAAA-MM-DDTHH:MM.")
+    else:
+        # La semántica UTC/local solo aplica a TIME.
+        time_mode = "utc"
+        if not value:
+            errors.append("La zona horaria es obligatoria.")
+        elif not _TIMEZONE_RE.fullmatch(value):
+            errors.append("Formato de zona horaria inválido.")
+
+    ntp_servers: List[str] = []
+    if ntp_policy == "configure":
+        ntp_servers, ntp_error = _parse_ntp_servers(ntp_servers_raw)
+        if ntp_error:
+            errors.append(ntp_error)
+        if not ntp_servers:
+            ntp_servers = list(DEFAULT_NTP_SERVERS)
+            if not ntp_servers:
+                errors.append(
+                    "La política NTP 'configure' requiere al menos un servidor NTP."
+                )
+
+    temporal_passwords: list[str] = []
+    vault_file: Optional[str] = None
+    if origin not in {"stored", "temporal"}:
+        errors.append("Origen de contraseñas no válido.")
+    elif origin == "stored":
+        try:
+            vault_file = get_vault_file()
+        except RuntimeError as exc:
+            errors.append(str(exc))
+
+        if vault_file and not os.path.exists(vault_file):
+            errors.append("No existe el archivo del vault (passwords_vault.yml).")
+        if not master_password:
+            errors.append("La contraseña maestra del Vault es obligatoria.")
+        elif vault_file and os.path.exists(vault_file):
+            valid, message = VaultManager.validate_master_password(
+                vault_file=vault_file,
+                test_password=master_password,
+            )
+            if not valid:
+                errors.append(message or "Contraseña maestra incorrecta.")
+    else:
+        temporal_passwords, file_error = read_temporal_passwords(
+            request.files.get("password_file")
+        )
+        if file_error:
+            errors.append(file_error)
+
+    if errors:
+        return None, errors
+
+    return (
+        {
+            "target": target,
+            "admin_user": admin_user,
+            "origin": origin,
+            "master_password": master_password,
+            "action": action,
+            "value": value,
+            "mode": mode,
+            "time_mode": time_mode,
+            "ntp_policy": ntp_policy,
+            "ntp_servers": ntp_servers,
+            "sync_rtc": sync_rtc,
+            "force": force,
+            "temporal_passwords": temporal_passwords,
+        },
+        [],
+    )
+
+
+def _would_change(
+    state: Optional[Dict[str, Any]],
+    action: str,
+    value: str,
+    time_mode: str,
+    ntp_policy: str,
+    force: bool,
+) -> Optional[bool]:
+    """Estima si hace falta cambiar algo según el estado leído (vista previa).
+
+    Devuelve ``None`` si el estado no permite decidirlo (por ejemplo, un host
+    inaccesible o una salida incompleta del playbook de inspección).
+    """
+    if force:
+        return True
+    if not isinstance(state, dict):
+        return None
+
+    changed = False
+    if action == "TZ":
+        changed = (state.get("timezone") or "") != value
+    elif action == "TIME":
+        if time_mode == "utc":
+            try:
+                target_epoch = int(
+                    datetime.strptime(value, "%Y-%m-%dT%H:%M")
+                    .replace(tzinfo=timezone.utc)
+                    .timestamp()
+                )
+                current_epoch = int(state.get("epoch") or 0)
+                changed = current_epoch == 0 or (
+                    abs(current_epoch - target_epoch) > TIME_VERIFY_TOLERANCE
+                )
+            except (TypeError, ValueError):
+                return None
+        else:
+            local = str(state.get("local") or "")
+            changed = not local.startswith(value)
+
+    if ntp_policy == "off":
+        changed = changed or bool(state.get("ntp"))
+    elif ntp_policy in {"restore", "configure"}:
+        changed = changed or not bool(state.get("ntp"))
+
+    return changed
+
+
+def _batch_message(batch: Any) -> str:
+    """Resumen legible del estado de un lote."""
+    if batch is None:
+        return "Lote sin resultado"
+    if batch.status == "preview":
+        return (
+            f"Vista previa: {batch.preview_count} host(s) inspeccionado(s), "
+            f"{batch.error_count} con error"
+        )
+    return (
+        f"Lote {batch.status}: {batch.success_count} éxito(s), "
+        f"{batch.failure_count} fallo(s), {batch.skipped_count} omitido(s), "
+        f"{batch.error_count} error(es)"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -423,10 +660,43 @@ def logout():
 def index():
     if request.method == "POST":
         return handle_execution()
-    return render_template("index.html", common_timezones=COMMON_TIMEZONES)
+
+    prefill = {
+        key: request.args.get(key, "")
+        for key in (
+            "target_ip",
+            "admin_user",
+            "action",
+            "value",
+            "time_mode",
+            "ntp_policy",
+            "ntp_servers",
+        )
+    }
+    return render_template(
+        "index.html",
+        common_timezones=COMMON_TIMEZONES,
+        ntp_policies=NTP_POLICIES,
+        default_ntp_servers=", ".join(DEFAULT_NTP_SERVERS),
+        prefill=prefill,
+    )
 
 
-def handle_execution():
+@app.route("/preview", methods=["POST"])
+@login_required
+def preview_execution():
+    """Alias explícito para lanzar una vista previa (no cambia hosts)."""
+    return handle_execution(default_mode="preview")
+
+
+@app.route("/execute", methods=["POST"])
+@login_required
+def execute_execution():
+    """Alias explícito para lanzar una ejecución sobre todos los hosts."""
+    return handle_execution(default_mode="execute")
+
+
+def handle_execution(default_mode: str = "execute"):
     retry_after = _check_rate_limit(
         f"exec:{current_user.get_id()}:{_client_ip()}",
         EXEC_RATE_LIMIT,
@@ -442,66 +712,7 @@ def handle_execution():
             "Demasiadas ejecuciones seguidas. Espera antes de reintentar.",
         )
 
-    ti = request.form.get("target_ip", "").strip()
-    au = request.form.get("admin_user", "").strip()
-    po = request.form.get("password_origin", "stored")
-    mpw = request.form.get("master_password", "").strip()
-    ac = request.form.get("action", "TZ")
-    vl = request.form.get("value", "").strip()
-
-    errors = []
-
-    target_error = validate_target(ti)
-    if target_error:
-        errors.append(target_error)
-    if not au:
-        errors.append("El usuario administrador es obligatorio.")
-    if ac not in {"TZ", "TIME"}:
-        errors.append("Acción no válida.")
-
-    if ac == "TZ":
-        if not vl:
-            errors.append("La zona horaria es obligatoria.")
-        elif vl not in COMMON_TIMEZONES and not re.fullmatch(r"[A-Za-z0-9_+\-/]+", vl):
-            errors.append("Formato de zona horaria inválido.")
-    elif ac == "TIME":
-        if not vl:
-            errors.append("La hora exacta es obligatoria.")
-        else:
-            try:
-                datetime.strptime(vl, "%Y-%m-%dT%H:%M")
-            except ValueError:
-                errors.append("Formato de hora inválido; use AAAA-MM-DDTHH:MM.")
-
-    temporal_passwords: list[str] = []
-
-    if po not in {"stored", "temporal"}:
-        errors.append("Origen de contraseñas no válido.")
-    elif po == "stored":
-        try:
-            vault_file = get_vault_file()
-        except RuntimeError as exc:
-            errors.append(str(exc))
-            vault_file = None
-
-        if vault_file and not os.path.exists(vault_file):
-            errors.append("No existe el archivo del vault (passwords_vault.yml).")
-        if not mpw:
-            errors.append("La contraseña maestra del Vault es obligatoria.")
-        elif vault_file and os.path.exists(vault_file):
-            valid, message = VaultManager.validate_master_password(
-                vault_file=vault_file,
-                test_password=mpw,
-            )
-            if not valid:
-                errors.append(message or "Contraseña maestra incorrecta.")
-    else:
-        temporal_passwords, file_error = read_temporal_passwords(
-            request.files.get("password_file")
-        )
-        if file_error:
-            errors.append(file_error)
-
+    form, errors = _parse_operation_form(default_mode=default_mode)
     if errors:
         for error in errors:
             flash(error, "danger")
@@ -509,14 +720,41 @@ def handle_execution():
             return jsonify({"status": "error", "errors": errors}), 400
         return redirect(url_for("index"))
 
+    assert form is not None  # ``errors`` vacío implica formulario válido.
+    operator = getattr(current_user, "username", "") or str(current_user.get_id())
+
     tid = create_task()
     update_task(
         tid,
-        {"status": "running", "progress": 0, "message": "Iniciando…", "completed": False},
+        {
+            "status": "running",
+            "progress": 0,
+            "message": "Iniciando…",
+            "mode": form["mode"],
+            "completed": False,
+        },
     )
     thread = threading.Thread(
         target=execute_with_progress,
-        args=(tid, ti, au, po, mpw, ac, vl, temporal_passwords),
+        args=(
+            tid,
+            form["target"],
+            form["admin_user"],
+            form["origin"],
+            form["master_password"],
+            form["action"],
+            form["value"],
+            form["temporal_passwords"],
+        ),
+        kwargs={
+            "mode": form["mode"],
+            "time_mode": form["time_mode"],
+            "ntp_policy": form["ntp_policy"],
+            "ntp_servers": form["ntp_servers"],
+            "sync_rtc": form["sync_rtc"],
+            "force": form["force"],
+            "operator": operator,
+        },
         daemon=True,
         name=f"hora-admin-{tid[:8]}",
     )
@@ -527,10 +765,283 @@ def handle_execution():
             {
                 "status": "started",
                 "task_id": tid,
+                "mode": form["mode"],
                 "message": f"Ver /progress/{tid} para el progreso en tiempo real",
             }
         )
     return redirect(url_for("progress_page", task_id=tid))
+
+
+def _append_log(lines: List[str], message: str, limit: int = 200) -> None:
+    """Añade una línea al log de progreso manteniendo un tamaño acotado."""
+    lines.append(message)
+    if len(lines) > limit:
+        del lines[: len(lines) - limit]
+
+
+def _progress_for(index: int, total: int, start: int = 12, span: int = 85) -> int:
+    """Progreso proporcional al número de hosts ya procesados."""
+    if total <= 0:
+        return start
+    return min(start + int(index / total * span), start + span)
+
+
+def _run_preview_batch(
+    tid: str,
+    batch_id: str,
+    hosts: List[str],
+    admin_user: str,
+    candidates: List[str],
+    action: str,
+    value: str,
+    password_origin: str,
+    time_mode: str,
+    ntp_policy: str,
+    force: bool,
+    db_path: str,
+    log_lines: List[str],
+) -> None:
+    """Inspecciona todos los hosts sin cambiar nada y registra el lote."""
+    total = len(hosts)
+    for index, host in enumerate(hosts, start=1):
+        started = time.monotonic()
+        state: Optional[Dict[str, Any]] = None
+        used_hash = ""
+        last_error = ""
+        inspected = False
+
+        for candidate in candidates:
+            try:
+                result = inspect_host(host=host, user=admin_user, password=candidate)
+            except Exception as exc:  # pragma: no cover - salvaguarda
+                last_error = str(exc)
+                continue
+
+            if result.get("success"):
+                inspected = True
+                state = result.get("state")
+                used_hash = PasswordRecord.hash_short(candidate)
+                break
+            last_error = result.get("error") or "No se pudo inspeccionar el host."
+
+        duration_ms = int((time.monotonic() - started) * 1000)
+        progress = _progress_for(index, total)
+
+        if inspected:
+            plan = {
+                "planned": True,
+                "would_change": _would_change(
+                    state, action, value, time_mode, ntp_policy, force
+                ),
+                "action": action,
+                "value": value,
+                "time_mode": time_mode,
+                "ntp_policy": ntp_policy,
+            }
+            ExecutionBatch.add_host_result(
+                batch_id=batch_id,
+                host=host,
+                result="preview",
+                duration_ms=duration_ms,
+                before_state=state,
+                after_state=plan,
+                password_hash=used_hash,
+                password_origin=password_origin,
+                db_path=db_path,
+            )
+            _append_log(
+                log_lines,
+                f"Vista previa OK en {host} (hash {used_hash or 'n/d'})",
+            )
+        else:
+            ExecutionBatch.add_host_result(
+                batch_id=batch_id,
+                host=host,
+                result="error",
+                error=last_error or "No se pudo autenticar en el host.",
+                duration_ms=duration_ms,
+                password_hash=used_hash,
+                db_path=db_path,
+            )
+            _append_log(
+                log_lines,
+                f"Vista previa falló en {host}: {str(last_error)[:160]}",
+            )
+
+        update_task(
+            tid,
+            {
+                "progress": progress,
+                "message": f"Vista previa {index}/{total}: {host}",
+                "log": list(log_lines),
+            },
+        )
+
+
+def _run_apply_batch(
+    tid: str,
+    batch_id: str,
+    hosts: List[str],
+    admin_user: str,
+    candidates: List[str],
+    action: str,
+    value: str,
+    password_origin: str,
+    time_mode: str,
+    ntp_policy: str,
+    ntp_servers: List[str],
+    sync_rtc: bool,
+    force: bool,
+    db_path: str,
+    log_lines: List[str],
+) -> None:
+    """Aplica el cambio en todos los hosts (best-effort) y registra cada uno.
+
+    Si una contraseña autentica pero el playbook falla, se prueban las
+    siguientes candidatas. Un fallo de un host nunca detiene el lote.
+    """
+    total = len(hosts)
+    for index, host in enumerate(hosts, start=1):
+        started = time.monotonic()
+        success = False
+        before_state: Any = None
+        after_state: Any = None
+        used_hash = ""
+        warnings = ""
+        last_auth_error = ""
+        last_apply_error = ""
+
+        for candidate in candidates:
+            try:
+                ping = test_ansible_ping(
+                    host=host, user=admin_user, password=candidate
+                )
+            except Exception as exc:  # pragma: no cover - salvaguarda
+                last_auth_error = str(exc)
+                continue
+
+            if not ping.get("success"):
+                last_auth_error = ping.get("error") or "sin conexión"
+                _append_log(
+                    log_lines,
+                    f"Sin acceso a {host}: {str(last_auth_error)[:120]}",
+                )
+                continue
+
+            short_hash = PasswordRecord.hash_short(candidate)
+            update_task(
+                tid,
+                {
+                    "progress": _progress_for(index - 1, total),
+                    "message": f"Credencial válida en {host}; aplicando cambio…",
+                    "log": list(log_lines),
+                },
+            )
+
+            try:
+                result = apply_host(
+                    host=host,
+                    user=admin_user,
+                    action=action,
+                    value=value,
+                    password=candidate,
+                    time_mode=time_mode,
+                    ntp_policy=ntp_policy,
+                    ntp_servers=ntp_servers,
+                    sync_rtc=sync_rtc,
+                    force=force,
+                )
+            except Exception as exc:  # pragma: no cover - salvaguarda
+                last_apply_error = str(exc)
+                _append_log(
+                    log_lines,
+                    f"Error inesperado en {host} (hash {short_hash}): {str(exc)[:120]}",
+                )
+                continue
+
+            # El estado previo debe ser el del primer intento que llegó a
+            # conectar; los reintentos con otras contraseñas no lo reemplazan.
+            if before_state is None and result.get("before_state") is not None:
+                before_state = result.get("before_state")
+            if result.get("after_state") is not None:
+                after_state = result.get("after_state")
+            if result.get("warnings"):
+                warnings = result.get("warnings")
+
+            if result.get("success"):
+                success = True
+                used_hash = short_hash
+                last_apply_error = ""
+                _append_log(
+                    log_lines,
+                    f"Playbook OK en {host} (hash {short_hash})",
+                )
+                break
+
+            # La contraseña es válida pero el cambio/verificación falló:
+            # se sigue probando el resto de candidatas para este host.
+            used_hash = short_hash
+            last_apply_error = result.get("error") or "El playbook falló"
+            _append_log(
+                log_lines,
+                f"Playbook falló en {host} con hash {short_hash}: "
+                f"{str(last_apply_error)[:140]}",
+            )
+
+        duration_ms = int((time.monotonic() - started) * 1000)
+        error = ""
+        if not success:
+            error = (
+                last_apply_error
+                or last_auth_error
+                or "No se pudo autenticar en el host."
+            )
+
+        ExecutionBatch.add_host_result(
+            batch_id=batch_id,
+            host=host,
+            result="success" if success else "failure",
+            error=error,
+            duration_ms=duration_ms,
+            before_state=before_state,
+            after_state=after_state,
+            password_hash=used_hash,
+            password_origin=password_origin,
+            db_path=db_path,
+        )
+
+        # Se conserva el registro por host heredado para auditoría/consultas
+        # antiguas; el lote es la fuente principal del historial desde P4.
+        try:
+            ExecutionRecord.record_execution(
+                action=action,
+                value=value,
+                host=host,
+                result="success" if success else "failure",
+                password_hash=used_hash,
+                password_origin=password_origin,
+                db_path=db_path,
+            )
+        except Exception:  # pragma: no cover - no debe tumbar el lote
+            logger.exception("No se pudo registrar el historial de %s", host)
+
+        if warnings:
+            _append_log(
+                log_lines, f"Advertencias en {host}: {str(warnings)[:160]}"
+            )
+        _append_log(
+            log_lines,
+            f"{'OK' if success else 'FALLO'} {host} ({duration_ms} ms)"
+            + (f": {str(error)[:160]}" if error else ""),
+        )
+        update_task(
+            tid,
+            {
+                "progress": _progress_for(index, total),
+                "message": f"Procesados {index}/{total} hosts",
+                "log": list(log_lines),
+            },
+        )
 
 
 def execute_with_progress(
@@ -542,8 +1053,22 @@ def execute_with_progress(
     ac: str,
     vl: str,
     temporal_passwords: Optional[list[str]] = None,
+    *,
+    mode: str = "execute",
+    time_mode: str = "utc",
+    ntp_policy: str = "keep",
+    ntp_servers: Optional[List[str]] = None,
+    sync_rtc: bool = False,
+    force: bool = False,
+    operator: str = "",
 ) -> None:
-    """Ejecuta el flujo completo: hosts, credenciales y playbook."""
+    """Ejecuta una vista previa o un lote completo sobre todos los hosts.
+
+    El flujo es best-effort: cada host se procesa de forma independiente y se
+    guarda su resultado. Un host no detiene el resto del lote.
+    """
+    batch_id = ""
+    db_path = get_db_path()
     try:
         update_task(
             tid,
@@ -552,6 +1077,7 @@ def execute_with_progress(
                 "progress": 5,
                 "message": "Resolviendo hosts…",
                 "log": ["Iniciando"],
+                "mode": mode,
                 "completed": False,
             },
         )
@@ -632,123 +1158,103 @@ def execute_with_progress(
             )
             return
 
-        total = max(len(hosts) * len(candidates), 1)
-        tested = 0
-        last_error = ""
-
-        for host in hosts:
-            for candidate in candidates:
-                tested += 1
-                progress = min(15 + int(tested / total * 55), 70)
-                update_task(
-                    tid,
-                    {
-                        "progress": progress,
-                        "message": f"Probando credenciales en {host}…",
-                        "log": [f"Intento {tested}/{total} en {host}"],
-                    },
-                )
-
-                ping = test_ansible_ping(host=host, user=au, password=candidate)
-                if not ping.get("success"):
-                    last_error = ping.get("error", "sin conexión")
-                    update_task(
-                        tid,
-                        {
-                            "progress": progress,
-                            "message": f"Sin acceso a {host}",
-                            "log": [f"Ping falló en {host}: {str(last_error)[:160]}"],
-                        },
-                    )
-                    continue
-
-                short_hash = PasswordRecord.hash_short(candidate)
-                update_task(
-                    tid,
-                    {
-                        "progress": 75,
-                        "message": f"Credencial válida en {host}; ejecutando playbook…",
-                        "log": [f"Ping OK en {host} (hash {short_hash})"],
-                    },
-                )
-
-                playbook_result = run_ansible_playbook(
-                    host=host,
-                    user=au,
-                    password=candidate,
-                    action=ac,
-                    value=vl,
-                )
-
-                if playbook_result.get("success"):
-                    ExecutionRecord.record_execution(
-                        action=ac,
-                        value=vl,
-                        host=host,
-                        result="success",
-                        password_hash=short_hash,
-                        password_origin=po,
-                        db_path=get_db_path(),
-                    )
-                    update_task(
-                        tid,
-                        {
-                            "status": "completed",
-                            "progress": 100,
-                            "message": "Configuración completada",
-                            "log": [f"Playbook OK en {host}"],
-                            "overall_result": "success",
-                            "completed": True,
-                        },
-                    )
-                    return
-
-                last_error = playbook_result.get("error", "El playbook falló")
-                ExecutionRecord.record_execution(
-                    action=ac,
-                    value=vl,
-                    host=host,
-                    result="failure",
-                    password_hash=short_hash,
-                    password_origin=po,
-                    db_path=get_db_path(),
-                )
-                update_task(
-                    tid,
-                    {
-                        "status": "failed",
-                        "progress": 85,
-                        "message": f"El playbook falló en {host}",
-                        "log": [str(last_error)[:200]],
-                        "overall_result": "failure",
-                        "completed": True,
-                    },
-                )
-                return
-
-        # Ningún intento llegó a ejecutar el playbook: dejar constancia.
-        ExecutionRecord.record_execution(
+        batch_id = str(uuid.uuid4())
+        ExecutionBatch.create_batch(
+            batch_id=batch_id,
+            operator=operator or "desconocido",
             action=ac,
             value=vl,
-            host=ti,
-            result="failure",
-            password_hash="",
-            password_origin=po,
-            db_path=get_db_path(),
+            target=ti,
+            time_mode=time_mode,
+            ntp_policy=ntp_policy,
+            total_hosts=len(hosts),
+            status="preview" if mode == "preview" else "running",
+            db_path=db_path,
         )
         update_task(
             tid,
             {
-                "status": "failure",
-                "progress": 65,
-                "message": "Ningún host respondió correctamente",
-                "log": [f"{tested} intento(s) sin éxito", str(last_error)[:200]],
-                "overall_result": "failure",
+                "batch_id": batch_id,
+                "progress": 12,
+                "message": (
+                    f"Vista previa de {len(hosts)} host(s)…"
+                    if mode == "preview"
+                    else f"Ejecutando en {len(hosts)} host(s)…"
+                ),
+                "log": [f"Lote {batch_id} creado con {len(hosts)} host(s)"],
+                "total_hosts": len(hosts),
+                "operator": operator,
+                "time_mode": time_mode,
+                "ntp_policy": ntp_policy,
+            },
+        )
+
+        log_lines: List[str] = [f"Lote {batch_id}"]
+        if mode == "preview":
+            _run_preview_batch(
+                tid=tid,
+                batch_id=batch_id,
+                hosts=hosts,
+                admin_user=au,
+                candidates=candidates,
+                action=ac,
+                value=vl,
+                password_origin=po,
+                time_mode=time_mode,
+                ntp_policy=ntp_policy,
+                force=force,
+                db_path=db_path,
+                log_lines=log_lines,
+            )
+        else:
+            _run_apply_batch(
+                tid=tid,
+                batch_id=batch_id,
+                hosts=hosts,
+                admin_user=au,
+                candidates=candidates,
+                action=ac,
+                value=vl,
+                password_origin=po,
+                time_mode=time_mode,
+                ntp_policy=ntp_policy,
+                ntp_servers=list(ntp_servers or []),
+                sync_rtc=sync_rtc,
+                force=force,
+                db_path=db_path,
+                log_lines=log_lines,
+            )
+
+        batch = ExecutionBatch.finish_batch(
+            batch_id=batch_id,
+            total_hosts=len(hosts),
+            db_path=db_path,
+        )
+        overall_result = batch.status if batch is not None else "error"
+        if overall_result not in {"success", "partial", "failure", "error", "preview"}:
+            overall_result = "error"
+        _append_log(log_lines, _batch_message(batch))
+        update_task(
+            tid,
+            {
+                "status": "completed" if overall_result != "error" else "error",
+                "progress": 100,
+                "message": _batch_message(batch),
+                "log": list(log_lines),
+                "overall_result": overall_result,
                 "completed": True,
+                "batch_id": batch_id,
             },
         )
     except Exception as exc:  # pragma: no cover - salvaguarda
         logger.exception("Error en la ejecución %s", tid)
+        if batch_id:
+            try:
+                ExecutionBatch.finish_batch(
+                    batch_id=batch_id, status="error", db_path=db_path
+                )
+            except Exception:  # pragma: no cover - salvaguarda
+                logger.exception("No se pudo cerrar el lote %s", batch_id)
         update_task(
             tid,
             {
@@ -758,6 +1264,7 @@ def execute_with_progress(
                 "log": [f"Error: {exc}"],
                 "overall_result": "error",
                 "completed": True,
+                "batch_id": batch_id,
             },
         )
 
@@ -796,6 +1303,30 @@ def api_task_status(task_id: str):
     if task is None:
         return jsonify({"status": "not_found", "exists": False})
     return jsonify({**task, "exists": True})
+
+
+# ---------------------------------------------------------------------------
+# Lotes y vista previa (P4)
+# ---------------------------------------------------------------------------
+@app.route("/batches/<batch_id>")
+@login_required
+def batch_detail(batch_id: str):
+    batch = ExecutionBatch.get_batch(batch_id, db_path=get_db_path())
+    if batch is None:
+        abort(404)
+    host_results = ExecutionBatch.get_host_results(
+        batch_id, db_path=get_db_path()
+    )
+    return render_template(
+        "batch.html", batch=batch, host_results=host_results
+    )
+
+
+@app.route("/preview/<batch_id>")
+@login_required
+def preview_detail(batch_id: str):
+    """Alias de la vista de lote para enlaces de vista previa."""
+    return redirect(url_for("batch_detail", batch_id=batch_id))
 
 
 # ---------------------------------------------------------------------------
@@ -988,10 +1519,9 @@ def passwords():
 @app.route("/history")
 @login_required
 def history():
-    executions = ExecutionRecord.get_all_executions(
-        limit=50, db_path=get_db_path()
-    )
-    return render_template("history.html", executions=executions)
+    batches = ExecutionBatch.get_batches(limit=50, db_path=get_db_path())
+    stats = ExecutionBatch.get_stats(db_path=get_db_path())
+    return render_template("history.html", batches=batches, stats=stats)
 
 
 # ---------------------------------------------------------------------------

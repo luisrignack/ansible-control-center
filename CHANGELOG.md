@@ -1,0 +1,186 @@
+# Changelog — Hora Admin
+
+Historial de cambios por fase. El proyecto no usa versiones semánticas
+todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
+
+Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+## [P4] — 2026-11-03
+
+### Añadido
+
+- **Ejecución en grupo real:** el lote recorre todos los hosts resueltos, no
+  solo el primero.
+- **Best-effort:** un host inaccesible o un playbook fallido no detiene el
+  resto; el estado global agrega éxitos, fallos y errores.
+- **Reintento de contraseñas:** si una candidata autentica pero el playbook
+  falla o la verificación no coincide, se prueban las siguientes para ese host.
+- **Modelo de lote** (`models/batch.py`):
+  - `execution_batches`: `batch_id`, operador, objetivo, acción, valor,
+    `time_mode`, `ntp_policy`, estado, contadores y fechas.
+  - `execution_hosts`: resultado, error, duración, estado previo/posterior,
+    hash corto y origen de la contraseña.
+- **Vista previa** (`mode=preview`): inspección de solo lectura con
+  `inspect_host`, plan `would_change` y lote en estado `preview`. Nunca llama a
+  `apply_host`.
+- **Verificación posterior:** `timedatectl show`, `date` y `hwclock`; el host
+  solo cuenta como éxito si `HORA_VERIFIED` es correcto.
+- **Idempotencia:** no se cambia zona horaria ni hora si ya coinciden, salvo
+  `force`.
+- **Semántica explícita UTC/local** (`time_mode`) para la hora exacta.
+- **Política NTP explícita:** `keep`, `off`, `restore` y `configure`, con
+  validación de servidores solo para `configure`.
+- **Sincronización RTC opcional** (`sync_rtc`).
+- **Playbook de inspección** `ansible/estado_hora.yml` y tarea compartida
+  `ansible/tasks/leer_estado.yml`.
+- **Marcadores de verificación:** `HORA_BEFORE_B64`, `HORA_STATE_B64`,
+  `HORA_CHANGED`, `HORA_VERIFIED`, `HORA_ERRORS_B64`, `HORA_WARNINGS_B64` y
+  `HORA_DEVIATION`.
+- **Rutas nuevas:** `POST /preview`, `POST /execute`, `GET /batches/<batch_id>`
+  y `GET /preview/<batch_id>`.
+- **Historial por lotes** con contadores, operador, duración y detalle por host.
+- **Esquema SQLite v3** con migración no destructiva, índices de lotes y
+  `ON DELETE CASCADE` de hosts a lotes.
+- **Configuración P4:** `HORA_ADMIN_TIME_TOLERANCE`,
+  `HORA_ADMIN_DEFAULT_NTP_SERVERS` y `HORA_ADMIN_MAX_NTP_SERVERS`.
+- **Tests P4** (`tests/test_p4.py`): ejecución en todos los hosts,
+  best-effort, reintento de contraseñas, vista previa, propagación de
+  `time_mode`, política NTP, `sync_rtc` y `force`.
+- **Documentación:** README reescrito, suite `docs/` (índice, arquitectura,
+  referencia, operación), análisis profundo y este changelog.
+
+### Cambiado
+
+- El resultado de un host ya no se considera éxito solo por
+  `returncode == 0`; `apply_host` exige verificación.
+- El historial principal pasa a ser el lote; `executions` se conserva como
+  registro heredado por compatibilidad.
+- `time_mode` se normaliza a `utc` para la acción `TZ`.
+- Los servidores NTP solo se validan cuando la política es `configure`.
+- La política NTP por defecto sigue siendo `keep`.
+
+### Corregido
+
+- El lote ya no termina tras el primer host correcto.
+- El lote ya no se detiene ante el primer fallo.
+- Ya no se pierden credenciales válidas cuando el primer intento de playbook
+  falla.
+- `TIME` deja de depender implícitamente de la zona local del controlador:
+  `utc` fija el mismo instante y `local` es una elección explícita.
+- Se registra el estado previo y posterior por host para auditoría y reversión
+  manual.
+
+### Limitaciones conocidas de P4
+
+- `DRY_RUN` no se muestra en la interfaz ni se guarda en el lote.
+- `TIME` + `keep` puede ser revertido por NTP.
+- `restore` reactiva NTP aunque estuviera desactivado.
+- Ejecución secuencial, sin cancelación ni reintento selectivo.
+- Estado SSE en memoria; sin reconciliación automática de lotes huérfanos.
+- Sin retención automática, RBAC, MFA ni allowlist de redes.
+
+---
+
+## [P3] — 2026-11-02
+
+### Añadido
+
+- **CSRF** global para `POST/PUT/PATCH/DELETE`, token de sesión con caducidad y
+  comparación en tiempo constante.
+- **Rate limiting** en memoria para login, ejecuciones y operaciones de vault.
+- **Límites de red:** validación con `ipaddress`, prefijo CIDR mínimo y máximo
+  de hosts antes de enumerar.
+- **Cabeceras de seguridad:** CSP con nonce, `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy`,
+  `Permissions-Policy`, HSTS opcional y `Cache-Control: no-store`.
+- **Soporte de proxy inverso** con `ProxyFix` opcional.
+- **Configuración:** `HORA_ADMIN_CSRF_*`, `HORA_ADMIN_*_RATE_*`,
+  `HORA_ADMIN_MIN_CIDR_PREFIX`, `HORA_ADMIN_MAX_HOSTS`,
+  `HORA_ADMIN_TRUST_PROXY`, `HORA_ADMIN_CSP_ENABLED`,
+  `HORA_ADMIN_SECURITY_HEADERS`, `HORA_ADMIN_HSTS*`.
+- Tests de seguridad (`tests/test_security.py`) y de cabeceras.
+
+### Cambiado
+
+- Los errores `400`/`429` devuelven JSON a peticiones AJAX y HTML al resto.
+- El login rota el token CSRF.
+
+---
+
+## [P2] — 2026-11-01
+
+### Añadido
+
+- **Vault real** con `ansible-vault`: cifrado, descifrado, importación y
+  borrado; escritura atómica y sin persistir la contraseña maestra.
+- **Ejecución Ansible real** con `ansible -m ping` y `ansible-playbook`.
+- **Inyección segura de credenciales:** ficheros temporales `0600` y
+  `--extra-vars @fichero`; nunca en `argv`.
+- **Modo temporal `.txt`** procesado en memoria.
+- **Historial por host** en SQLite (`executions`) con acción, valor, host,
+  resultado y hash corto.
+- **Gestión de contraseñas candidatas** con hashes corto y completo.
+- **Vista de contraseñas** con alta manual, importación `.txt`/`.yml` y
+  borrado.
+- **Logging** configurable con rotación.
+- Tests de vault, runner de Ansible y servicios.
+
+### Cambiado
+
+- La contraseña de conexión deja de viajar en la línea de comandos.
+- El historial muestra el hash corto, no la contraseña.
+
+---
+
+## [P1] — 2026-10-31
+
+### Añadido
+
+- **SQLite centralizado** con conexiones por petición.
+- **Migraciones versionadas** mediante `PRAGMA user_version`, no destructivas.
+- **WAL** y `busy_timeout` para tolerar concurrencia.
+- **Esquema inicial:** `users`, `passwords`, `executions`,
+  `execution_summaries`.
+- **Índices** de historial y contraseñas.
+- Tests de migración, idempotencia y concurrencia.
+
+### Cambiado
+
+- El historial y los usuarios dejan de depender de almacenamiento ad hoc.
+
+---
+
+## [P0] — 2026-10-30
+
+### Añadido
+
+- **Estructura unificada** de la aplicación Flask.
+- **Login** con Flask-Login, hash Werkzeug y sesión.
+- **Comandos CLI** `init-db` e `init-admin`.
+- **Panel de configuración** con objetivo, credenciales, acción y valor.
+- **Páginas de error** `400`, `404`, `429` y `500`.
+- **Progreso SSE** en `/progress/<task_id>` y estado JSON.
+- **Arranque en desarrollo** con `python app.py`.
+- Configuración central con rutas de producción y fallback a `instance/`.
+- Tests iniciales de login, rutas y cabeceras.
+
+---
+
+## Pendiente (no implementado)
+
+- Banner y persistencia de `DRY_RUN`.
+- Corrección de `TIME` + `keep` y de la semántica exacta de `restore`.
+- Paralelismo, cola persistente, cancelación y reintento de fallidos.
+- Reconciliación de lotes huérfanos y parada ordenada.
+- Retención automática (`HORA_ADMIN_HISTORY_DAYS`,
+  `HORA_ADMIN_JOB_RETENTION_HOURS`).
+- RBAC, MFA, aprobaciones y allowlist de redes.
+- Auditoría de eventos independiente.
+- Inventarios, CSV, grupos y exclusiones.
+- API/CLI de ejecución, webhooks y exportación.
+- Multiplataforma (RHEL/Rocky, Windows, red).
+
+Consulta el detalle y la priorización en
+[docs/ANALISIS_Y_RECOMENDACIONES.md](docs/ANALISIS_Y_RECOMENDACIONES.md).

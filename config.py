@@ -110,6 +110,7 @@ TEMP_DIR = SECRETS_DIR / ".tmp"
 
 ANSIBLE_DIR = BASE_DIR / "ansible"
 PLAYBOOK_FILE = ANSIBLE_DIR / "cambiar_hora.yml"
+INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "estado_hora.yml"
 ANSIBLE_CFG = ANSIBLE_DIR / "ansible.cfg"
 
 BIN_ANSIBLE = _find_binary("ansible", "HORA_ADMIN_ANSIBLE_BIN")
@@ -229,6 +230,31 @@ JOB_RETENTION_HOURS = _env_int("HORA_ADMIN_JOB_RETENTION_HOURS", 24, minimum=1)
 
 # Extensión máxima de un rango CIDR aceptado (p. ej. /24 -> 254 hosts).
 MIN_CIDR_PREFIX = _env_int("HORA_ADMIN_MIN_CIDR_PREFIX", 22, minimum=8, maximum=32)
+
+# ---------------------------------------------------------------------------
+# P4: ejecución en grupo, verificación e idempotencia
+# ---------------------------------------------------------------------------
+# Diferencia máxima aceptada entre la hora objetivo y la hora final del host.
+TIME_VERIFY_TOLERANCE = _env_int(
+    "HORA_ADMIN_TIME_TOLERANCE", 120, minimum=0, maximum=3600
+)
+
+# Políticas NTP:
+#   keep      -> no tocar la configuración NTP existente.
+#   off       -> desactivar NTP (queda desactivado).
+#   restore   -> desactivar, fijar la hora y volver a activar NTP.
+#   configure -> configurar servidores NTP y dejar NTP activo.
+NTP_POLICIES: tuple[str, ...] = ("keep", "off", "restore", "configure")
+MAX_NTP_SERVERS = _env_int(
+    "HORA_ADMIN_MAX_NTP_SERVERS", 8, minimum=1, maximum=32
+)
+DEFAULT_NTP_SERVERS: tuple[str, ...] = tuple(
+    server.strip()
+    for server in os.environ.get(
+        "HORA_ADMIN_DEFAULT_NTP_SERVERS", "pool.ntp.org"
+    ).split(",")
+    if server.strip()
+)
 
 # Extensiones permitidas para archivos de contraseñas
 ALLOWED_PASSWORD_EXTENSIONS = {".txt", ".yml", ".yaml"}

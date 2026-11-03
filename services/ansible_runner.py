@@ -4,13 +4,21 @@
 # La contraseña candidata nunca se pasa por la línea de comandos (visible en
 # ``ps``): se escribe en un fichero temporal 0600 y se pasa con
 # ``--extra-vars @fichero``. El fichero se borra siempre al terminar.
+#
+# La fase P4 añade dos operaciones:
+#   * ``inspect_host``: lee hora, zona horaria, NTP y RTC sin cambiar nada.
+#   * ``apply_host``: aplica el cambio, verifica el resultado y devuelve el
+#     estado previo y posterior.
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
+import re
 import subprocess
-from typing import Any, Dict, Optional
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 from config import (
     ANSIBLE_CFG,
@@ -18,12 +26,19 @@ from config import (
     CONNECT_TIMEOUT,
     DRY_RUN,
     HOST_KEY_CHECKING,
+    INSPECT_PLAYBOOK_FILE,
     PLAYBOOK_FILE,
     PLAYBOOK_TIMEOUT,
+    TIME_VERIFY_TOLERANCE,
 )
 from services.secure_temp import secure_temp_file
 
 logger = logging.getLogger(__name__)
+
+_STATE_B64_RE = re.compile(r"HORA_STATE_B64=([A-Za-z0-9+/=]+)")
+_BEFORE_B64_RE = re.compile(r"HORA_BEFORE_B64=([A-Za-z0-9+/=]+)")
+_STATE_JSON_RE = re.compile(r"HORA_STATE=(\{.*\})")
+_BEFORE_JSON_RE = re.compile(r"HORA_BEFORE=(\{.*\})")
 
 
 def _result(host: str, success: bool, **extra: Any) -> Dict[str, Any]:
@@ -51,6 +66,132 @@ def ansible_environment() -> Dict[str, str]:
     return env
 
 
+def _invoke_playbook(
+    host: str,
+    user: str,
+    password: Optional[str],
+    playbook_path: str,
+    extra_vars: Dict[str, Any],
+    timeout: Optional[int] = None,
+) -> subprocess.CompletedProcess:
+    """Ejecuta ``ansible-playbook`` con las credenciales en un fichero 0600."""
+    path = str(playbook_path)
+    payload = dict(extra_vars)
+    payload["ansible_password"] = password
+    payload["ansible_become_password"] = password
+
+    with secure_temp_file(
+        json.dumps(payload), prefix=".ansible-vars-", suffix=".json"
+    ) as vars_file:
+        cmd = [
+            BIN_ANSIBLE_PLAYBOOK,
+            path,
+            "-i",
+            f"{host},",
+            "-u",
+            user,
+            "--extra-vars",
+            f"@{vars_file}",
+            "--timeout",
+            str(CONNECT_TIMEOUT),
+        ]
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout or PLAYBOOK_TIMEOUT,
+            env=ansible_environment(),
+        )
+
+
+def _decode_b64_marker(output: str, marker: str) -> Optional[Dict[str, Any]]:
+    """Decodifica un marcador ``<marker>_B64=<base64-json>``."""
+    match = re.search(rf"{re.escape(marker)}_B64=([A-Za-z0-9+/=]+)", output)
+    if not match:
+        return None
+    try:
+        raw = base64.b64decode(match.group(1)).decode("utf-8")
+        value = json.loads(raw)
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _decode_json_marker(output: str, marker: str) -> Optional[Dict[str, Any]]:
+    """Compatibilidad con salida no codificada: ``<marker>={json}``."""
+    match = re.search(rf"{re.escape(marker)}=(\{{.*\}})", output)
+    if not match:
+        return None
+    raw = match.group(1).replace('\\"', '"').replace("\\\\", "\\")
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _decode_state(output: str, marker: str) -> Optional[Dict[str, Any]]:
+    """Lee un estado publicado por el playbook (base64 o JSON plano)."""
+    return _decode_b64_marker(output, marker) or _decode_json_marker(
+        output, marker
+    )
+
+
+def _decode_text_marker(output: str, marker: str) -> str:
+    """Lee un marcador de texto/base64; devuelve cadena vacía si no existe."""
+    b64_match = re.search(rf"{re.escape(marker)}_B64=([A-Za-z0-9+/=]*)", output)
+    if b64_match:
+        token = b64_match.group(1)
+        if not token:
+            return ""
+        try:
+            return base64.b64decode(token).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            return ""
+    text_match = re.search(rf"{re.escape(marker)}=([^\r\n\"]+)", output)
+    return text_match.group(1).strip() if text_match else ""
+
+
+def _decode_bool_marker(output: str, marker: str) -> Optional[bool]:
+    text = _decode_text_marker(output, marker).strip().lower()
+    if text in {"true", "yes", "1"}:
+        return True
+    if text in {"false", "no", "0"}:
+        return False
+    return None
+
+
+def _epoch_for(value: str, time_mode: str) -> int:
+    """Convierte una hora ``AAAA-MM-DDTHH:MM`` a epoch si el modo es UTC."""
+    if time_mode != "utc":
+        return 0
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M")
+    except (TypeError, ValueError):
+        return 0
+    return int(parsed.replace(tzinfo=timezone.utc).timestamp())
+
+
+def _missing_playbook(host: str, path: str) -> Dict[str, Any]:
+    logger.error("Playbook not found: %s", path)
+    return _result(
+        host,
+        False,
+        error=f"Playbook no encontrado: {path}",
+        playbook_path=path,
+    )
+
+
+def _playbook_error(
+    host: str, path: str, process: subprocess.CompletedProcess
+) -> str:
+    return (
+        process.stderr.strip()
+        or process.stdout.strip()
+        or "El playbook falló."
+    )
+
+
 def run_ansible_playbook(
     host: str,
     user: str,
@@ -62,19 +203,13 @@ def run_ansible_playbook(
 ) -> Dict[str, Any]:
     """Ejecuta el playbook de configuración de hora contra un host.
 
-    En modo ``DRY_RUN`` no se toca ningún equipo: se devuelve un resultado
-    simulado para poder probar el flujo completo.
+    Se conserva por compatibilidad con el flujo anterior. En modo ``DRY_RUN``
+    no se toca ningún equipo: se devuelve un resultado simulado.
     """
     path = str(playbook_path or PLAYBOOK_FILE)
 
     if not os.path.exists(path):
-        logger.error("Playbook not found: %s", path)
-        return _result(
-            host,
-            False,
-            error=f"Playbook no encontrado: {path}",
-            playbook_path=path,
-        )
+        return _missing_playbook(host, path)
 
     if DRY_RUN:
         logger.info("DRY RUN: se omite el playbook %s en %s", path, host)
@@ -99,37 +234,26 @@ def run_ansible_playbook(
             playbook_path=path,
         )
 
-    extra_vars = {
-        "accion": action,
-        "valor": value,
-        "target_host": host,
-        "ansible_password": password,
-        "ansible_become_password": password,
-    }
-
     try:
-        with secure_temp_file(
-            json.dumps(extra_vars), prefix=".ansible-vars-", suffix=".json"
-        ) as vars_file:
-            cmd = [
-                BIN_ANSIBLE_PLAYBOOK,
-                path,
-                "-i",
-                f"{host},",
-                "-u",
-                user,
-                "--extra-vars",
-                f"@{vars_file}",
-                "--timeout",
-                str(CONNECT_TIMEOUT),
-            ]
-            process = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout or PLAYBOOK_TIMEOUT,
-                env=ansible_environment(),
-            )
+        process = _invoke_playbook(
+            host=host,
+            user=user,
+            password=password,
+            playbook_path=path,
+            extra_vars={
+                "accion": action,
+                "valor": value,
+                "modo_hora": "utc",
+                "valor_epoch": _epoch_for(value, "utc") if action == "TIME" else 0,
+                "ntp_policy": "keep",
+                "ntp_servers": [],
+                "sync_rtc": False,
+                "force": False,
+                "tolerancia": TIME_VERIFY_TOLERANCE,
+                "target_host": host,
+            },
+            timeout=timeout,
+        )
     except FileNotFoundError:
         return _result(
             host,
@@ -153,7 +277,215 @@ def run_ansible_playbook(
         host,
         success,
         output=process.stdout.strip(),
-        error="" if success else (process.stderr.strip() or "El playbook falló."),
+        error="" if success else _playbook_error(host, path, process),
+        playbook_path=path,
+    )
+
+
+def inspect_host(
+    host: str,
+    user: str,
+    password: Optional[str] = None,
+    timeout: int = None,
+) -> Dict[str, Any]:
+    """Lee el estado de hora/zona horaria/NTP de un host sin cambiar nada.
+
+    Devuelve ``state`` con el diccionario publicado por el playbook o ``None``
+    si no se pudo obtener.
+    """
+    path = str(INSPECT_PLAYBOOK_FILE)
+
+    if not os.path.exists(path):
+        return _missing_playbook(host, path)
+
+    if DRY_RUN:
+        logger.info("DRY RUN: se omite la inspección de %s", host)
+        return _result(
+            host,
+            True,
+            output=f"[DRY RUN] Se habría inspeccionado {host}",
+            dry_run=True,
+            state=None,
+            playbook_path=path,
+        )
+
+    if not password:
+        return _result(
+            host,
+            False,
+            error="No se proporcionó ninguna contraseña candidata.",
+            playbook_path=path,
+        )
+
+    try:
+        process = _invoke_playbook(
+            host=host,
+            user=user,
+            password=password,
+            playbook_path=path,
+            extra_vars={},
+            timeout=timeout,
+        )
+    except FileNotFoundError:
+        return _result(
+            host,
+            False,
+            error="ansible-playbook no encontrado. Verifica la instalación de Ansible.",
+            playbook_path=path,
+        )
+    except subprocess.TimeoutExpired:
+        return _result(
+            host,
+            False,
+            error=f"Timeout al inspeccionar el host ({timeout or PLAYBOOK_TIMEOUT}s).",
+            playbook_path=path,
+        )
+    except Exception as exc:  # pragma: no cover - salvaguarda
+        logger.exception("Error inspeccionando %s", host)
+        return _result(host, False, error=str(exc), playbook_path=path)
+
+    state = _decode_state(process.stdout, "HORA_STATE")
+    success = process.returncode == 0 and state is not None
+    error = ""
+    if process.returncode != 0:
+        error = _playbook_error(host, path, process)
+    elif state is None:
+        error = "El playbook de inspección no devolvió el estado HORA_STATE."
+
+    return _result(
+        host,
+        success,
+        output=process.stdout.strip(),
+        error=error,
+        state=state,
+        playbook_path=path,
+    )
+
+
+def apply_host(
+    host: str,
+    user: str,
+    action: str,
+    value: str,
+    password: Optional[str] = None,
+    time_mode: str = "utc",
+    ntp_policy: str = "keep",
+    ntp_servers: Optional[List[str]] = None,
+    sync_rtc: bool = False,
+    force: bool = False,
+    tolerance: Optional[int] = None,
+    timeout: int = None,
+) -> Dict[str, Any]:
+    """Aplica el cambio en un host y verifica el resultado.
+
+    Devuelve, además del éxito, ``before_state``, ``after_state``, ``changed``,
+    ``verified``, ``warnings`` y ``deviation``. La verificación se considera
+    parte del éxito: un playbook que termina pero no deja el estado esperado
+    se reporta como fallo.
+    """
+    path = str(PLAYBOOK_FILE)
+
+    if not os.path.exists(path):
+        return _missing_playbook(host, path)
+
+    if DRY_RUN:
+        logger.info("DRY RUN: se omite el cambio real en %s", host)
+        return _result(
+            host,
+            True,
+            output=(
+                f"[DRY RUN] Se habría aplicado {action}={value} en {host} "
+                f"(modo={time_mode}, ntp={ntp_policy})"
+            ),
+            dry_run=True,
+            changed=True,
+            verified=True,
+            before_state=None,
+            after_state=None,
+            warnings="",
+            deviation=None,
+            playbook_path=path,
+        )
+
+    if not password:
+        return _result(
+            host,
+            False,
+            error="No se proporcionó ninguna contraseña candidata.",
+            playbook_path=path,
+        )
+
+    extra_vars = {
+        "accion": action,
+        "valor": value,
+        "modo_hora": time_mode,
+        "valor_epoch": _epoch_for(value, time_mode),
+        "ntp_policy": ntp_policy,
+        "ntp_servers": list(ntp_servers or []),
+        "sync_rtc": bool(sync_rtc),
+        "force": bool(force),
+        "tolerancia": int(
+            tolerance if tolerance is not None else TIME_VERIFY_TOLERANCE
+        ),
+        "target_host": host,
+    }
+
+    try:
+        process = _invoke_playbook(
+            host=host,
+            user=user,
+            password=password,
+            playbook_path=path,
+            extra_vars=extra_vars,
+            timeout=timeout,
+        )
+    except FileNotFoundError:
+        return _result(
+            host,
+            False,
+            error="ansible-playbook no encontrado. Verifica la instalación de Ansible.",
+            playbook_path=path,
+        )
+    except subprocess.TimeoutExpired:
+        return _result(
+            host,
+            False,
+            error=f"Timeout al ejecutar el playbook ({timeout or PLAYBOOK_TIMEOUT}s).",
+            playbook_path=path,
+        )
+    except Exception as exc:  # pragma: no cover - salvaguarda
+        logger.exception("Error aplicando el playbook en %s", host)
+        return _result(host, False, error=str(exc), playbook_path=path)
+
+    before_state = _decode_state(process.stdout, "HORA_BEFORE")
+    after_state = _decode_state(process.stdout, "HORA_STATE")
+    changed = _decode_bool_marker(process.stdout, "HORA_CHANGED")
+    verified = _decode_bool_marker(process.stdout, "HORA_VERIFIED")
+    errors = _decode_text_marker(process.stdout, "HORA_ERRORS")
+    warnings = _decode_text_marker(process.stdout, "HORA_WARNINGS")
+    deviation_text = _decode_text_marker(process.stdout, "HORA_DEVIATION")
+    deviation = int(deviation_text) if deviation_text.isdigit() else None
+
+    success = process.returncode == 0 and verified is True
+    error = ""
+    if process.returncode != 0:
+        error = _playbook_error(host, path, process)
+    elif verified is False:
+        error = errors or "La verificación posterior no coincide con el objetivo."
+    elif verified is None:
+        error = "El playbook no devolvió el resultado de verificación HORA_VERIFIED."
+
+    return _result(
+        host,
+        success,
+        output=process.stdout.strip(),
+        error=error,
+        before_state=before_state,
+        after_state=after_state,
+        changed=bool(changed),
+        verified=verified,
+        warnings=warnings,
+        deviation=deviation,
         playbook_path=path,
     )
 

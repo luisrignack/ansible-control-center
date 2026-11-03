@@ -74,12 +74,18 @@ def test_passwords_single(
         result["details"].append("No hay contraseñas candidatas.")
         return result
 
+    host_results: List[Dict[str, Any]] = []
     for host in hosts:
         result["hosts_tested"].append(host)
+        host_success = False
+        last_error = ""
+        used_hash = ""
+
         for password in candidates:
             short_hash = PasswordRecord.hash_short(password)
             ping = test_ansible_ping(host, admin_user, password)
             if not ping.get("success"):
+                last_error = ping.get("error") or "sin conexión"
                 result["details"].append(
                     f"Host {host}: ping falló con hash {short_hash}"
                 )
@@ -93,23 +99,44 @@ def test_passwords_single(
                 value=value,
             )
             result["playbook_result"] = playbook_result
+            used_hash = short_hash
             if playbook_result.get("success"):
-                result["success"] = True
+                host_success = True
                 result["password_hash"] = short_hash
-                result["overall_result"] = "success"
                 result["details"].append(
                     f"Contraseña válida para {host} (hash: {short_hash})"
                 )
-                return result
+                break
 
-            result["overall_result"] = "failure"
+            # La contraseña autentica pero el playbook falla: se prueban las
+            # siguientes candidatas antes de dar el host por fallido.
+            last_error = playbook_result.get("error") or "El playbook falló"
             result["details"].append(
                 f"El playbook falló en {host} con hash {short_hash}"
             )
-            return result
 
-    result["overall_result"] = "failure"
-    result["details"].append("Ninguna contraseña funcionó para los hosts objetivo.")
+        host_results.append(
+            {
+                "host": host,
+                "success": host_success,
+                "password_hash": used_hash,
+                "error": "" if host_success else last_error,
+            }
+        )
+
+    result["host_results"] = host_results
+    successes = sum(1 for item in host_results if item["success"])
+    if successes == len(host_results):
+        result["success"] = True
+        result["overall_result"] = "success"
+    elif successes > 0:
+        result["success"] = True
+        result["overall_result"] = "partial"
+    else:
+        result["overall_result"] = "failure"
+        result["details"].append(
+            "Ninguna contraseña funcionó para los hosts objetivo."
+        )
     return result
 
 

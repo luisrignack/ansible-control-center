@@ -4,51 +4,75 @@
 
 {% block content %}
 <div class="row">
-    <div class="col-12 col-md-8 mx-auto">
+    <div class="col-12 col-lg-10 mx-auto">
         <div class="card fade-in">
-            <div class="card-header">
-                <h4 class="mb-0"><i class="bi bi-clock-history me-2"></i> Historial de Ejecuciones</h4>
+            <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <h4 class="mb-0"><i class="bi bi-clock-history me-2"></i> Historial de Lotes</h4>
+                <div class="d-flex gap-2 small">
+                    <span class="badge bg-secondary">{{ stats.batches }} lote(s)</span>
+                    <span class="badge bg-success">{{ stats.success }} éxito(s)</span>
+                    <span class="badge bg-danger">{{ stats.failure }} fallo(s)</span>
+                    <span class="badge bg-warning text-dark">{{ stats.error }} error(es)</span>
+                </div>
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive p-3">
-                    <table class="table table-borderless mb-0 table-sm">
+                    <table class="table table-borderless mb-0 table-sm align-middle">
                         <thead>
                             <tr>
                                 <th>Fecha</th>
-                                <th>Hosts</th>
+                                <th>Lote</th>
+                                <th>Operador</th>
+                                <th>Objetivo</th>
                                 <th>Acción</th>
                                 <th>Valor</th>
+                                <th>Hosts</th>
                                 <th>Resultado</th>
+                                <th>Duración</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% if executions %}
-                                {% for exec in executions %}
+                            {% if batches %}
+                                {% for batch in batches %}
                                 <tr>
                                     <td>
-                                        <small>{{ exec.timestamp | default('N/A') }}</small>
+                                        <small>{{ batch.created_at.strftime('%Y-%m-%d %H:%M:%S') if batch.created_at else 'N/A' }}</small>
                                     </td>
                                     <td>
-                                        <small>{{ exec.host }}</small>
+                                        <a href="{{ url_for('batch_detail', batch_id=batch.batch_id) }}">
+                                            <code>{{ batch.batch_id[:8] }}</code>
+                                        </a>
                                     </td>
+                                    <td><small>{{ batch.operator or '—' }}</small></td>
+                                    <td><small><code>{{ batch.target }}</code></small></td>
                                     <td>
                                         <small>
-                                            {% if exec.action == 'TZ' %}
+                                            {% if batch.action == 'TZ' %}
                                                 <span class="text-info">Zona Horaria</span>
                                             {% else %}
                                                 <span class="text-warning">Hora Exacta</span>
                                             {% endif %}
                                         </small>
                                     </td>
+                                    <td><small>{{ batch.value | default('N/A') }}</small></td>
                                     <td>
-                                        <small>{{ exec.value | default('N/A') }}</small>
+                                        <small>
+                                            {{ batch.success_count }}/{{ batch.total_hosts }} OK
+                                            {% if batch.failure_count %}· {{ batch.failure_count }} fallo(s){% endif %}
+                                            {% if batch.error_count %}· {{ batch.error_count }} error(es){% endif %}
+                                            {% if batch.preview_count %}· {{ batch.preview_count }} preview{% endif %}
+                                        </small>
+                                    </td>
+                                    <td>
+                                        <span class="badge {% if batch.status == 'success' %}bg-success{% elif batch.status == 'partial' %}bg-warning text-dark{% elif batch.status == 'preview' %}bg-info text-dark{% else %}bg-danger{% endif %}"
+                                              data-status="{{ batch.status }}">{{ batch.status }}</span>
                                     </td>
                                     <td>
                                         <small>
-                                            {% if exec.result == 'success' %}
-                                                <span class="text-success">✓ Éxito</span>
+                                            {% if batch.duration_seconds is not none %}
+                                                {{ batch.duration_seconds }} s
                                             {% else %}
-                                                <span class="text-danger">✗ Falló</span>
+                                                —
                                             {% endif %}
                                         </small>
                                     </td>
@@ -56,8 +80,8 @@
                                 {% endfor %}
                             {% else %}
                             <tr>
-                                <td colspan="5" class="text-center py-4">
-                                    <small class="text-secondary">No hay ejecuciones registradas.</small>
+                                <td colspan="9" class="text-center py-4">
+                                    <small class="text-secondary">No hay lotes registrados.</small>
                                 </td>
                             </tr>
                             {% endif %}

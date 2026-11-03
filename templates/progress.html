@@ -17,6 +17,11 @@
                     <div id="progressBar" class="progress-bar" style="width: 0%">0%</div>
                 </div>
                 <p id="progressMessage" class="small text-secondary mb-3">Conectando…</p>
+                <div id="batchLink" class="mb-3" style="display: none;">
+                    <a class="btn btn-sm btn-acento" href="#">
+                        <i class="bi bi-collection me-1"></i> Ver resultados por host
+                    </a>
+                </div>
                 <pre id="progressLog"
                      class="small mb-0"
                      style="max-height: 300px; overflow-y: auto; white-space: pre-wrap;"></pre>
@@ -32,6 +37,8 @@
     const progressBar = document.getElementById('progressBar');
     const progressMessage = document.getElementById('progressMessage');
     const progressLog = document.getElementById('progressLog');
+    const batchLink = document.getElementById('batchLink');
+    const batchLinkAnchor = batchLink.querySelector('a');
 
     function renderTask(task) {
         const value = Number(task.progress || 0);
@@ -40,6 +47,10 @@
         progressMessage.textContent = task.message || '';
         if (Array.isArray(task.log)) {
             progressLog.textContent = task.log.join('\n');
+        }
+        if (task.batch_id) {
+            batchLinkAnchor.href = '/batches/' + encodeURIComponent(task.batch_id);
+            batchLink.style.display = 'block';
         }
     }
 

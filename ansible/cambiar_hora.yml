@@ -1,12 +1,20 @@
 ---
-# Playbook de configuración de hora/zona horaria en Ubuntu.
+# Playbook de configuración de hora/zona horaria en Ubuntu (fase P4).
 #
 # Variables esperadas (se pasan con --extra-vars desde la aplicación):
-#   accion: "TZ" o "TIME"
-#   valor:  zona horaria (TZ) o fecha/hora AAAA-MM-DDTHH:MM (TIME)
+#   accion:       "TZ" o "TIME"
+#   valor:        zona horaria (TZ) o fecha/hora AAAA-MM-DDTHH:MM (TIME)
+#   modo_hora:    "utc" (instante absoluto) o "local" (hora de pared del host)
+#   valor_epoch:  epoch objetivo cuando modo_hora == "utc" (0 en modo local)
+#   ntp_policy:   "keep", "off", "restore" o "configure"
+#   ntp_servers:  lista de servidores NTP para la política "configure"
+#   sync_rtc:     sincronizar el reloj hardware con hwclock
+#   force:        aplicar aunque el estado ya coincida
+#   tolerancia:   desviación máxima aceptada al verificar (segundos)
 #
-# Se usan comandos de systemd/timedatectl para no depender de colecciones
-# externas de Ansible. El playbook requiere privilegios (become).
+# El playbook es idempotente: compara el estado inicial con el objetivo y solo
+# cambia lo necesario. Al final vuelve a leer el estado y publica marcadores
+# HORA_* que la aplicación interpreta.
 - name: Configurar hora y zona horaria
   hosts: all
   become: true
@@ -20,42 +28,282 @@
         fail_msg: "Acción no válida: {{ accion }}"
         success_msg: "Acción válida: {{ accion }}"
 
-    - name: Configurar zona horaria
-      ansible.builtin.command:
-        argv:
-          - timedatectl
-          - set-timezone
-          - "{{ valor }}"
-      when: accion == 'TZ'
-      changed_when: true
+    - name: Validar el modo de hora
+      ansible.builtin.assert:
+        that:
+          - modo_hora in ['utc', 'local']
+        fail_msg: "Modo de hora no válido: {{ modo_hora }}"
+      when: accion == 'TIME'
 
-    - name: Normalizar el formato de fecha/hora
+    - name: Validar la política NTP
+      ansible.builtin.assert:
+        that:
+          - ntp_policy in ['keep', 'off', 'restore', 'configure']
+        fail_msg: "Política NTP no válida: {{ ntp_policy }}"
+
+    - name: Validar los servidores NTP
+      ansible.builtin.assert:
+        that:
+          - ntp_servers | default([]) | length > 0
+        fail_msg: "La política 'configure' requiere al menos un servidor NTP."
+      when: ntp_policy == 'configure'
+
+    - name: Leer el estado inicial
+      ansible.builtin.import_tasks: tasks/leer_estado.yml
+
+    - name: Guardar el estado inicial
       ansible.builtin.set_fact:
-        valor_hora: "{{ valor | replace('T', ' ') }}"
-      when: accion == 'TIME'
+        hora_antes: "{{ hora_estado }}"
+        hora_cambios: []
+        hora_errores: []
+        hora_advertencias: []
 
-    - name: Desactivar la sincronización NTP para fijar la hora
+    - name: Publicar el estado inicial
+      ansible.builtin.debug:
+        msg: "HORA_BEFORE_B64={{ hora_antes | to_json | b64encode }}"
+
+    # ------------------------------------------------------------------
+    # Zona horaria
+    # ------------------------------------------------------------------
+    - name: Configurar la zona horaria
       ansible.builtin.command:
-        argv:
-          - timedatectl
-          - set-ntp
-          - "false"
-      when: accion == 'TIME'
-      changed_when: true
+        argv: [timedatectl, set-timezone, "{{ valor }}"]
+      when:
+        - accion == 'TZ'
+        - force | bool or (hora_antes.timezone | default('')) != valor
+      register: _hora_tz_cambio
+      changed_when: _hora_tz_cambio.rc == 0
 
-    - name: Configurar la hora exacta
+    - name: Registrar el cambio de zona horaria
+      ansible.builtin.set_fact:
+        hora_cambios: "{{ hora_cambios + ['timezone'] }}"
+      when: _hora_tz_cambio is defined and _hora_tz_cambio.changed
+
+    # ------------------------------------------------------------------
+    # NTP
+    # ------------------------------------------------------------------
+    - name: Comprobar si chrony está instalado
+      ansible.builtin.shell: command -v chronyc
+      register: _hora_chrony
+      changed_when: false
+      failed_when: false
+
+    - name: Comprobar si systemd-timesyncd está disponible
       ansible.builtin.command:
-        argv:
-          - date
-          - -s
-          - "{{ valor_hora }}"
-      when: accion == 'TIME'
-      changed_when: true
+        argv: [systemctl, cat, systemd-timesyncd.service]
+      register: _hora_timesyncd
+      changed_when: false
+      failed_when: false
 
+    - name: Verificar que hay un servicio NTP disponible
+      ansible.builtin.assert:
+        that:
+          - _hora_chrony.rc == 0 or _hora_timesyncd.rc == 0
+        fail_msg: "No se encontró chrony ni systemd-timesyncd para configurar NTP."
+      when: ntp_policy == 'configure'
+
+    - name: Desactivar NTP antes de fijar la hora
+      ansible.builtin.command:
+        argv: [timedatectl, set-ntp, "false"]
+      when:
+        - ntp_policy in ['off', 'restore', 'configure']
+        - (accion == 'TIME') or (ntp_policy == 'off')
+        - hora_antes.ntp | bool
+      register: _hora_ntp_off
+      changed_when: _hora_ntp_off.rc == 0
+
+    - name: Registrar la desactivación de NTP
+      ansible.builtin.set_fact:
+        hora_cambios: "{{ hora_cambios + ['ntp_off'] }}"
+      when: _hora_ntp_off is defined and _hora_ntp_off.changed
+
+    # ------------------------------------------------------------------
+    # Hora exacta
+    # ------------------------------------------------------------------
+    - name: Calcular el instante objetivo en modo local
+      ansible.builtin.command:
+        argv: [date, -d, "{{ valor | replace('T', ' ') }}", +%s]
+      register: _hora_objetivo_local
+      when:
+        - accion == 'TIME'
+        - modo_hora == 'local'
+      changed_when: false
+
+    - name: Calcular el instante objetivo
+      ansible.builtin.set_fact:
+        hora_objetivo_epoch: >-
+          {{ (valor_epoch | int) if modo_hora == 'utc'
+             else (_hora_objetivo_local.stdout | trim | int) }}
+      when: accion == 'TIME'
+
+    - name: Fijar la hora exacta
+      ansible.builtin.command:
+        argv: [date, -s, "@{{ hora_objetivo_epoch }}"]
+      when:
+        - accion == 'TIME'
+        - force | bool or (((hora_antes.epoch | int) - (hora_objetivo_epoch | int)) | abs) > (tolerancia | int)
+      register: _hora_time_cambio
+      changed_when: _hora_time_cambio.rc == 0
+
+    - name: Registrar el cambio de hora
+      ansible.builtin.set_fact:
+        hora_cambios: "{{ hora_cambios + ['time'] }}"
+      when: _hora_time_cambio is defined and _hora_time_cambio.changed
+
+    # ------------------------------------------------------------------
+    # Reloj hardware
+    # ------------------------------------------------------------------
     - name: Sincronizar el reloj hardware
       ansible.builtin.command:
-        argv:
-          - hwclock
-          - --systohc
+        argv: [hwclock, --systohc]
+      when: sync_rtc | bool
+      register: _hora_rtc_sync
+      changed_when: _hora_rtc_sync.rc == 0
+      failed_when: false
+
+    - name: Avisar si no se pudo sincronizar el RTC
+      ansible.builtin.set_fact:
+        hora_advertencias: "{{ hora_advertencias + ['No se pudo sincronizar el reloj hardware (hwclock)'] }}"
+      when:
+        - sync_rtc | bool
+        - _hora_rtc_sync.rc != 0
+
+    # ------------------------------------------------------------------
+    # Servidores NTP
+    # ------------------------------------------------------------------
+    - name: Crear el directorio de configuración de chrony
+      ansible.builtin.file:
+        path: /etc/chrony/conf.d
+        state: directory
+        mode: "0755"
+      when:
+        - ntp_policy == 'configure'
+        - _hora_chrony.rc == 0
+
+    - name: Configurar servidores NTP en chrony
+      ansible.builtin.copy:
+        dest: /etc/chrony/conf.d/90-hora-admin.sources
+        content: |
+          {% for servidor in ntp_servers | default([]) %}
+          server {{ servidor }} iburst
+          {% endfor %}
+        mode: "0644"
+      when:
+        - ntp_policy == 'configure'
+        - _hora_chrony.rc == 0
+      register: _hora_ntp_chrony
+      notify: Reiniciar chrony
+
+    - name: Crear el directorio de configuración de timesyncd
+      ansible.builtin.file:
+        path: /etc/systemd/timesyncd.conf.d
+        state: directory
+        mode: "0755"
+      when:
+        - ntp_policy == 'configure'
+        - _hora_chrony.rc != 0
+
+    - name: Configurar servidores NTP en systemd-timesyncd
+      ansible.builtin.copy:
+        dest: /etc/systemd/timesyncd.conf.d/90-hora-admin.conf
+        content: |
+          [Time]
+          NTP={{ ntp_servers | default([]) | join(' ') }}
+        mode: "0644"
+      when:
+        - ntp_policy == 'configure'
+        - _hora_chrony.rc != 0
+      register: _hora_ntp_timesyncd
+      notify: Reiniciar systemd-timesyncd
+
+    - name: Reactivar NTP
+      ansible.builtin.command:
+        argv: [timedatectl, set-ntp, "true"]
+      when:
+        - ntp_policy in ['restore', 'configure']
+        - (accion == 'TIME') or (not (hora_antes.ntp | bool))
+      register: _hora_ntp_on
+      changed_when: _hora_ntp_on.rc == 0
+
+    - name: Registrar la reactivación de NTP
+      ansible.builtin.set_fact:
+        hora_cambios: "{{ hora_cambios + ['ntp_on'] }}"
+      when: _hora_ntp_on is defined and _hora_ntp_on.changed
+
+    # ------------------------------------------------------------------
+    # Verificación posterior
+    # ------------------------------------------------------------------
+    - name: Leer el estado final
+      ansible.builtin.import_tasks: tasks/leer_estado.yml
+
+    - name: Guardar el estado final
+      ansible.builtin.set_fact:
+        hora_despues: "{{ hora_estado }}"
+
+    - name: Verificar la zona horaria
+      ansible.builtin.set_fact:
+        hora_errores: "{{ hora_errores + ['Zona horaria esperada ' ~ valor ~ ', obtenida ' ~ (hora_despues.timezone | default(''))] }}"
+      when:
+        - accion == 'TZ'
+        - (hora_despues.timezone | default('')) != valor
+
+    - name: Calcular la desviación de la hora
+      ansible.builtin.set_fact:
+        hora_desviacion: "{{ ((hora_despues.epoch | int) - (hora_objetivo_epoch | int)) | abs }}"
       when: accion == 'TIME'
-      changed_when: true
+
+    - name: Verificar la hora exacta
+      ansible.builtin.set_fact:
+        hora_errores: "{{ hora_errores + ['Desviación de ' ~ hora_desviacion ~ 's (tolerancia ' ~ tolerancia ~ 's)'] }}"
+      when:
+        - accion == 'TIME'
+        - (hora_desviacion | int) > (tolerancia | int)
+
+    - name: Verificar que NTP quedó desactivado
+      ansible.builtin.set_fact:
+        hora_errores: "{{ hora_errores + ['NTP sigue activo'] }}"
+      when:
+        - ntp_policy == 'off'
+        - hora_despues.ntp | bool
+
+    - name: Verificar que NTP quedó activado
+      ansible.builtin.set_fact:
+        hora_errores: "{{ hora_errores + ['NTP no está activo'] }}"
+      when:
+        - ntp_policy in ['restore', 'configure']
+        - not (hora_despues.ntp | bool)
+
+    - name: Publicar el estado final
+      ansible.builtin.debug:
+        msg: "HORA_STATE_B64={{ hora_despues | to_json | b64encode }}"
+
+    - name: Publicar si hubo cambios
+      ansible.builtin.debug:
+        msg: "HORA_CHANGED={{ 'true' if hora_cambios | length > 0 else 'false' }}"
+
+    - name: Publicar si la verificación fue correcta
+      ansible.builtin.debug:
+        msg: "HORA_VERIFIED={{ 'true' if hora_errores | length == 0 else 'false' }}"
+
+    - name: Publicar los errores de verificación
+      ansible.builtin.debug:
+        msg: "HORA_ERRORS_B64={{ (hora_errores | join(' | ')) | b64encode }}"
+
+    - name: Publicar las advertencias
+      ansible.builtin.debug:
+        msg: "HORA_WARNINGS_B64={{ (hora_advertencias | join(' | ')) | b64encode }}"
+
+    - name: Publicar la desviación
+      ansible.builtin.debug:
+        msg: "HORA_DEVIATION={{ hora_desviacion | default('') }}"
+
+  handlers:
+    - name: Reiniciar chrony
+      ansible.builtin.service:
+        name: chrony
+        state: restarted
+
+    - name: Reiniciar systemd-timesyncd
+      ansible.builtin.service:
+        name: systemd-timesyncd
+        state: restarted

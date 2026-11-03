@@ -20,7 +20,11 @@
                                 <i class="bi bi-globe me-2"></i> IP o Rango
                             </label>
                             <input type="text" class="form-control" id="targetIp" name="target_ip"
+                                value="{{ prefill.get('target_ip', '') }}"
                                 placeholder="192.168.1.10 o 192.168.1.0/24" required>
+                            <div class="form-text">
+                                Se procesarán todos los hosts del rango (best-effort).
+                            </div>
                         </div>
 
                         <!-- Campo: Usuario administrador -->
@@ -29,7 +33,7 @@
                                 <i class="bi bi-person-meet me-2"></i> Usuario Admin
                             </label>
                             <input type="text" class="form-control" id="adminUser" name="admin_user"
-                                value="ubuntu-admin" required>
+                                value="{{ prefill.get('admin_user') or 'ubuntu-admin' }}" required>
                         </div>
 
                         <!-- Origen de contraseñas -->
@@ -67,14 +71,37 @@
                         </div>
 
                         <!-- Acción -->
-                        <div class="col-12">
+                        <div class="col-md-6">
                             <label for="action" class="form-label fw-medium">
                                 <i class="bi bi-list me-2"></i> Acción
                             </label>
                             <select class="form-select" id="action" name="action">
-                                <option value="TZ">Zona Horaria (TZ)</option>
-                                <option value="TIME">Hora Exacta (TIME)</option>
+                                <option value="TZ" {% if prefill.get('action') == 'TZ' %}selected{% endif %}>
+                                    Zona Horaria (TZ)
+                                </option>
+                                <option value="TIME" {% if prefill.get('action') == 'TIME' %}selected{% endif %}>
+                                    Hora Exacta (TIME)
+                                </option>
                             </select>
+                        </div>
+
+                        <!-- Semántica de la hora -->
+                        <div class="col-md-6" id="timeModeField">
+                            <label for="timeMode" class="form-label fw-medium">
+                                <i class="bi bi-clock-history me-2"></i> Semántica de la hora
+                            </label>
+                            <select class="form-select" id="timeMode" name="time_mode">
+                                <option value="utc" {% if prefill.get('time_mode', 'utc') != 'local' %}selected{% endif %}>
+                                    UTC (mismo instante en todos los hosts)
+                                </option>
+                                <option value="local" {% if prefill.get('time_mode') == 'local' %}selected{% endif %}>
+                                    Hora local de cada host
+                                </option>
+                            </select>
+                            <div class="form-text">
+                                Solo aplica a “Hora Exacta”. En modo UTC, el valor se
+                                interpreta como UTC y se convierte a epoch.
+                            </div>
                         </div>
 
                         <!-- Valor dinámico -->
@@ -82,11 +109,71 @@
                             <!-- Se llenará dinámicamente por JS -->
                         </div>
 
-                        <!-- Botón Ejecutar -->
+                        <!-- Política NTP -->
+                        <div class="col-md-6">
+                            <label for="ntpPolicy" class="form-label fw-medium">
+                                <i class="bi bi-arrow-repeat me-2"></i> Política NTP
+                            </label>
+                            <select class="form-select" id="ntpPolicy" name="ntp_policy">
+                                {% set selected_policy = prefill.get('ntp_policy') or 'keep' %}
+                                {% for policy in ntp_policies %}
+                                <option value="{{ policy }}" {% if policy == selected_policy %}selected{% endif %}>
+                                    {% if policy == 'keep' %}Mantener NTP sin cambios
+                                    {% elif policy == 'off' %}Desactivar NTP (queda desactivado)
+                                    {% elif policy == 'restore' %}Desactivar, fijar hora y reactivar NTP
+                                    {% else %}Configurar servidores NTP y activar{% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <!-- Servidores NTP -->
+                        <div class="col-md-6" id="ntpServersField">
+                            <label for="ntpServers" class="form-label fw-medium">
+                                <i class="bi bi-hdd-network me-2"></i> Servidores NTP
+                            </label>
+                            <input type="text" class="form-control" id="ntpServers" name="ntp_servers"
+                                value="{{ prefill.get('ntp_servers') or default_ntp_servers }}"
+                                placeholder="pool.ntp.org, time.cloudflare.com">
+                            <div class="form-text">
+                                Solo se usa con la política “Configurar servidores NTP”.
+                            </div>
+                        </div>
+
+                        <!-- Opciones avanzadas -->
                         <div class="col-12">
-                            <button type="submit" class="btn btn-acento w-100 py-3 fw-bold" id="execButton">
-                                <i class="bi bi-play-circle me-2"></i> Ejecutar
-                            </button>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="1"
+                                    id="syncRtc" name="sync_rtc">
+                                <label class="form-check-label" for="syncRtc">
+                                    Sincronizar el reloj hardware (RTC) con <code>hwclock --systohc</code>
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="1"
+                                    id="forceChange" name="force">
+                                <label class="form-check-label" for="forceChange">
+                                    Forzar el cambio aunque el estado ya coincida (rompe idempotencia)
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Botones -->
+                        <div class="col-12">
+                            <div class="d-flex flex-column flex-md-row gap-2">
+                                <button type="submit" name="mode" value="preview"
+                                    class="btn btn-outline-info w-100 py-3 fw-bold" id="previewButton">
+                                    <i class="bi bi-search me-2"></i> Vista previa (no cambia nada)
+                                </button>
+                                <button type="submit" name="mode" value="execute"
+                                    class="btn btn-acento w-100 py-3 fw-bold" id="execButton">
+                                    <i class="bi bi-play-circle me-2"></i> Ejecutar en todos los hosts
+                                </button>
+                            </div>
+                            <div class="form-text mt-2">
+                                La vista previa inspecciona cada host y muestra su estado actual
+                                antes de aplicar el cambio.
+                            </div>
                         </div>
                     </div>
                 </form>
@@ -116,6 +203,9 @@
 
 {% block extra_scripts %}
 <script nonce="{{ csp_nonce }}">
+const prefill = {{ prefill | tojson }};
+const defaultNtpServers = {{ default_ntp_servers | tojson }};
+
 function updatePasswordFields(origin) {
     const stored = origin === 'stored';
     const masterField = document.getElementById('masterPasswordField');
@@ -130,45 +220,76 @@ function updatePasswordFields(origin) {
     if (fileInput) fileInput.required = !stored;
 }
 
-function updateValueField(action) {
+function updateNtpFields(policy) {
+    const field = document.getElementById('ntpServersField');
+    const input = document.getElementById('ntpServers');
+    const configure = policy === 'configure';
+    field.style.display = configure ? 'block' : 'none';
+    if (input) {
+        input.required = configure;
+        if (configure && !input.value) input.value = defaultNtpServers;
+    }
+}
+
+function updateTimeModeField(action) {
+    const field = document.getElementById('timeModeField');
+    field.style.display = action === 'TIME' ? 'block' : 'none';
+}
+
+function updateValueField(action, currentValue) {
     const valueField = document.getElementById('valueField');
     valueField.innerHTML = '';
-    
+
     if (action === 'TZ') {
         const dl = document.createElement('datalist');
         dl.id = 'timezoneList';
-        
+
         {% for tz in common_timezones %}
         const opt = document.createElement('option');
         opt.value = '{{ tz }}';
         opt.label = '{{ tz }}';
         dl.appendChild(opt);
         {% endfor %}
-        
+
         valueField.innerHTML = '<label for="actionValue" class="form-label">Zona Horaria</label>' +
             '<input list="timezoneList" type="text" class="form-control" id="actionValue" name="value" ' +
             'placeholder="Ej: America/Argentina/Buenos_Aires" required>';
         valueField.appendChild(dl);
+        if (currentValue) {
+            document.getElementById('actionValue').value = currentValue;
+        }
     } else if (action === 'TIME') {
         valueField.innerHTML = '<label for="actionValue" class="form-label">Hora Exacta</label>' +
             '<input type="datetime-local" class="form-control" id="actionValue" name="value" ' +
             'required>';
+        if (currentValue) {
+            document.getElementById('actionValue').value = currentValue;
+        }
     }
 }
 
 // Inicializar campos al cargar
 document.addEventListener('DOMContentLoaded', () => {
-    updateValueField('TZ');
-    updatePasswordFields('stored');
-
+    const actionSelect = document.getElementById('action');
     const originSelect = document.getElementById('passwordOrigin');
+    const ntpSelect = document.getElementById('ntpPolicy');
+
+    updateValueField(actionSelect.value, prefill.value || '');
+    updatePasswordFields(originSelect.value);
+    updateNtpFields(ntpSelect.value);
+    updateTimeModeField(actionSelect.value);
+
     originSelect.addEventListener('change', (event) => {
         updatePasswordFields(event.target.value);
     });
 
-    const actionSelect = document.getElementById('action');
     actionSelect.addEventListener('change', (event) => {
-        updateValueField(event.target.value);
+        updateValueField(event.target.value, '');
+        updateTimeModeField(event.target.value);
+    });
+
+    ntpSelect.addEventListener('change', (event) => {
+        updateNtpFields(event.target.value);
     });
 });
 </script>
