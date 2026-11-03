@@ -6,6 +6,7 @@
 |---|---|
 | [README](../README.md) | Visión general, características, configuración y uso |
 | [DEPLOYMENT](../DEPLOYMENT.md) | Instalación, producción, systemd, nginx, backups y troubleshooting |
+| [DOCKER](DOCKER.md) | Despliegue con Docker Compose, TLS autofirmado, volúmenes y backups |
 | [ARQUITECTURA](ARQUITECTURA.md) | Componentes, flujos, modelo de concurrencia y decisiones de diseño |
 | [REFERENCIA](REFERENCIA.md) | Rutas, servicios, modelos, esquema SQLite, variables y playbooks |
 | [OPERACION](OPERACION.md) | Runbook: lotes, fallos, rollback, retención y mantenimiento |

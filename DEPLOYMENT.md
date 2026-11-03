@@ -11,6 +11,9 @@ mediante Ansible.
 > de seguridad, ejecución best-effort en todos los hosts, lotes con
 > resultado por host, vista previa, verificación posterior, idempotencia y
 > política NTP explícita. El modo `DRY_RUN` sigue activo por defecto.
+>
+> ¿Prefieres contenedores? Consulta [docs/DOCKER.md](docs/DOCKER.md) para el
+> despliegue con Docker Compose y HTTPS.
 
 ---
 
@@ -46,7 +49,7 @@ El script:
 3. Crea `/etc/hora-admin/secrets` (0700), `/var/lib/hora-admin` y
    `/var/log/hora-admin`.
 4. Genera `.env` con una `HORA_ADMIN_SECRET_KEY` aleatoria (0600).
-5. Ejecuta `flask --app app init-db` (esquema v4, migración no destructiva).
+5. Ejecuta `flask --app app init-db` (esquema v5, migración no destructiva).
 6. **No crea el usuario administrador**: ejecuta después
    `flask --app app init-admin`.
 
@@ -142,7 +145,7 @@ flask --app app init-admin
 | `HORA_ADMIN_ANSIBLE_VAULT_BIN` | autodetectado | Ruta de `ansible-vault` |
 | `HORA_ADMIN_ANSIBLE_GALAXY_BIN` | autodetectado | Ruta de `ansible-galaxy` |
 | `HORA_ADMIN_HISTORY_DAYS` | `180` | **Reservada**: retención sin job de purga |
-| `HORA_ADMIN_JOB_RETENTION_HOURS` | `24` | **Reservada**: tareas en memoria |
+| `HORA_ADMIN_JOB_RETENTION_HOURS` | `24` | Retención de instantáneas de tareas |
 
 Variables específicas de Gunicorn (`gunicorn.conf.py`, no de `config.py`):
 
@@ -180,7 +183,7 @@ ejecutar el comando.
 
 ### Esquema de datos y migración
 
-El esquema actual es `PRAGMA user_version = 3`. `flask --app app init-db`
+El esquema actual es `PRAGMA user_version = 5`. `flask --app app init-db`
 aplica migraciones **no destructivas** al arrancar y es idempotente.
 
 Tablas principales desde P4:
@@ -417,11 +420,11 @@ Prueba la restauración periódicamente. El procedimiento completo está en
 - SQLite en modo WAL: al copiar la base de datos en caliente, copia también
   `hora_admin.db-wal` y `hora_admin.db-shm`, o detén el servicio antes.
 - Las migraciones son no destructivas y se aplican al arrancar
-  (`PRAGMA user_version`). Esquema actual: **v4**. Haz copia de seguridad antes
+  (`PRAGMA user_version`). Esquema actual: **v5**. Haz copia de seguridad antes
   de actualizar.
-- El progreso SSE y las tareas viven en memoria: usa un worker o añade un
-  almacén compartido antes de escalar. El worker `gthread` con `timeout=330`
-  evita que el SSE bloquee o pierda el worker, pero no persiste las tareas.
+- El SSE y la consola se sirven desde memoria, con instantáneas en SQLite para
+  sobrevivir a reinicios. Usa un worker o añade un almacén compartido antes de
+  escalar. El worker `gthread` con `timeout=330` evita bloqueos.
 - **Lotes:** cada ejecución crea un registro en `execution_batches` y uno por
   host en `execution_hosts` (estado previo/posterior, error y duración). El
   historial principal es el lote; `executions` se conserva como registro

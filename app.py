@@ -60,6 +60,7 @@ from config import (
     EXEC_RATE_WINDOW,
     HSTS_ENABLED,
     HSTS_MAX_AGE,
+    JOB_RETENTION_HOURS,
     LOGIN_RATE_LIMIT,
     LOGIN_RATE_WINDOW,
     MAX_CONTENT_LENGTH,
@@ -89,7 +90,7 @@ from config import (
     setup_logging,
 )
 from models.batch import ExecutionBatch
-from models.db import init_schema
+from models.db import get_connection, init_schema
 from models.execution import ExecutionRecord
 from models.password import PasswordRecord
 from models.user import User
@@ -482,34 +483,151 @@ def sse_retry(retry_ms: int) -> str:
     return f"retry: {retry_ms}\n\n"
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+_task_persist_warned = False
+
+
+def _persist_task(tid: str, task: Dict[str, Any]) -> None:
+    """Guarda una instantánea de la tarea en SQLite.
+
+    El estado sigue viviendo en memoria para el SSE; SQLite es una copia de
+    respaldo para que la página de progreso sobreviva a un reinicio. Un fallo
+    de escritura no debe tumbar la ejecución.
+    """
+    global _task_persist_warned
+    try:
+        payload = json.dumps(task, ensure_ascii=False, separators=(",", ":"))
+        with get_connection(get_db_path()) as conn:
+            conn.execute(
+                """
+                INSERT INTO task_state (task_id, payload, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(task_id) DO UPDATE SET
+                    payload = excluded.payload,
+                    updated_at = excluded.updated_at
+                """,
+                (tid, payload, _utc_now_iso()),
+            )
+    except Exception:
+        if not _task_persist_warned:
+            _task_persist_warned = True
+            logger.exception("No se pudo persistir el estado de la tarea")
+
+
+def _load_persisted_task(tid: str) -> Optional[Dict[str, Any]]:
+    """Recupera una tarea de SQLite y la vuelve a cachear en memoria."""
+    try:
+        with get_connection(get_db_path()) as conn:
+            row = conn.execute(
+                "SELECT payload FROM task_state WHERE task_id = ?", (tid,)
+            ).fetchone()
+    except Exception:
+        return None
+    if row is None:
+        return None
+    try:
+        task = json.loads(row["payload"])
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(task, dict):
+        return None
+
+    with _tasks_lock:
+        _tasks.setdefault(tid, task)
+        return _tasks[tid]
+
+
+def _get_task(tid: str) -> Optional[Dict[str, Any]]:
+    with _tasks_lock:
+        task = _tasks.get(tid)
+    if task is not None:
+        return task
+    return _load_persisted_task(tid)
+
+
+def _delete_persisted_task(tid: str) -> None:
+    try:
+        with get_connection(get_db_path()) as conn:
+            conn.execute("DELETE FROM task_state WHERE task_id = ?", (tid,))
+    except Exception:
+        logger.debug("No se pudo borrar la tarea persistida %s", tid)
+
+
+def _recover_task_state() -> None:
+    """Purga tareas antiguas y cierra las que quedaron en curso.
+
+    Al arrancar no puede haber ninguna tarea legítimamente en ejecución en este
+    proceso, así que las instantáneas incompletas se marcan como error.
+    """
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(hours=JOB_RETENTION_HOURS)
+    ).isoformat(timespec="seconds")
+
+    with get_connection(get_db_path()) as conn:
+        conn.execute("DELETE FROM task_state WHERE updated_at < ?", (cutoff,))
+        rows = conn.execute(
+            "SELECT task_id, payload FROM task_state"
+        ).fetchall()
+
+    for row in rows:
+        try:
+            task = json.loads(row["payload"])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(task, dict) or task.get("completed"):
+            continue
+        task.update(
+            {
+                "status": "error",
+                "message": "El proceso se reinició durante la ejecución.",
+                "overall_result": "error",
+                "completed": True,
+                "updated_at": _utc_now_iso(),
+            }
+        )
+        _persist_task(row["task_id"], task)
+
+
 def create_task() -> str:
     task_id = str(uuid.uuid4())
+    task = {
+        "status": "pending",
+        "progress": 0,
+        "message": "Proceso iniciado",
+        "log": [],
+        "console": [],
+        "host": "",
+        "password_hash": "",
+        "overall_result": "unknown",
+        "completed": False,
+        "dry_run": DRY_RUN,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "updated_at": _utc_now_iso(),
+    }
     with _tasks_lock:
-        _tasks[task_id] = {
-            "status": "pending",
-            "progress": 0,
-            "message": "Proceso iniciado",
-            "log": [],
-            "console": [],
-            "host": "",
-            "password_hash": "",
-            "overall_result": "unknown",
-            "completed": False,
-            "dry_run": DRY_RUN,
-            "created_at": datetime.now().isoformat(timespec="seconds"),
-        }
+        _tasks[task_id] = task
+    _persist_task(task_id, task)
     return task_id
 
 
 def update_task(tid: str, updates: Dict[str, Any]) -> None:
     with _tasks_lock:
-        if tid in _tasks:
-            _tasks[tid].update(updates)
+        task = _tasks.get(tid)
+        if task is None:
+            return
+        task.update(updates)
+        task["updated_at"] = _utc_now_iso()
+        snapshot = dict(task)
+    _persist_task(tid, snapshot)
 
 
 def remove_task(tid: str) -> None:
     with _tasks_lock:
         _tasks.pop(tid, None)
+    _delete_persisted_task(tid)
 
 
 def _claim_operation_id(operation_id: str) -> Optional[str]:
@@ -561,8 +679,7 @@ def generate_progress_events(task_id: str):
     last_payload: Optional[str] = None
 
     while True:
-        with _tasks_lock:
-            task = _tasks.get(task_id)
+        task = _get_task(task_id)
 
         if task is None:
             yield sse_event(
@@ -666,6 +783,26 @@ def load_user(user_id: str):
 # ---------------------------------------------------------------------------
 # Rutas
 # ---------------------------------------------------------------------------
+@app.route("/healthz")
+def healthz():
+    """Comprobación de salud para Docker/balanceadores (sin autenticación).
+
+    Solo confirma que el proceso responde y que SQLite es accesible; no expone
+    configuración ni datos.
+    """
+    try:
+        with get_connection(get_db_path()) as conn:
+            conn.execute("SELECT 1").fetchone()
+    except Exception:
+        logger.exception("Healthcheck: base de datos no disponible")
+        response = jsonify({"status": "error", "database": "unavailable"})
+        response.status_code = 503
+    else:
+        response = jsonify({"status": "ok", "database": "ok"})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
@@ -1536,8 +1673,7 @@ def execute_with_progress(
 @app.route("/progress/<task_id>")
 @login_required
 def progress_page(task_id: str):
-    with _tasks_lock:
-        task = _tasks.get(task_id)
+    task = _get_task(task_id)
     if task is None:
         abort(404)
     return render_template("progress.html", task_id=task_id, task=task)
@@ -1546,9 +1682,7 @@ def progress_page(task_id: str):
 @app.route("/progress/<task_id>/events")
 @login_required
 def progress_sse(task_id: str):
-    with _tasks_lock:
-        exists = task_id in _tasks
-    if not exists:
+    if _get_task(task_id) is None:
         abort(404)
     response = Response(
         stream_with_context(generate_progress_events(task_id)),
@@ -1562,8 +1696,7 @@ def progress_sse(task_id: str):
 @app.route("/api/task-status/<task_id>")
 @login_required
 def api_task_status(task_id: str):
-    with _tasks_lock:
-        task = _tasks.get(task_id)
+    task = _get_task(task_id)
     if task is None:
         response = jsonify({"status": "not_found", "exists": False})
     else:
@@ -1898,6 +2031,10 @@ def configure_app(flask_app: Flask) -> Flask:
 
     login_manager.init_app(flask_app)
     init_db()
+    try:
+        _recover_task_state()
+    except Exception:  # pragma: no cover - no impedir el arranque
+        logger.exception("No se pudieron recuperar las tareas persistidas")
     try:
         reconciled = ExecutionBatch.reconcile_orphans(db_path=get_db_path())
     except Exception:  # pragma: no cover - no impedir el arranque

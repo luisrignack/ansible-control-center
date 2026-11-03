@@ -352,8 +352,9 @@ contraseña maestra esperada.
 
 ## 7. Retención y limpieza
 
-`HORA_ADMIN_HISTORY_DAYS` (180) y `HORA_ADMIN_JOB_RETENTION_HOURS` (24) están
-definidas en `config.py` pero **no hay job de purga**. La retención es manual.
+`HORA_ADMIN_JOB_RETENTION_HOURS` (24) se aplica al arrancar: las instantáneas
+de tareas más antiguas se borran de `task_state`. `HORA_ADMIN_HISTORY_DAYS`
+(180) sigue pendiente de un job de purga; la retención de lotes es manual.
 
 ### 7.1. Borrar lotes antiguos
 
@@ -402,7 +403,7 @@ sudo systemctl start hora-admin
 ```
 
 `init-db` es idempotente y aplica migraciones no destructivas. El esquema
-actual es `PRAGMA user_version = 4`.
+actual es `PRAGMA user_version = 5`.
 
 ### 8.2. Rotar la contraseña del administrador
 

@@ -21,3 +21,7 @@ htmlcov/
 *.retry
 .idea/
 .vscode/
+
+# Docker
+.env.docker
+certs/*.pem

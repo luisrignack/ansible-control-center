@@ -627,3 +627,57 @@ def test_duplicate_submission_is_idempotent(client, monkeypatch):
         db_path=app_module.get_db_path()
     )
     assert len(batches) == 1
+
+
+def test_task_state_survives_memory_loss(client, monkeypatch):
+    _login(client)
+    monkeypatch.setattr(
+        app_module, "resolve_target", lambda _target: ["10.0.0.60"]
+    )
+    monkeypatch.setattr(
+        app_module,
+        "test_ansible_ping",
+        lambda **_kwargs: {"success": True, "error": ""},
+    )
+    monkeypatch.setattr(
+        app_module, "apply_host", lambda host, **_kwargs: _ok(host)
+    )
+
+    task_id = _start_execution(client, "execute")
+    status = _wait_for_task(client, task_id)
+    assert status["completed"] is True
+
+    # Simula un reinicio del proceso: la memoria se pierde.
+    with app_module._tasks_lock:
+        app_module._tasks.pop(task_id, None)
+
+    recovered = client.get(f"/api/task-status/{task_id}")
+    assert recovered.status_code == 200
+    data = recovered.get_json()
+    assert data["completed"] is True
+    assert data["batch_id"] == status["batch_id"]
+    assert client.get(f"/progress/{task_id}").status_code == 200
+
+
+def test_incomplete_tasks_are_closed_after_restart(client):
+    task_id = app_module.create_task()
+    app_module.update_task(
+        task_id, {"status": "running", "message": "En curso"}
+    )
+    with app_module._tasks_lock:
+        app_module._tasks.pop(task_id, None)
+
+    app_module._recover_task_state()
+
+    task = app_module._get_task(task_id)
+    assert task is not None
+    assert task["completed"] is True
+    assert task["status"] == "error"
+    assert "reinició" in task["message"]
+
+
+def test_healthz_reports_database_status(client):
+    response = client.get("/healthz")
+    assert response.status_code == 200
+    assert response.get_json() == {"status": "ok", "database": "ok"}
+    assert response.headers["Cache-Control"] == "no-store"

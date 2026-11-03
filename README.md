@@ -14,7 +14,7 @@ verificación posterior, idempotencia, lotes auditables e historial en SQLite.
 ## Estado actual
 
 Fases **P0–P4 y la primera tanda de P4.1 completadas**. Suite de pruebas:
-**78 tests**.
+**81 tests**. Incluye empaquetado Docker con Nginx y TLS.
 
 | Fase | Contenido |
 |---|---|
@@ -105,6 +105,10 @@ Fases **P0–P4 y la primera tanda de P4.1 completadas**. Suite de pruebas:
 app.py                     Rutas, validación, tareas SSE y CLI
 config.py                  Configuración central y rutas con fallback
 gunicorn.conf.py           Configuración de Gunicorn
+Dockerfile                 Imagen de la aplicación (Gunicorn + Tini)
+docker-compose.yml         App + Nginx con TLS
+docker/                    Entrypoint y configuración de Nginx
+certs/                     Certificado TLS (autofirmado o real)
 models/
   db.py                    Conexiones SQLite, WAL, busy_timeout y migraciones
   user.py                  Usuarios administradores
@@ -183,6 +187,27 @@ comando `flask --app app init-admin`.
 
 ---
 
+## Arranque rápido con Docker (HTTPS)
+
+El despliegue publica solo **Nginx** (80/443); la app queda en una red interna.
+El certificado es autofirmado y se genera en el primer arranque.
+
+```bash
+cp .env.docker.example .env.docker
+
+# Genera una clave de sesión y edítala en .env.docker
+openssl rand -hex 32
+
+docker compose --env-file .env.docker up -d --build
+curl -fk https://localhost/healthz
+```
+
+Ajusta `TLS_CN`/`TLS_SAN` al nombre o IP real de acceso para evitar avisos del
+navegador por el nombre del certificado. Guía completa, copias de seguridad,
+certificado real y diagnóstico en [docs/DOCKER.md](docs/DOCKER.md).
+
+---
+
 ## Configuración
 
 Se lee de `.env` (opcional) o del entorno real. `install.sh` genera `.env` con
@@ -197,6 +222,7 @@ una `HORA_ADMIN_SECRET_KEY` aleatoria.
 | `HORA_ADMIN_DATA_DIR` | `/var/lib/hora-admin` | SQLite y clave de sesión |
 | `HORA_ADMIN_LOG_DIR` | `/var/log/hora-admin` | Logs |
 | `HORA_ADMIN_SESSION_HOURS` | `8` | Duración de sesión (1–72 h) |
+| `HORA_ADMIN_JOB_RETENTION_HOURS` | `24` | Retención de instantáneas de tareas (1–720 h) |
 | `HORA_ADMIN_REMEMBER_DAYS` | `7` | Duración de la cookie “recordarme” (1–30 días) |
 | `HORA_ADMIN_MAX_UPLOAD_BYTES` | `2097152` | Tamaño máximo de subida |
 | `HORA_ADMIN_HOST` / `HORA_ADMIN_PORT` | `127.0.0.1` / `5000` | Servidor de desarrollo |
@@ -279,7 +305,6 @@ Estas variables las lee `gunicorn.conf.py`, no `config.py`:
 | Variable | Por defecto | Nota |
 |---|---|---|
 | `HORA_ADMIN_HISTORY_DAYS` | `180` | Retención de historial; pendiente de job de purga |
-| `HORA_ADMIN_JOB_RETENTION_HOURS` | `24` | Retención de tareas en memoria; pendiente |
 
 > Copia `.env.example` a `.env` y ajusta los valores. En producción usa HTTPS,
 > `HORA_ADMIN_COOKIE_SECURE=1`, `HORA_ADMIN_HSTS=1` y un usuario de servicio
@@ -329,6 +354,7 @@ Para ejecutar de verdad, define `HORA_ADMIN_DRY_RUN=0` y reinicia el servicio.
 | Método | Ruta | Auth | Descripción |
 |---|---|---:|---|
 | GET/POST | `/login` | No | Inicio de sesión |
+| GET | `/healthz` | No | Salud para Docker/balanceadores |
 | POST | `/logout` | Sí | Cierre de sesión |
 | GET/POST | `/` | Sí | Panel; POST ejecuta según `mode` |
 | POST | `/preview` | Sí | Alias explícito de vista previa |
@@ -374,7 +400,7 @@ Resultados: `success`, `failure`, `skipped`, `error`, `preview`.
 `users`, `passwords`, `executions`, `execution_summaries`. El historial
 principal es el lote; `executions` se conserva por compatibilidad.
 
-Esquema actual: `PRAGMA user_version = 3`.
+Esquema actual: `PRAGMA user_version = 5`.
 
 ---
 
@@ -439,24 +465,25 @@ Define `hora_estado` con: `timezone`, `ntp`, `ntp_synchronized`,
 
 ## Limitaciones conocidas
 
-- **Un worker**: el progreso SSE, la consola y las tareas viven en memoria; con
-  varios workers hace falta un almacén compartido. El worker `gthread` y un
-  `timeout` superior al SSE evitan bloqueos, pero no persisten las tareas.
+- **Snapshots por proceso**: el SSE y la consola se sirven desde memoria; SQLite
+  guarda instantáneas para sobrevivir a reinicios, pero varios workers seguirían
+  necesitando un almacén compartido. El worker `gthread` y un `timeout` superior
+  al SSE evitan bloqueos.
 - **Consola acotada**: se conservan las últimas 300 líneas y se recorta cada
-  línea a 500 caracteres; si el proceso se reinicia, la consola se pierde.
+  línea a 500 caracteres. El snapshot persistido puede perder la última fracción
+  de segundo antes de un reinicio.
 - **Ejecución secuencial**: los hosts se procesan uno a uno; no hay
   paralelismo, cancelación ni reintento selectivo de fallidos.
-- **Sin RBAC/MFA/allowlist**: un único rol administrador y sin lista blanca de
-  redes objetivo.
+- **Sin RBAC/MFA**: un único rol administrador; la allowlist de red es global.
 - **Sin inventario/CSV/grupos**: solo IP/CIDR.
 - **Solo Ubuntu/systemd**: no hay soporte para RHEL, Windows o dispositivos de
   red.
 - **Sin programación ni notificaciones**.
-- **Sin retención automática**: `HORA_ADMIN_HISTORY_DAYS` y
-  `HORA_ADMIN_JOB_RETENTION_HOURS` están definidas pero no aplicadas.
+- **Retención parcial**: las instantáneas de tareas se purgan al arrancar según
+  `HORA_ADMIN_JOB_RETENTION_HOURS`; `HORA_ADMIN_HISTORY_DAYS` sigue sin job de
+  purga.
 - **Sin API/CLI de ejecución**: solo endpoints internos de la interfaz.
 - **IPv6**: `ipaddress` lo acepta, pero el flujo con Ansible no está probado.
-- **DRY RUN**: la interfaz no muestra un banner permanente de simulación.
 
 ---
 
@@ -484,6 +511,7 @@ Módulos:
 
 - [Índice de documentación](docs/README.md)
 - [Despliegue](DEPLOYMENT.md)
+- [Despliegue con Docker](docs/DOCKER.md)
 - [Arquitectura y flujos](docs/ARQUITECTURA.md)
 - [Referencia técnica](docs/REFERENCIA.md)
 - [Operación y runbook](docs/OPERACION.md)

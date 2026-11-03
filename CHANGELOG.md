@@ -7,6 +7,42 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ---
 
+## [Docker] — 2026-11-03
+
+Empaquetado del proyecto para distribuirlo como imagen y desplegarlo con
+Docker Compose y HTTPS.
+
+### Añadido
+
+- **Imagen de la aplicación** (`Dockerfile`): `python:3.12-slim`, usuario sin
+  privilegios `hora` (UID/GID 10001), `sshpass`/`openssh-client`, Tini como
+  PID 1, Gunicorn `gthread` en el puerto interno 8000 y `HEALTHCHECK` contra
+  `/healthz`.
+- **Entrypoint** (`docker/entrypoint.sh`): prepara directorios, aplica
+  migraciones, crea el administrador inicial si se definió
+  `HORA_ADMIN_ADMIN_PASSWORD` y arranca Gunicorn.
+- **Nginx con TLS** (`docker/nginx/`): `nginx:1.27-alpine`, generación de
+  certificado autofirmado en el primer arranque, redirección HTTP→HTTPS,
+  proxy compatible con SSE (`proxy_buffering off`, timeouts de 360 s) y
+  `HEALTHCHECK`.
+- **`docker-compose.yml`**: app y Nginx, red interna `backend`, volúmenes
+  `hora_data`, `hora_secrets`, `hora_logs` y `hora_ssh`; solo Nginx publica
+  puertos.
+- **Configuración de ejemplo** (`.env.docker.example`) y `.dockerignore`.
+- **`GET /healthz`**: comprobación sin autenticación que verifica el proceso y
+  el acceso a SQLite, con `Cache-Control: no-store`.
+- **Documentación** (`docs/DOCKER.md`): puesta en marcha, certificados,
+  primer administrador, `known_hosts`, copias de seguridad, actualización,
+  diagnóstico y notas de seguridad.
+
+### Cambiado
+
+- `README.md` incluye arranque rápido con Docker, endpoint `/healthz` y enlace
+  a la guía de despliegue.
+- `.gitignore` ignora `.env.docker` y `certs/*.pem`.
+
+---
+
 ## [P4.1] — 2026-11-03
 
 Primera tanda de hardening del roadmap: visibilidad de simulación, semántica
@@ -36,6 +72,10 @@ fiel de `restore` y avisos de riesgo.
 - **Confirmación e idempotencia:** modal de confirmación con objetivo, acción,
   valor y política NTP; UUID oculto por formulario y memoria acotada para que
   un doble envío redirija al progreso existente en vez de crear otro lote.
+- **Estado de tareas persistido:** esquema v5 con `task_state`; cada tarea
+  guarda una instantánea JSON en SQLite y se recupera si la memoria se pierde.
+  Al arrancar se purgan las antiguas (`HORA_ADMIN_JOB_RETENTION_HOURS`) y se
+  cierran como error las que quedaron incompletas.
 - **CI:** workflow de GitHub Actions con Python 3.11–3.13, compilación,
   validación YAML de Ansible y `pytest`.
 - **Tests nuevos:** migración v3→v4, visibilidad/persistencia de `dry_run`,
@@ -55,7 +95,8 @@ fiel de `restore` y avisos de riesgo.
 
 ### Limitaciones restantes de P4.1
 
-- Estado de tareas persistido (el SSE y la consola siguen en memoria).
+- El SSE y la consola se sirven desde memoria (con snapshots SQLite); varios
+  workers seguirían necesitando un almacén compartido.
 - La idempotencia de envío es por proceso; al escalar a varios workers hará
   falta un almacén compartido.
 - Confirmación de envío e idempotencia de formularios.

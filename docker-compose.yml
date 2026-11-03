@@ -1,0 +1,83 @@
+name: hora-admin
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hora-admin:latest
+    restart: unless-stopped
+    environment:
+      HORA_ADMIN_DATA_DIR: /data
+      HORA_ADMIN_SECRETS_DIR: /secrets
+      HORA_ADMIN_LOG_DIR: /logs
+      # Detrás de Nginx: cookies Secure, IP real y proto HTTPS.
+      HORA_ADMIN_COOKIE_SECURE: "1"
+      HORA_ADMIN_TRUST_PROXY: "1"
+      # HSTS se deja desactivado mientras el certificado sea autofirmado.
+      HORA_ADMIN_HSTS: "${HORA_ADMIN_HSTS:-0}"
+      HORA_ADMIN_SECRET_KEY: "${HORA_ADMIN_SECRET_KEY:-}"
+      HORA_ADMIN_ADMIN_USERNAME: "${HORA_ADMIN_ADMIN_USERNAME:-admin}"
+      HORA_ADMIN_ADMIN_PASSWORD: "${HORA_ADMIN_ADMIN_PASSWORD:-}"
+      HORA_ADMIN_DRY_RUN: "${HORA_ADMIN_DRY_RUN:-1}"
+      HORA_ADMIN_HOST_KEY_CHECKING: "${HORA_ADMIN_HOST_KEY_CHECKING:-1}"
+      HORA_ADMIN_ALLOWED_NETWORKS: "${HORA_ADMIN_ALLOWED_NETWORKS:-}"
+      HORA_ADMIN_BIND: 0.0.0.0:8000
+      HORA_ADMIN_WORKERS: "1"
+      HORA_ADMIN_GUNICORN_WORKER_CLASS: gthread
+      HORA_ADMIN_GUNICORN_THREADS: "4"
+      HORA_ADMIN_GUNICORN_TIMEOUT: "330"
+    volumes:
+      - hora_data:/data
+      - hora_secrets:/secrets
+      - hora_logs:/logs
+      - hora_ssh:/home/hora/.ssh
+    networks:
+      - backend
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  nginx:
+    build:
+      context: ./docker/nginx
+      dockerfile: Dockerfile
+    image: hora-admin-nginx:latest
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "${HORA_ADMIN_HTTP_PORT:-80}:80"
+      - "${HORA_ADMIN_HTTPS_PORT:-443}:443"
+    environment:
+      TLS_CN: "${TLS_CN:-localhost}"
+      TLS_SAN: "${TLS_SAN:-DNS:localhost,IP:127.0.0.1}"
+      TLS_DAYS: "${TLS_DAYS:-825}"
+    volumes:
+      - ./certs:/etc/nginx/certs
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "curl", "-fk", "https://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  hora_data:
+  hora_secrets:
+  hora_logs:
+  hora_ssh:
