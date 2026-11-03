@@ -45,9 +45,21 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
   `ON DELETE CASCADE` de hosts a lotes.
 - **Configuración P4:** `HORA_ADMIN_TIME_TOLERANCE`,
   `HORA_ADMIN_DEFAULT_NTP_SERVERS` y `HORA_ADMIN_MAX_NTP_SERVERS`.
-- **Tests P4** (`tests/test_p4.py`): ejecución en todos los hosts,
-  best-effort, reintento de contraseñas, vista previa, propagación de
-  `time_mode`, política NTP, `sync_rtc` y `force`.
+- **Consola de Ansible en vivo:** `run_ansible_playbook`, `inspect_host` y
+  `apply_host` aceptan un `line_callback` opcional; `_invoke_playbook` usa
+  `Popen` con un hilo lector y entrega la salida línea a línea. Sin callback se
+  conserva la ruta `subprocess.run`.
+- **Redacción y acotado de la consola:** se ocultan las contraseñas candidatas,
+  se compactan los marcadores `HORA_*_B64` y se conservan las últimas 300
+  líneas de hasta 500 caracteres.
+- **Página de progreso renovada:** consola en vivo, resumen de hitos, metadatos
+  del lote, estado global, auto-scroll, limpieza y descarga del log.
+- **SSE con fallback a polling:** si `EventSource` falla tres veces, la página
+  consulta `/api/task-status/<task_id>` cada 2 s.
+- **Tests P4** (`tests/test_p4.py`, `tests/test_ansible_runner.py`): ejecución
+  en todos los hosts, best-effort, reintento de contraseñas, vista previa,
+  propagación de `time_mode`, política NTP, `sync_rtc`, `force`, streaming de
+  salida, timeout del proceso y redacción de la consola.
 - **Documentación:** README reescrito, suite `docs/` (índice, arquitectura,
   referencia, operación), análisis profundo y este changelog.
 

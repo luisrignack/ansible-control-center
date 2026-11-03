@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
+import textwrap
 
 import pytest
 
@@ -117,3 +119,58 @@ def test_ping_nonzero_exit_is_failure(monkeypatch):
     )
     assert result["success"] is False
     assert "UNREACHABLE" in result["error"]
+
+
+def test_streaming_callback_receives_ansible_output(tmp_path, monkeypatch):
+    script = tmp_path / "fake_playbook.py"
+    script.write_text(
+        textwrap.dedent(
+            """
+            import sys
+            print("PLAY [hora]")
+            print("TASK [leer estado]")
+            print("ok: [10.0.0.1]")
+            """
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ansible_runner, "BIN_ANSIBLE_PLAYBOOK", sys.executable)
+    lines = []
+
+    process = ansible_runner._invoke_playbook(
+        host="10.0.0.1",
+        user="root",
+        password="clave-secreta",
+        playbook_path=str(script),
+        extra_vars={},
+        timeout=10,
+        line_callback=lines.append,
+    )
+
+    assert process.returncode == 0
+    assert "PLAY [hora]" in process.stdout
+    assert "TASK [leer estado]" in process.stdout
+    assert lines == ["PLAY [hora]", "TASK [leer estado]", "ok: [10.0.0.1]"]
+
+
+def test_streaming_timeout_kills_process(tmp_path, monkeypatch):
+    script = tmp_path / "slow_playbook.py"
+    script.write_text(
+        "import time\nprint('inicio', flush=True)\ntime.sleep(30)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ansible_runner, "BIN_ANSIBLE_PLAYBOOK", sys.executable)
+    lines = []
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        ansible_runner._invoke_playbook(
+            host="10.0.0.1",
+            user="root",
+            password="clave",
+            playbook_path=str(script),
+            extra_vars={},
+            timeout=0.2,
+            line_callback=lines.append,
+        )
+
+    assert lines == ["inicio"]

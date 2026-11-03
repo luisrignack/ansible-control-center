@@ -85,6 +85,11 @@ Formulario (mode=execute)
   → SSE + /batches/<id>
 ```
 
+Cada llamada a Ansible puede recibir un `line_callback`: la salida estándar y
+de error se unifican y se entregan línea a línea al buffer de la consola. El
+resumen de hitos se mantiene aparte (`log`) y la consola se acota y redacta
+antes de publicarse por SSE.
+
 Un fallo de un host no detiene el lote (best-effort). El estado global se
 deriva de los resultados por host:
 
@@ -111,6 +116,10 @@ La contraseña nunca se pasa por `argv`: se escribe en un fichero temporal
 - Cada ejecución lanza un hilo daemon (`execute_with_progress`).
 - El estado de progreso vive en `_tasks` (memoria del proceso).
 - El SSE consulta `_tasks` cada segundo y envía el estado completo.
+- La salida de Ansible se entrega a un buffer acotado (`console`, 300 líneas)
+  mediante un hilo lector por proceso; el resumen de hitos va en `log`.
+- Si el SSE falla de forma repetida, la página cae a polling de
+  `/api/task-status/<task_id>`.
 - Los hosts se procesan secuencialmente.
 - SQLite usa WAL y `busy_timeout` para tolerar escrituras concurrentes.
 

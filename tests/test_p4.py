@@ -341,3 +341,43 @@ def test_time_mode_and_ntp_policy_reach_ansible(client, monkeypatch):
     assert batch.action == "TIME"
     assert batch.time_mode == "local"
     assert batch.ntp_policy == "configure"
+
+
+def test_live_console_streams_redacts_and_compacts_markers(
+    client, monkeypatch
+):
+    _login(client)
+    monkeypatch.setattr(
+        app_module, "resolve_target", lambda _target: ["10.0.0.30"]
+    )
+    monkeypatch.setattr(
+        app_module,
+        "test_ansible_ping",
+        lambda **_kwargs: {"success": True, "error": ""},
+    )
+
+    def fake_apply(host, line_callback=None, **_kwargs):
+        assert line_callback is not None
+        line_callback("PLAY [hora]")
+        line_callback("TASK [aplicar]")
+        line_callback("password=clave-uno")
+        line_callback("HORA_STATE_B64=eyJ0ZXN0IjogMX0=")
+        return _ok(host)
+
+    monkeypatch.setattr(app_module, "apply_host", fake_apply)
+
+    task_id = _start_execution(client, "execute")
+    page = client.get(f"/progress/{task_id}")
+    assert page.status_code == 200
+    assert b"Salida de Ansible en vivo" in page.data
+
+    status = _wait_for_task(client, task_id)
+    console = "\n".join(status["console"])
+    assert "PLAY [hora]" in console
+    assert "TASK [aplicar]" in console
+    assert "clave-uno" not in console
+    assert "***" in console
+    assert "[marcador de estado del host recibido]" in console
+    assert any(
+        "Playbook y verificación OK" in line for line in status["console"]
+    )

@@ -13,7 +13,7 @@ verificación posterior, idempotencia, lotes auditables e historial en SQLite.
 
 ## Estado actual
 
-Fases **P0, P1, P2, P3 y P4 completadas**. Suite de pruebas: **61 tests**.
+Fases **P0, P1, P2, P3 y P4 completadas**. Suite de pruebas: **64 tests**.
 
 | Fase | Contenido |
 |---|---|
@@ -36,6 +36,9 @@ Fases **P0, P1, P2, P3 y P4 completadas**. Suite de pruebas: **61 tests**.
   falla, se prueban las siguientes candidatas para ese host.
 - **Vista previa**: inspecciona cada host sin cambiar nada y muestra su estado
   actual, el plan y si haría falta cambiar algo.
+- **Consola en vivo**: muestra la salida de `ansible-playbook` línea a línea
+  durante la ejecución, con auto-scroll, limpieza, descarga y redacción de
+  secretos conocidos.
 - **Verificación posterior**: `timedatectl show`, `date` y `hwclock`; el host
   solo cuenta como éxito si el estado final coincide con el objetivo.
 - **Idempotencia**: no cambia zona horaria ni hora si ya son correctas, salvo
@@ -73,7 +76,8 @@ Fases **P0, P1, P2, P3 y P4 completadas**. Suite de pruebas: **61 tests**.
 ### Interfaz
 
 - Panel de configuración con vista previa y ejecución.
-- Progreso en tiempo real por SSE (`/progress/<task_id>`).
+- Progreso en tiempo real por SSE con **consola de Ansible en vivo**, resumen
+  de hitos y enlace al detalle del lote.
 - Detalle de lote con tabla por host y estados antes/después.
 - Gestión del vault: alta manual, importación `.txt`/`.yml`, borrado.
 - Historial de lotes y estadísticas.
@@ -121,7 +125,8 @@ docs/                      Documentación técnica y operativa
    - si el playbook falla, se prueban las siguientes candidatas;
    - se guarda `execution_hosts` y el registro heredado `executions`.
 6. `finish_batch` recalcula contadores y estado global.
-7. El navegador sigue el progreso por SSE y enlaza al detalle del lote.
+7. El navegador sigue el progreso por SSE, muestra la salida de Ansible en
+   vivo y enlaza al detalle del lote.
 
 En **vista previa** se usa `estado_hora.yml` (`inspect_host`), se registra un
 lote en estado `preview` y **nunca** se llama a `apply_host`.
@@ -273,7 +278,8 @@ Estas variables las lee `gunicorn.conf.py`, no `config.py`:
    nada y muestra estado actual, plan y si haría falta cambiar algo.
 5. **Ejecución**: aplica el cambio en todos los hosts, verifica el estado final
    y registra un lote con el resultado de cada host.
-6. **Progreso**: `/progress/<task_id>` con SSE; al terminar enlaza al detalle.
+6. **Progreso**: `/progress/<task_id>` con SSE y consola de Ansible en vivo;
+   al terminar enlaza al detalle.
 7. **Historial**: `/history` muestra lotes, contadores, operador y duración.
 
 Con `HORA_ADMIN_DRY_RUN=1` el playbook no se ejecuta: se simula el resultado.
@@ -411,9 +417,11 @@ Define `hora_estado` con: `timezone`, `ntp`, `ntp_synchronized`,
 
 ## Limitaciones conocidas
 
-- **Un worker**: el progreso SSE y las tareas viven en memoria; con varios
-  workers hace falta un almacén compartido. El worker `sync` y un `timeout`
-  menor que el SSE pueden afectar a operaciones largas.
+- **Un worker**: el progreso SSE, la consola y las tareas viven en memoria; con
+  varios workers hace falta un almacén compartido. El worker `sync` y un
+  `timeout` menor que el SSE pueden afectar a operaciones largas.
+- **Consola acotada**: se conservan las últimas 300 líneas y se recorta cada
+  línea a 500 caracteres; si el proceso se reinicia, la consola se pierde.
 - **Ejecución secuencial**: los hosts se procesan uno a uno; no hay
   paralelismo, cancelación ni reintento selectivo de fallidos.
 - **Sin RBAC/MFA/allowlist**: un único rol administrador y sin lista blanca de

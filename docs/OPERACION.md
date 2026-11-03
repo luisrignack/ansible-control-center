@@ -110,7 +110,12 @@ inspección, queda como `error` y el resto continúa.
 
 ### 2.4. Durante la ejecución
 
-- La página `/progress/<task_id>` muestra progreso y log por SSE.
+- La página `/progress/<task_id>` muestra progreso, resumen de hitos y la
+  salida de `ansible-playbook` en vivo por SSE.
+- La consola permite auto-scroll, limpieza y descarga del log. Los secretos
+  conocidos se redactan, los marcadores de estado se compactan y solo se
+  conservan las últimas 300 líneas.
+- Si el SSE no está disponible, la página reintenta por polling cada 2 s.
 - El detalle final está en `/batches/<batch_id>`.
 - No cierres el proceso ni reinicies el servicio durante un lote: el estado de
   las tareas vive en memoria y el lote puede quedar `running`.

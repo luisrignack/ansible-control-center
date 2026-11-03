@@ -4,27 +4,86 @@
 
 {% block content %}
 <div class="row">
-    <div class="col-12 col-md-8 mx-auto">
+    <div class="col-12 col-xl-10 mx-auto">
         <div class="card fade-in">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h4 class="mb-0"><i class="bi bi-arrow-repeat me-2"></i> Progreso</h4>
-                <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-secondary">
-                    <i class="bi bi-arrow-left me-1"></i> Volver
-                </a>
+            <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <h4 class="mb-0">
+                    <i class="bi bi-terminal me-2"></i> Ejecución del playbook
+                </h4>
+                <div class="d-flex align-items-center gap-2">
+                    <span id="statusBadge" class="badge bg-secondary">Pendiente</span>
+                    <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-arrow-left me-1"></i> Volver
+                    </a>
+                </div>
             </div>
             <div class="card-body">
-                <div class="progress mb-3" role="progressbar" aria-label="Progreso">
+                <div class="row g-2 small text-secondary mb-3">
+                    <div class="col-auto">Modo: <span id="metaMode" class="text-light">—</span></div>
+                    <div class="col-auto">Operador: <span id="metaOperator" class="text-light">—</span></div>
+                    <div class="col-auto">Hosts: <span id="metaHosts" class="text-light">—</span></div>
+                    <div class="col-auto">Lote: <span id="metaBatch" class="text-light">—</span></div>
+                    <div class="col-auto">Hora: <span id="metaTimeMode" class="text-light">—</span></div>
+                    <div class="col-auto">NTP: <span id="metaNtp" class="text-light">—</span></div>
+                </div>
+
+                <div class="progress mb-2" role="progressbar" aria-label="Progreso">
                     <div id="progressBar" class="progress-bar" style="width: 0%">0%</div>
                 </div>
-                <p id="progressMessage" class="small text-secondary mb-3">Conectando…</p>
+                <p id="progressMessage" class="small text-secondary mb-3" aria-live="polite">
+                    Conectando…
+                </p>
+
                 <div id="batchLink" class="mb-3" style="display: none;">
                     <a class="btn btn-sm btn-acento" href="#">
                         <i class="bi bi-collection me-1"></i> Ver resultados por host
                     </a>
                 </div>
-                <pre id="progressLog"
-                     class="small mb-0"
-                     style="max-height: 300px; overflow-y: auto; white-space: pre-wrap;"></pre>
+
+                <div class="row g-3">
+                    <div class="col-12 col-lg-4">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="small text-secondary">
+                                <i class="bi bi-list-check me-1"></i> Resumen
+                            </span>
+                        </div>
+                        <pre id="progressLog"
+                             class="small mb-0 p-2 rounded"
+                             style="max-height: 420px; overflow-y: auto; white-space: pre-wrap;
+                                    word-break: break-word; background: #050d1a;
+                                    border: 1px solid var(--color-bordes);"></pre>
+                    </div>
+
+                    <div class="col-12 col-lg-8">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">
+                            <span class="small text-secondary">
+                                <i class="bi bi-terminal me-1"></i> Salida de Ansible en vivo
+                            </span>
+                            <div class="d-flex flex-wrap align-items-center gap-2">
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" id="autoScroll" checked>
+                                    <label class="form-check-label small" for="autoScroll">Auto-scroll</label>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="clearConsole">
+                                    <i class="bi bi-eraser me-1"></i> Limpiar
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="downloadLog">
+                                    <i class="bi bi-download me-1"></i> Descargar
+                                </button>
+                            </div>
+                        </div>
+                        <pre id="progressConsole"
+                             class="small mb-0 p-2 rounded"
+                             aria-label="Salida de Ansible"
+                             style="height: 55vh; min-height: 260px; overflow-y: auto;
+                                    white-space: pre-wrap; word-break: break-word;
+                                    background: #050d1a; border: 1px solid var(--color-bordes);
+                                    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;"></pre>
+                        <div class="form-text mt-1">
+                            Los secretos conocidos se redactan y los marcadores de estado se compactan.
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -37,21 +96,116 @@
     const progressBar = document.getElementById('progressBar');
     const progressMessage = document.getElementById('progressMessage');
     const progressLog = document.getElementById('progressLog');
+    const progressConsole = document.getElementById('progressConsole');
     const batchLink = document.getElementById('batchLink');
     const batchLinkAnchor = batchLink.querySelector('a');
+    const statusBadge = document.getElementById('statusBadge');
+    const metaMode = document.getElementById('metaMode');
+    const metaOperator = document.getElementById('metaOperator');
+    const metaHosts = document.getElementById('metaHosts');
+    const metaBatch = document.getElementById('metaBatch');
+    const metaTimeMode = document.getElementById('metaTimeMode');
+    const metaNtp = document.getElementById('metaNtp');
+    const autoScroll = document.getElementById('autoScroll');
+    const clearConsole = document.getElementById('clearConsole');
+    const downloadLog = document.getElementById('downloadLog');
+
+    const STATUS_LABELS = {
+        pending: ['Pendiente', 'bg-secondary'],
+        running: ['En curso', 'bg-info text-dark'],
+        preview: ['Vista previa', 'bg-info text-dark'],
+        success: ['Completado', 'bg-success'],
+        completed: ['Completado', 'bg-success'],
+        partial: ['Parcial', 'bg-warning text-dark'],
+        failure: ['Fallido', 'bg-danger'],
+        failed: ['Fallido', 'bg-danger'],
+        error: ['Error', 'bg-danger'],
+        not_found: ['No encontrado', 'bg-secondary'],
+        unknown: ['Pendiente', 'bg-secondary']
+    };
+
+    let lastTask = {};
+    let clearedAt = 0;
+    let lastConsoleText = '';
+    let pollTimer = null;
+    let sseErrors = 0;
+
+    function setStatus(task) {
+        const key = task.overall_result || task.status || 'pending';
+        const [label, css] = STATUS_LABELS[key] || [key, 'bg-secondary'];
+        statusBadge.textContent = label;
+        statusBadge.className = 'badge ' + css;
+    }
 
     function renderTask(task) {
+        lastTask = task;
         const value = Number(task.progress || 0);
         progressBar.style.width = value + '%';
         progressBar.textContent = value + '%';
         progressMessage.textContent = task.message || '';
+        setStatus(task);
+
+        metaMode.textContent = task.mode === 'preview' ? 'Vista previa' : 'Ejecución';
+        metaOperator.textContent = task.operator || '—';
+        metaHosts.textContent = task.total_hosts != null ? task.total_hosts : '—';
+        metaBatch.textContent = task.batch_id ? task.batch_id.slice(0, 8) + '…' : '—';
+        metaTimeMode.textContent = task.time_mode || '—';
+        metaNtp.textContent = task.ntp_policy || '—';
+
         if (Array.isArray(task.log)) {
-            progressLog.textContent = task.log.join('\n');
+            progressLog.textContent = task.log.join('\n') || 'Sin eventos todavía.';
         }
+
+        const consoleLines = Array.isArray(task.console) ? task.console : [];
+        const visible = consoleLines.slice(clearedAt);
+        const text = visible.join('\n');
+        if (text !== lastConsoleText) {
+            lastConsoleText = text;
+            progressConsole.textContent = text || 'Esperando salida de Ansible…';
+            if (autoScroll.checked) {
+                progressConsole.scrollTop = progressConsole.scrollHeight;
+            }
+        }
+
         if (task.batch_id) {
             batchLinkAnchor.href = '/batches/' + encodeURIComponent(task.batch_id);
             batchLink.style.display = 'block';
         }
+
+        if (task.completed || task.status === 'not_found') {
+            stopPolling();
+        }
+    }
+
+    function stopPolling() {
+        if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+        }
+    }
+
+    function startPolling() {
+        if (pollTimer) {
+            return;
+        }
+        source.close();
+        progressMessage.textContent = 'SSE no disponible; consultando el estado por polling…';
+        const tick = async () => {
+            try {
+                const response = await fetch(
+                    '/api/task-status/' + encodeURIComponent(taskId),
+                    { cache: 'no-store' }
+                );
+                if (!response.ok) {
+                    return;
+                }
+                renderTask(await response.json());
+            } catch (_error) {
+                // Se reintenta en el siguiente ciclo.
+            }
+        };
+        tick();
+        pollTimer = setInterval(tick, 2000);
     }
 
     const source = new EventSource(
@@ -65,16 +219,50 @@
     source.addEventListener('completed', (event) => {
         renderTask(JSON.parse(event.data));
         source.close();
+        stopPolling();
     });
 
     source.addEventListener('timeout', (event) => {
         renderTask(JSON.parse(event.data));
         progressMessage.textContent += ' (tiempo de espera agotado)';
         source.close();
+        stopPolling();
     });
 
     source.addEventListener('error', () => {
-        // EventSource reintenta automáticamente; el servidor cierra al terminar.
+        sseErrors += 1;
+        if (sseErrors >= 3) {
+            startPolling();
+        }
+    });
+
+    clearConsole.addEventListener('click', () => {
+        clearedAt = (lastTask.console || []).length;
+        lastConsoleText = '';
+        progressConsole.textContent = 'Consola limpiada. Esperando nueva salida…';
+    });
+
+    downloadLog.addEventListener('click', () => {
+        const lines = [
+            'Hora Admin — ejecución ' + taskId,
+            'Generado: ' + new Date().toISOString(),
+            '',
+            '=== RESUMEN ==='
+        ];
+        lines.push(...(lastTask.log || []));
+        lines.push('', '=== SALIDA DE ANSIBLE ===');
+        lines.push(...(lastTask.console || []));
+        const blob = new Blob([lines.join('\n')], {
+            type: 'text/plain;charset=utf-8'
+        });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = 'hora-admin-' + taskId + '.log';
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
     });
 </script>
 {% endblock %}

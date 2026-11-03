@@ -477,6 +477,7 @@ def create_task() -> str:
             "progress": 0,
             "message": "Proceso iniciado",
             "log": [],
+            "console": [],
             "host": "",
             "password_hash": "",
             "overall_result": "unknown",
@@ -779,6 +780,69 @@ def _append_log(lines: List[str], message: str, limit: int = 200) -> None:
         del lines[: len(lines) - limit]
 
 
+# Límites de la consola en vivo. La salida de Ansible puede ser muy verbosa;
+# se acota para que el payload SSE no crezca sin control.
+_CONSOLE_MAX_LINES = 300
+_CONSOLE_MAX_LINE_LENGTH = 500
+_HORA_B64_RE = re.compile(r"HORA_[A-Z_]+_B64=")
+_HORA_JSON_STATE_RE = re.compile(r"HORA_(?:STATE|BEFORE)=\{")
+
+
+def _sanitize_console_line(line: str, secrets: List[str]) -> str:
+    """Normaliza una línea de Ansible y oculta secretos conocidos.
+
+    También compacta los marcadores base64 de estado, que son muy largos y no
+    aportan nada a la consola: el estado ya se muestra en el detalle del lote.
+    """
+    text = line.replace("\r", "").replace("\n", "")
+    text = "".join(ch for ch in text if ch == "\t" or ord(ch) >= 32)
+    for secret in secrets:
+        if secret and len(secret) >= 3:
+            text = text.replace(secret, "***")
+    if _HORA_B64_RE.search(text) or _HORA_JSON_STATE_RE.search(text):
+        return "[marcador de estado del host recibido]"
+    text = text.rstrip()
+    if len(text) > _CONSOLE_MAX_LINE_LENGTH:
+        text = text[:_CONSOLE_MAX_LINE_LENGTH] + "…"
+    return text
+
+
+def _trim_console(console: List[str]) -> None:
+    if len(console) > _CONSOLE_MAX_LINES:
+        del console[: len(console) - _CONSOLE_MAX_LINES]
+
+
+def _append_console(
+    console: List[str], tid: str, message: str, host: str = ""
+) -> None:
+    """Añade una línea de resumen a la consola y actualiza la tarea."""
+    text = f"[{host}] {message}" if host else message
+    console.append(text)
+    _trim_console(console)
+    update_task(tid, {"console": list(console)})
+
+
+def _make_console_callback(
+    tid: str, host: str, console: List[str], secrets: List[str]
+):
+    """Crea el callback que recibe la salida de Ansible en tiempo real."""
+    last_update = [0.0]
+
+    def callback(raw_line: str) -> None:
+        text = _sanitize_console_line(raw_line, secrets)
+        if not text:
+            return
+        console.append(f"[{host}] {text}")
+        _trim_console(console)
+        # No actualizar en cada línea: el SSE reenvía el estado completo.
+        now = time.monotonic()
+        if now - last_update[0] >= 0.25:
+            last_update[0] = now
+            update_task(tid, {"console": list(console)})
+
+    return callback
+
+
 def _progress_for(index: int, total: int, start: int = 12, span: int = 85) -> int:
     """Progreso proporcional al número de hosts ya procesados."""
     if total <= 0:
@@ -803,16 +867,28 @@ def _run_preview_batch(
 ) -> None:
     """Inspecciona todos los hosts sin cambiar nada y registra el lote."""
     total = len(hosts)
+    console_lines: List[str] = []
     for index, host in enumerate(hosts, start=1):
         started = time.monotonic()
         state: Optional[Dict[str, Any]] = None
         used_hash = ""
         last_error = ""
         inspected = False
+        _append_console(
+            console_lines, tid, f"=== {host} ({index}/{total}) ==="
+        )
+        line_callback = _make_console_callback(
+            tid, host, console_lines, candidates
+        )
 
         for candidate in candidates:
             try:
-                result = inspect_host(host=host, user=admin_user, password=candidate)
+                result = inspect_host(
+                    host=host,
+                    user=admin_user,
+                    password=candidate,
+                    line_callback=line_callback,
+                )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_error = str(exc)
                 continue
@@ -853,6 +929,12 @@ def _run_preview_batch(
                 log_lines,
                 f"Vista previa OK en {host} (hash {used_hash or 'n/d'})",
             )
+            _append_console(
+                console_lines,
+                tid,
+                f"Vista previa OK (hash {used_hash or 'n/d'})",
+                host=host,
+            )
         else:
             ExecutionBatch.add_host_result(
                 batch_id=batch_id,
@@ -867,6 +949,12 @@ def _run_preview_batch(
                 log_lines,
                 f"Vista previa falló en {host}: {str(last_error)[:160]}",
             )
+            _append_console(
+                console_lines,
+                tid,
+                f"Vista previa falló: {str(last_error)[:160]}",
+                host=host,
+            )
 
         update_task(
             tid,
@@ -874,8 +962,11 @@ def _run_preview_batch(
                 "progress": progress,
                 "message": f"Vista previa {index}/{total}: {host}",
                 "log": list(log_lines),
+                "console": list(console_lines),
             },
         )
+
+    update_task(tid, {"console": list(console_lines)})
 
 
 def _run_apply_batch(
@@ -901,6 +992,7 @@ def _run_apply_batch(
     siguientes candidatas. Un fallo de un host nunca detiene el lote.
     """
     total = len(hosts)
+    console_lines: List[str] = []
     for index, host in enumerate(hosts, start=1):
         started = time.monotonic()
         success = False
@@ -910,14 +1002,27 @@ def _run_apply_batch(
         warnings = ""
         last_auth_error = ""
         last_apply_error = ""
+        _append_console(
+            console_lines, tid, f"=== {host} ({index}/{total}) ==="
+        )
+        line_callback = _make_console_callback(
+            tid, host, console_lines, candidates
+        )
 
         for candidate in candidates:
+            candidate_hash = PasswordRecord.hash_short(candidate)
             try:
                 ping = test_ansible_ping(
                     host=host, user=admin_user, password=candidate
                 )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_auth_error = str(exc)
+                _append_console(
+                    console_lines,
+                    tid,
+                    f"Error probando credencial {candidate_hash}: {str(exc)[:120]}",
+                    host=host,
+                )
                 continue
 
             if not ping.get("success"):
@@ -926,9 +1031,16 @@ def _run_apply_batch(
                     log_lines,
                     f"Sin acceso a {host}: {str(last_auth_error)[:120]}",
                 )
+                _append_console(
+                    console_lines,
+                    tid,
+                    f"Sin acceso (hash {candidate_hash}): "
+                    f"{str(last_auth_error)[:120]}",
+                    host=host,
+                )
                 continue
 
-            short_hash = PasswordRecord.hash_short(candidate)
+            short_hash = candidate_hash
             update_task(
                 tid,
                 {
@@ -936,6 +1048,12 @@ def _run_apply_batch(
                     "message": f"Credencial válida en {host}; aplicando cambio…",
                     "log": list(log_lines),
                 },
+            )
+            _append_console(
+                console_lines,
+                tid,
+                f"Credencial válida (hash {short_hash}); ejecutando playbook…",
+                host=host,
             )
 
             try:
@@ -950,12 +1068,19 @@ def _run_apply_batch(
                     ntp_servers=ntp_servers,
                     sync_rtc=sync_rtc,
                     force=force,
+                    line_callback=line_callback,
                 )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_apply_error = str(exc)
                 _append_log(
                     log_lines,
                     f"Error inesperado en {host} (hash {short_hash}): {str(exc)[:120]}",
+                )
+                _append_console(
+                    console_lines,
+                    tid,
+                    f"Error inesperado: {str(exc)[:160]}",
+                    host=host,
                 )
                 continue
 
@@ -976,6 +1101,12 @@ def _run_apply_batch(
                     log_lines,
                     f"Playbook OK en {host} (hash {short_hash})",
                 )
+                _append_console(
+                    console_lines,
+                    tid,
+                    "Playbook y verificación OK",
+                    host=host,
+                )
                 break
 
             # La contraseña es válida pero el cambio/verificación falló:
@@ -986,6 +1117,12 @@ def _run_apply_batch(
                 log_lines,
                 f"Playbook falló en {host} con hash {short_hash}: "
                 f"{str(last_apply_error)[:140]}",
+            )
+            _append_console(
+                console_lines,
+                tid,
+                f"Playbook/verificación falló: {str(last_apply_error)[:160]}",
+                host=host,
             )
 
         duration_ms = int((time.monotonic() - started) * 1000)
@@ -1029,10 +1166,23 @@ def _run_apply_batch(
             _append_log(
                 log_lines, f"Advertencias en {host}: {str(warnings)[:160]}"
             )
+            _append_console(
+                console_lines,
+                tid,
+                f"Advertencias: {str(warnings)[:160]}",
+                host=host,
+            )
         _append_log(
             log_lines,
             f"{'OK' if success else 'FALLO'} {host} ({duration_ms} ms)"
             + (f": {str(error)[:160]}" if error else ""),
+        )
+        _append_console(
+            console_lines,
+            tid,
+            f"{'OK' if success else 'FALLO'} ({duration_ms} ms)"
+            + (f": {str(error)[:160]}" if error else ""),
+            host=host,
         )
         update_task(
             tid,
@@ -1040,8 +1190,11 @@ def _run_apply_batch(
                 "progress": _progress_for(index, total),
                 "message": f"Procesados {index}/{total} hosts",
                 "log": list(log_lines),
+                "console": list(console_lines),
             },
         )
+
+    update_task(tid, {"console": list(console_lines)})
 
 
 def execute_with_progress(

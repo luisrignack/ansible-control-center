@@ -17,8 +17,9 @@ import logging
 import os
 import re
 import subprocess
+import threading
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from config import (
     ANSIBLE_CFG,
@@ -56,6 +57,18 @@ def _result(host: str, success: bool, **extra: Any) -> Dict[str, Any]:
     return result
 
 
+def _emit_line(
+    callback: Optional[Callable[[str], None]], message: str
+) -> None:
+    """Entrega una línea a la consola sin dejar que un fallo tumbe el flujo."""
+    if callback is None:
+        return
+    try:
+        callback(message)
+    except Exception:  # pragma: no cover - salvaguarda
+        logger.exception("Error en el callback de salida de Ansible")
+
+
 def ansible_environment() -> Dict[str, str]:
     """Entorno para las llamadas a Ansible, sin secretos."""
     env = os.environ.copy()
@@ -73,8 +86,14 @@ def _invoke_playbook(
     playbook_path: str,
     extra_vars: Dict[str, Any],
     timeout: Optional[int] = None,
+    line_callback: Optional[Callable[[str], None]] = None,
 ) -> subprocess.CompletedProcess:
-    """Ejecuta ``ansible-playbook`` con las credenciales en un fichero 0600."""
+    """Ejecuta ``ansible-playbook`` con las credenciales en un fichero 0600.
+
+    Si se pasa ``line_callback``, la salida se lee línea a línea y se entrega
+    en tiempo real (para la consola de progreso). Sin callback se mantiene la
+    ruta clásica con ``subprocess.run``.
+    """
     path = str(playbook_path)
     payload = dict(extra_vars)
     payload["ansible_password"] = password
@@ -95,13 +114,72 @@ def _invoke_playbook(
             "--timeout",
             str(CONNECT_TIMEOUT),
         ]
-        return subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout or PLAYBOOK_TIMEOUT,
-            env=ansible_environment(),
-        )
+        env = ansible_environment()
+        if line_callback is None:
+            return subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout or PLAYBOOK_TIMEOUT,
+                env=env,
+            )
+        return _run_streaming(cmd, env, timeout, line_callback)
+
+
+def _run_streaming(
+    cmd: List[str],
+    env: Dict[str, str],
+    timeout: Optional[int],
+    line_callback: Callable[[str], None],
+) -> subprocess.CompletedProcess:
+    """Ejecuta un proceso y entrega su salida línea a línea.
+
+    Se usa un hilo lector para no bloquear el pipe si el proceso escribe mucho,
+    y se aplica el timeout sobre ``wait``. Al expirar se mata el proceso y se
+    propaga ``TimeoutExpired`` para que el llamador lo traduzca a un error.
+    """
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        env=env,
+    )
+    lines: List[str] = []
+
+    def _reader() -> None:
+        assert process.stdout is not None
+        try:
+            for line in iter(process.stdout.readline, ""):
+                lines.append(line)
+                try:
+                    line_callback(line.rstrip("\r\n"))
+                except Exception:  # pragma: no cover - salvaguarda
+                    logger.exception("Error en el callback de salida de Ansible")
+        finally:
+            try:
+                process.stdout.close()
+            except OSError:  # pragma: no cover - cierre defensivo
+                pass
+
+    reader = threading.Thread(
+        target=_reader, name="ansible-output", daemon=True
+    )
+    reader.start()
+
+    try:
+        returncode = process.wait(timeout=timeout or PLAYBOOK_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        reader.join(timeout=2)
+        raise
+
+    reader.join(timeout=2)
+    return subprocess.CompletedProcess(
+        cmd, returncode, stdout="".join(lines), stderr=""
+    )
 
 
 def _decode_b64_marker(output: str, marker: str) -> Optional[Dict[str, Any]]:
@@ -200,6 +278,7 @@ def run_ansible_playbook(
     password: Optional[str] = None,
     playbook_path: str = None,
     timeout: int = None,
+    line_callback: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Any]:
     """Ejecuta el playbook de configuración de hora contra un host.
 
@@ -213,6 +292,11 @@ def run_ansible_playbook(
 
     if DRY_RUN:
         logger.info("DRY RUN: se omite el playbook %s en %s", path, host)
+        _emit_line(
+            line_callback,
+            f"[DRY RUN] Se habría ejecutado {path} en {host} "
+            f"(acción={action}, valor={value}, usuario={user})",
+        )
         return _result(
             host,
             True,
@@ -253,6 +337,7 @@ def run_ansible_playbook(
                 "target_host": host,
             },
             timeout=timeout,
+            line_callback=line_callback,
         )
     except FileNotFoundError:
         return _result(
@@ -287,6 +372,7 @@ def inspect_host(
     user: str,
     password: Optional[str] = None,
     timeout: int = None,
+    line_callback: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Any]:
     """Lee el estado de hora/zona horaria/NTP de un host sin cambiar nada.
 
@@ -300,6 +386,9 @@ def inspect_host(
 
     if DRY_RUN:
         logger.info("DRY RUN: se omite la inspección de %s", host)
+        _emit_line(
+            line_callback, f"[DRY RUN] Se habría inspeccionado {host}"
+        )
         return _result(
             host,
             True,
@@ -325,6 +414,7 @@ def inspect_host(
             playbook_path=path,
             extra_vars={},
             timeout=timeout,
+            line_callback=line_callback,
         )
     except FileNotFoundError:
         return _result(
@@ -375,6 +465,7 @@ def apply_host(
     force: bool = False,
     tolerance: Optional[int] = None,
     timeout: int = None,
+    line_callback: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Any]:
     """Aplica el cambio en un host y verifica el resultado.
 
@@ -390,6 +481,11 @@ def apply_host(
 
     if DRY_RUN:
         logger.info("DRY RUN: se omite el cambio real en %s", host)
+        _emit_line(
+            line_callback,
+            f"[DRY RUN] Se habría aplicado {action}={value} en {host} "
+            f"(modo={time_mode}, ntp={ntp_policy})",
+        )
         return _result(
             host,
             True,
@@ -438,6 +534,7 @@ def apply_host(
             playbook_path=path,
             extra_vars=extra_vars,
             timeout=timeout,
+            line_callback=line_callback,
         )
     except FileNotFoundError:
         return _result(

@@ -77,10 +77,16 @@ flask --app app init-admin [--username USUARIO]
 | Función | Descripción |
 |---|---|
 | `ansible_environment()` | Entorno de Ansible sin secretos |
-| `run_ansible_playbook(host, user, action, value, password, playbook_path, timeout)` | Ruta legacy; ejecuta el playbook de cambio |
-| `inspect_host(host, user, password, timeout)` | Ejecuta `estado_hora.yml`; devuelve `state` |
-| `apply_host(host, user, action, value, password, time_mode, ntp_policy, ntp_servers, sync_rtc, force, tolerance, timeout)` | Aplica y verifica; devuelve `before_state`, `after_state`, `changed`, `verified`, `warnings`, `deviation` |
+| `run_ansible_playbook(host, user, action, value, password, playbook_path, timeout, line_callback)` | Ruta legacy; ejecuta el playbook de cambio |
+| `inspect_host(host, user, password, timeout, line_callback)` | Ejecuta `estado_hora.yml`; devuelve `state` |
+| `apply_host(host, user, action, value, password, time_mode, ntp_policy, ntp_servers, sync_rtc, force, tolerance, timeout, line_callback)` | Aplica y verifica; devuelve `before_state`, `after_state`, `changed`, `verified`, `warnings`, `deviation` |
 | `run_playbook_simple(...)` | Compatibilidad |
+
+`line_callback` es opcional. Si se pasa, `_invoke_playbook` usa
+`subprocess.Popen` y entrega la salida de Ansible línea a línea mediante un
+hilo lector; sin callback se mantiene `subprocess.run` con captura completa.
+El timeout se aplica sobre el proceso y, al expirar, se mata y se propaga
+`TimeoutExpired`.
 
 Resultado habitual:
 
