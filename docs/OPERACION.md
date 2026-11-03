@@ -5,8 +5,9 @@ Complementa [ARQUITECTURA](ARQUITECTURA.md) y [REFERENCIA](REFERENCIA.md).
 
 > **Antes de operar sobre equipos reales:** confirma que
 > `HORA_ADMIN_DRY_RUN=0`, que el host está en `known_hosts` y que tienes
-> autorización explícita. La interfaz actual **no muestra un banner permanente**
-> de modo simulación y el valor `dry_run` **no se guarda** en el lote.
+> autorización explícita. La interfaz muestra un banner de simulación, el lote
+> guarda `dry_run` y el historial separa hosts reales de simulados. La vista
+> previa ejecuta una inspección real de solo lectura incluso en DRY RUN.
 
 ---
 
@@ -38,15 +39,19 @@ la tarea SSE termina en `error`.
 
 Para cada host, en orden secuencial:
 
-1. Se prueba `ansible -m ping` con cada contraseña candidata.
+1. Se prueba `ansible -m ping` con las contraseñas candidatas, hasta
+   `HORA_ADMIN_MAX_PASSWORD_ATTEMPTS` (3 por defecto).
 2. La primera que autentica ejecuta `cambiar_hora.yml` mediante `apply_host`.
 3. Si el playbook falla o la verificación no coincide, se prueba la siguiente
-   candidata para ese mismo host.
+   candidata para ese mismo host, sin superar el límite anterior.
 4. Se guarda **un único resultado final** por host en `execution_hosts`, con
    duración, estado previo, estado posterior y error.
 5. Se conserva además un registro en `executions` (tabla heredada).
 
-Un fallo de host **no detiene** el lote (best-effort).
+Un fallo de host **no detiene** el lote (best-effort). El lote tiene un
+presupuesto total de `HORA_ADMIN_BATCH_TIME_BUDGET` segundos (3600 por
+defecto); al agotarse, los hosts pendientes se registran como `skipped` y el
+lote cierra en vez de quedar abierto durante horas.
 
 ### 1.3. Cierre
 
@@ -83,7 +88,9 @@ y deriva el estado global:
 ### 2.2. Vista previa recomendada
 
 Ejecuta primero `mode=preview`. Crea un lote `preview`, inspecciona cada host
-con `estado_hora.yml` (solo lectura) y guarda:
+con `estado_hora.yml` (solo lectura) y guarda. La inspección se ejecuta de
+verdad aunque `DRY_RUN` esté activo: es de solo lectura y así se detectan
+hosts caídos o credenciales inválidas:
 
 - estado actual (`before_state`);
 - plan calculado (`after_state`): `planned`, `would_change`, acción, valor,
@@ -260,10 +267,15 @@ sudo -u hora-admin .venv/bin/flask --app app reconcile-batches
 
 ### 4.7. “Éxito” en modo simulación
 
-Con `HORA_ADMIN_DRY_RUN=1` el resultado se simula: `success=True` y
-`verified=True` sin tocar el host. La interfaz no lo distingue visualmente.
-**Comprueba siempre el valor de la variable de entorno antes de dar un cambio
-por real.** El lote tampoco guarda `dry_run`.
+Con `HORA_ADMIN_DRY_RUN=1` el resultado del cambio se simula: no se toca el
+host. El panel y el detalle muestran el badge `DRY RUN`, el lote guarda
+`dry_run` y el historial separa los hosts simulados de los reales. Aun así,
+**comprueba el modo antes de dar un cambio por real**: el estado `success` de
+un lote simulado no significa que la hora se haya aplicado.
+
+La vista previa es la excepción: su playbook de inspección es de solo lectura y
+se ejecuta de verdad incluso en `DRY_RUN`, para detectar hosts caídos o
+credenciales inválidas.
 
 ---
 
@@ -487,7 +499,8 @@ desactives la verificación salvo decisión consciente y documentada.
 
 ## 11. Limitaciones operativas conocidas
 
-- Sin paralelismo, cancelación ni reintento selectivo.
+- Sin paralelismo, cancelación ni reintento selectivo. Los intentos por host
+  y el presupuesto de tiempo del lote están acotados.
 - Sin rollback automático.
 - Sin retención automática.
 - Estado de tareas en memoria; SSE depende del proceso.

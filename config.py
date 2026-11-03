@@ -279,6 +279,21 @@ TIME_VERIFY_TOLERANCE = _env_int(
     "HORA_ADMIN_TIME_TOLERANCE", 120, minimum=0, maximum=3600
 )
 
+# Límite de contraseñas candidatas que se prueban contra un mismo host. Sin
+# este tope, una contraseña válida con un playbook que falla por un motivo
+# ajeno a la autenticación haría probar todas las candidatas (hasta 200 por
+# defecto) con ping + playbook cada una.
+MAX_PASSWORD_ATTEMPTS = _env_int(
+    "HORA_ADMIN_MAX_PASSWORD_ATTEMPTS", 3, minimum=1, maximum=50
+)
+
+# Presupuesto total de tiempo para un lote (segundos). Al agotarse, los hosts
+# pendientes se registran como ``skipped`` en lugar de dejar el lote abierto
+# durante horas. Un host en curso puede terminar su playbook (timeout propio).
+BATCH_TIME_BUDGET_SECONDS = _env_int(
+    "HORA_ADMIN_BATCH_TIME_BUDGET", 3600, minimum=60, maximum=86400
+)
+
 # Políticas NTP:
 #   keep      -> no tocar la configuración NTP existente.
 #   off       -> desactivar NTP (queda desactivado).
@@ -351,6 +366,8 @@ COMMON_TIMEZONES: tuple[str, ...] = (
     "Africa/Cairo",
     "Africa/Johannesburg",
     "Africa/Casablanca",
+    "Etc/GMT+4",
+    "America/Halifax",
 )
 
 

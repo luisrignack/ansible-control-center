@@ -49,6 +49,7 @@ from config import (
     ADMIN_PASSWORD_MIN_LENGTH,
     ADMIN_USERNAME,
     ALLOWED_PASSWORD_EXTENSIONS,
+    BATCH_TIME_BUDGET_SECONDS,
     COMMON_TIMEZONES,
     CSP_ENABLED,
     CSRF_ENABLED,
@@ -67,6 +68,7 @@ from config import (
     MAX_HOSTS,
     MAX_NTP_SERVERS,
     MAX_PASSWORDS,
+    MAX_PASSWORD_ATTEMPTS,
     MAX_PASSWORD_LENGTH,
     NTP_POLICIES,
     PERMANENT_SESSION_LIFETIME_SECONDS,
@@ -407,6 +409,18 @@ def _parse_operation_form(
     )
 
 
+def _state_bool(value: Any) -> bool:
+    """Interpreta un booleano del playbook aunque llegue serializado.
+
+    Ansible con Jinja nativa conserva ``bool``; con versiones anteriores un
+    ``set_fact`` entrecomillado puede producir ``"True"``/``"False"``. Un
+    ``bool("False")`` de Python sería verdadero, así que se normaliza aquí.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "si", "sí", "on"}
+    return bool(value)
+
+
 def _would_change(
     state: Optional[Dict[str, Any]],
     action: str,
@@ -414,11 +428,17 @@ def _would_change(
     time_mode: str,
     ntp_policy: str,
     force: bool,
+    ntp_servers: Optional[List[str]] = None,
 ) -> Optional[bool]:
     """Estima si hace falta cambiar algo según el estado leído (vista previa).
 
     Devuelve ``None`` si el estado no permite decidirlo (por ejemplo, un host
     inaccesible o una salida incompleta del playbook de inspección).
+
+    Para ``configure`` se devuelve ``True`` salvo que el estado incluya la
+    lista de servidores NTP y coincida exactamente: el playbook reescribe la
+    configuración NTP, así que no se puede prometer “sin cambios” sin esos
+    datos.
     """
     if force:
         return True
@@ -447,9 +467,17 @@ def _would_change(
             changed = not local.startswith(value)
 
     if ntp_policy == "off":
-        changed = changed or bool(state.get("ntp"))
+        changed = changed or _state_bool(state.get("ntp"))
     elif ntp_policy == "configure":
-        changed = changed or not bool(state.get("ntp"))
+        current_servers = state.get("ntp_servers")
+        servers_match = isinstance(current_servers, list) and {
+            str(server) for server in current_servers
+        } == {str(server) for server in (ntp_servers or [])}
+        changed = (
+            changed
+            or not _state_bool(state.get("ntp"))
+            or not servers_match
+        )
     # ``restore`` devuelve NTP a su estado previo, así que no añade cambios
     # netos por sí mismo.
 
@@ -463,10 +491,14 @@ def _batch_message(batch: Any) -> str:
     if batch.status == "preview":
         return (
             f"Vista previa: {batch.preview_count} host(s) inspeccionado(s), "
-            f"{batch.error_count} con error"
+            f"{batch.error_count} con error, {batch.skipped_count} omitido(s)"
         )
+    prefix = ""
+    if getattr(batch, "dry_run", False):
+        prefix = "SIMULACIÓN (sin cambios reales): "
     return (
-        f"Lote {batch.status}: {batch.success_count} éxito(s), "
+        prefix
+        + f"Lote {batch.status}: {batch.success_count} éxito(s), "
         f"{batch.failure_count} fallo(s), {batch.skipped_count} omitido(s), "
         f"{batch.error_count} error(es)"
     )
@@ -1069,6 +1101,33 @@ def _progress_for(index: int, total: int, start: int = 12, span: int = 85) -> in
     return min(start + int(index / total * span), start + span)
 
 
+def _skip_remaining_hosts(
+    tid: str,
+    batch_id: str,
+    hosts: List[str],
+    db_path: str,
+    log_lines: List[str],
+    console_lines: List[str],
+    reason: str = "Presupuesto de tiempo del lote agotado.",
+) -> None:
+    """Registra como omitidos los hosts que no se llegaron a procesar.
+
+    Así el lote cierra con todos sus hosts contabilizados en vez de quedar
+    abierto indefinidamente o perder los pendientes.
+    """
+    for host in hosts:
+        ExecutionBatch.add_host_result(
+            batch_id=batch_id,
+            host=host,
+            result="skipped",
+            error=reason,
+            db_path=db_path,
+        )
+        _append_log(log_lines, f"OMITIDO {host}: {reason}")
+        _append_console(console_lines, tid, f"OMITIDO: {reason}", host=host)
+    update_task(tid, {"log": list(log_lines), "console": list(console_lines)})
+
+
 def _ntp_keep_warning(
     action: str, ntp_policy: str, state: Any
 ) -> str:
@@ -1077,7 +1136,7 @@ def _ntp_keep_warning(
         action == "TIME"
         and ntp_policy == "keep"
         and isinstance(state, dict)
-        and state.get("ntp")
+        and _state_bool(state.get("ntp"))
     ):
         return (
             "TIME con NTP activo y política keep: el reloj puede volver a "
@@ -1097,7 +1156,9 @@ def _run_preview_batch(
     password_origin: str,
     time_mode: str,
     ntp_policy: str,
+    ntp_servers: List[str],
     force: bool,
+    deadline: float,
     db_path: str,
     log_lines: List[str],
 ) -> None:
@@ -1105,6 +1166,17 @@ def _run_preview_batch(
     total = len(hosts)
     console_lines: List[str] = []
     for index, host in enumerate(hosts, start=1):
+        if time.monotonic() >= deadline:
+            _skip_remaining_hosts(
+                tid=tid,
+                batch_id=batch_id,
+                hosts=hosts[index - 1 :],
+                db_path=db_path,
+                log_lines=log_lines,
+                console_lines=console_lines,
+            )
+            break
+
         started = time.monotonic()
         state: Optional[Dict[str, Any]] = None
         used_hash = ""
@@ -1117,13 +1189,23 @@ def _run_preview_batch(
             tid, host, console_lines, candidates
         )
 
+        attempts = 0
         for candidate in candidates:
+            if attempts >= MAX_PASSWORD_ATTEMPTS:
+                _append_log(
+                    log_lines,
+                    f"Límite de {MAX_PASSWORD_ATTEMPTS} intento(s) alcanzado "
+                    f"en {host} (vista previa)",
+                )
+                break
+            attempts += 1
             try:
                 result = inspect_host(
                     host=host,
                     user=admin_user,
                     password=candidate,
                     line_callback=line_callback,
+                    force_real=True,
                 )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_error = str(exc)
@@ -1143,7 +1225,13 @@ def _run_preview_batch(
             plan = {
                 "planned": True,
                 "would_change": _would_change(
-                    state, action, value, time_mode, ntp_policy, force
+                    state,
+                    action,
+                    value,
+                    time_mode,
+                    ntp_policy,
+                    force,
+                    ntp_servers=ntp_servers,
                 ),
                 "action": action,
                 "value": value,
@@ -1228,17 +1316,31 @@ def _run_apply_batch(
     ntp_servers: List[str],
     sync_rtc: bool,
     force: bool,
+    deadline: float,
     db_path: str,
     log_lines: List[str],
 ) -> None:
     """Aplica el cambio en todos los hosts (best-effort) y registra cada uno.
 
     Si una contraseña autentica pero el playbook falla, se prueban las
-    siguientes candidatas. Un fallo de un host nunca detiene el lote.
+    siguientes candidatas hasta ``HORA_ADMIN_MAX_PASSWORD_ATTEMPTS``. Un fallo
+    de un host nunca detiene el lote. Al agotarse el presupuesto de tiempo del
+    lote, los hosts pendientes quedan como ``skipped``.
     """
     total = len(hosts)
     console_lines: List[str] = []
     for index, host in enumerate(hosts, start=1):
+        if time.monotonic() >= deadline:
+            _skip_remaining_hosts(
+                tid=tid,
+                batch_id=batch_id,
+                hosts=hosts[index - 1 :],
+                db_path=db_path,
+                log_lines=log_lines,
+                console_lines=console_lines,
+            )
+            break
+
         started = time.monotonic()
         success = False
         before_state: Any = None
@@ -1254,7 +1356,22 @@ def _run_apply_batch(
             tid, host, console_lines, candidates
         )
 
+        attempts = 0
         for candidate in candidates:
+            if attempts >= MAX_PASSWORD_ATTEMPTS:
+                _append_log(
+                    log_lines,
+                    f"Límite de {MAX_PASSWORD_ATTEMPTS} intento(s) alcanzado "
+                    f"en {host}",
+                )
+                _append_console(
+                    console_lines,
+                    tid,
+                    f"Límite de {MAX_PASSWORD_ATTEMPTS} intento(s) alcanzado",
+                    host=host,
+                )
+                break
+            attempts += 1
             candidate_hash = PasswordRecord.hash_short(candidate)
             try:
                 ping = test_ansible_ping(
@@ -1369,6 +1486,13 @@ def _run_apply_batch(
                 f"Playbook/verificación falló: {str(last_apply_error)[:160]}",
                 host=host,
             )
+            if time.monotonic() >= deadline:
+                last_apply_error = "Presupuesto de tiempo del lote agotado."
+                _append_log(
+                    log_lines,
+                    f"Presupuesto de tiempo agotado durante {host}",
+                )
+                break
 
         duration_ms = int((time.monotonic() - started) * 1000)
         error = ""
@@ -1568,7 +1692,9 @@ def execute_with_progress(
             ntp_policy=ntp_policy,
             total_hosts=len(hosts),
             status="preview" if mode == "preview" else "running",
-            dry_run=DRY_RUN,
+            # La vista previa nunca aplica cambios: no es una ejecución
+            # simulada, sino una inspección real de solo lectura.
+            dry_run=DRY_RUN and mode != "preview",
             db_path=db_path,
         )
         update_task(
@@ -1591,6 +1717,7 @@ def execute_with_progress(
         )
 
         log_lines: List[str] = [f"Lote {batch_id}"]
+        deadline = time.monotonic() + BATCH_TIME_BUDGET_SECONDS
         if mode == "preview":
             _run_preview_batch(
                 tid=tid,
@@ -1603,7 +1730,9 @@ def execute_with_progress(
                 password_origin=po,
                 time_mode=time_mode,
                 ntp_policy=ntp_policy,
+                ntp_servers=list(ntp_servers or []),
                 force=force,
+                deadline=deadline,
                 db_path=db_path,
                 log_lines=log_lines,
             )
@@ -1622,6 +1751,7 @@ def execute_with_progress(
                 ntp_servers=list(ntp_servers or []),
                 sync_rtc=sync_rtc,
                 force=force,
+                deadline=deadline,
                 db_path=db_path,
                 log_lines=log_lines,
             )

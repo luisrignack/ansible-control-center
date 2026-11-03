@@ -118,7 +118,7 @@ Resultado habitual:
 
 | Función | Descripción |
 |---|---|
-| `test_passwords_single(target_ip, admin_user, password_origin, master_password, action, value, temporal_passwords)` | Prueba todas las contraseñas contra todos los hosts (API de servicio) |
+| `test_passwords_single(target_ip, admin_user, password_origin, master_password, action, value, temporal_passwords)` | Prueba contraseñas contra todos los hosts, con tope por host (API de servicio) |
 | `test_ansible_ping(host, user, password, timeout)` | Ejecuta `ansible -m ping` |
 | `run_ansible_playbook(host, user, password, action, value)` | Wrapper legacy |
 | `resolve_hosts(target_ip)` | Wrapper de `resolve_target` |
@@ -313,8 +313,9 @@ grupos:
   `HORA_ADMIN_PASSWORD_PEPPER`.
 - Ejecución: `HORA_ADMIN_DRY_RUN`, `HORA_ADMIN_MAX_HOSTS`,
   `HORA_ADMIN_MIN_CIDR_PREFIX`, `HORA_ADMIN_ALLOWED_NETWORKS`,
-  `HORA_ADMIN_MAX_PASSWORDS`,
-  `HORA_ADMIN_TIME_TOLERANCE`, `HORA_ADMIN_DEFAULT_NTP_SERVERS`.
+  `HORA_ADMIN_MAX_PASSWORDS`, `HORA_ADMIN_MAX_PASSWORD_ATTEMPTS`,
+  `HORA_ADMIN_BATCH_TIME_BUDGET`, `HORA_ADMIN_TIME_TOLERANCE`,
+  `HORA_ADMIN_DEFAULT_NTP_SERVERS`.
 - Seguridad: `HORA_ADMIN_CSRF_ENABLED`, `HORA_ADMIN_*_RATE_LIMIT`,
   `HORA_ADMIN_TRUST_PROXY`, `HORA_ADMIN_CSP_ENABLED`,
   `HORA_ADMIN_HSTS`, `HORA_ADMIN_SECURITY_HEADERS`.
@@ -325,8 +326,9 @@ grupos:
 - Logging: `HORA_ADMIN_LOG_LEVEL`, `HORA_ADMIN_LOG_TO_FILE`,
   `HORA_ADMIN_LOG_MAX_BYTES`, `HORA_ADMIN_LOG_BACKUPS`.
 
-Reservadas (definidas, sin job de purga): `HORA_ADMIN_HISTORY_DAYS`,
-`HORA_ADMIN_JOB_RETENTION_HOURS`.
+Reservada (definida, sin job de purga de lotes): `HORA_ADMIN_HISTORY_DAYS`.
+`HORA_ADMIN_JOB_RETENTION_HOURS` se aplica al arrancar a las instantáneas de
+tareas.
 
 ---
 

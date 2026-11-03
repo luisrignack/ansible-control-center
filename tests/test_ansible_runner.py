@@ -23,7 +23,9 @@ def _capture_vars_file(captured, cmd, **kwargs):
     captured["vars_path"] = vars_path
     captured["cmd"] = cmd
     captured["kwargs"] = kwargs
-    return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+    return subprocess.CompletedProcess(
+        cmd, 0, stdout="PLAY ok\nHORA_VERIFIED=true\n", stderr=""
+    )
 
 
 def test_dry_run_does_not_invoke_ansible(monkeypatch):
@@ -68,6 +70,28 @@ def test_password_goes_to_secure_extra_vars_file(monkeypatch):
     assert "clave-super-secreta" not in " ".join(captured["cmd"])
     assert not os.path.exists(captured["vars_path"])
     assert captured["kwargs"]["env"]["ANSIBLE_NOCOLOR"] == "1"
+
+
+def test_legacy_playbook_requires_verification(monkeypatch):
+    """Un returncode 0 sin HORA_VERIFIED (o con false) no puede ser éxito."""
+    monkeypatch.setattr(ansible_runner, "DRY_RUN", False)
+
+    for stdout in ("ok", "HORA_VERIFIED=false"):
+
+        def fake_run(cmd, **_kwargs):
+            return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+        monkeypatch.setattr(ansible_runner.subprocess, "run", fake_run)
+        result = ansible_runner.run_ansible_playbook(
+            host="10.0.0.1",
+            user="root",
+            action="TZ",
+            value="UTC",
+            password="clave",
+        )
+
+        assert result["success"] is False
+        assert result["error"]
 
 
 def test_missing_password_fails_without_invoking_ansible(monkeypatch):

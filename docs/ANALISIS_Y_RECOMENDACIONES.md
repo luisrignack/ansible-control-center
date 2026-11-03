@@ -3,11 +3,17 @@
 **Fecha:** 2026-11-03
 **Alcance:** revisión de código, seguridad, corrección temporal, datos,
 concurrencia, operación, UX, testing, despliegue y documentación.
-**Estado analizado:** fases P0–P4 implementadas; 61 tests en verde.
+**Estado analizado:** fases P0–P4.2 implementadas; 88 tests en verde.
 
 > Este documento recoge el análisis por aspecto y las recomendaciones
 > priorizadas. No describe únicamente lo implementado: también identifica
 > riesgos, deuda técnica y el roadmap propuesto.
+>
+> **Actualización P4.1/P4.2:** C1, C3, C4, C6, C7, C8 y C9 se resolvieron en
+> P4.1; C10 y la vista previa engañosa en DRY RUN, en P4.2. Los textos de la
+> sección 3 se conservan como histórico del análisis original; las etiquetas
+> **Resuelto** indican qué ya no describe el código actual. C2 sigue mitigado
+> con aviso, no bloqueado, y C5 (cola/paralelismo/cancelación) sigue abierto.
 
 ---
 
@@ -16,12 +22,12 @@ concurrencia, operación, UX, testing, despliegue y documentación.
 | Área | Nota orientativa | Comentario |
 |---|---:|---|
 | Seguridad base (CSRF, sesión, cabeceras) | 7/10 | Buen baseline; falta MFA/RBAC y allowlist de red |
-| Corrección temporal/NTP | 6/10 | Hay dos semánticas peligrosas (`keep` + TIME y `restore`) |
-| Modelo de datos/auditoría | 6/10 | Lotes correctos, pero faltan campos clave (`dry_run`, warnings, intentos) |
+| Corrección temporal/NTP | 7/10 | Queda `keep` + TIME (avisado, no bloqueado) |
+| Modelo de datos/auditoría | 7/10 | Lotes con `dry_run`; faltan warnings/intentos por host y auditoría independiente |
 | Concurrencia/escala | 4/10 | Secuencial, estado en memoria, SSE bloqueante |
-| Resiliencia operativa | 4/10 | Sin cancelación, reconciliación ni parada ordenada |
-| UX | 6/10 | Funcional; falta aviso de simulación, confirmación y filtros |
-| Testing/CI | 6/10 | Buena base unitaria; sin CI, lint, tipos ni pruebas de playbook |
+| Resiliencia operativa | 6/10 | Reconciliación y presupuesto de tiempo; faltan cancelación y parada ordenada |
+| UX | 7/10 | Banner, confirmación e idempotencia; faltan filtros y exportación |
+| Testing/CI | 6/10 | 88 tests y CI; faltan lint, tipos y pruebas de playbook reales |
 | Documentación | 8/10 | Muy buena; algunas inconsistencias |
 | Mantenibilidad | 6/10 | `app.py` monolítico y duplicación de bucles |
 
@@ -47,9 +53,12 @@ grandes** sin resolver los puntos críticos de abajo.
 
 ---
 
-## 3. Hallazgos críticos (corregir antes de usar en producción real)
+## 3. Hallazgos críticos y estado actual
 
-### C1. `DRY_RUN` es invisible y no queda registrado
+> Texto original conservado como histórico. Las etiquetas de estado resumen
+> el comportamiento actual.
+
+### C1. `DRY_RUN` es invisible y no queda registrado — **Resuelto en P4.1/P4.2**
 
 `HORA_ADMIN_DRY_RUN=1` es el valor por defecto, pero **ninguna plantilla lo
 muestra** y `execution_batches` no tiene columna `dry_run`. El playbook
@@ -61,7 +70,7 @@ que cambió la hora.
 lote/host, badge en historial y detalle, y bloquear la ejecución real si el
 operador no confirma que conoce el modo.
 
-### C2. `TIME` con política NTP `keep` puede no mantenerse
+### C2. `TIME` con política NTP `keep` puede no mantenerse — **Mitigado, no bloqueado**
 
 El playbook solo desactiva NTP para `off`, `restore` y `configure`
 (`ansible/cambiar_hora.yml:105-113`). Con `keep`, NTP sigue activo y puede
@@ -71,7 +80,7 @@ verificación puede pasar por tolerancia y luego el reloj vuelve a cambiar.
 **Recomendación:** para `TIME`, exigir `restore`/`off` o desactivar/reactivar
 NTP automáticamente; avisar en UI y en la vista previa si NTP está activo.
 
-### C3. Arquitectura SSE + Gunicorn sync + estado en memoria
+### C3. Arquitectura SSE + Gunicorn sync + estado en memoria — **Resuelto en P4.1**
 
 - `gunicorn.conf.py:12` fija `timeout=120`.
 - El SSE espera hasta `max_wait=300` (`app.py:503`).
@@ -87,7 +96,7 @@ progreso devuelve 404 y el lote queda “running” en BD para siempre.
 tareas persistido (SQLite/Redis), fallback a polling
 (`/api/task-status`) y heartbeat SSE.
 
-### C4. Sin reconciliación de lotes huérfanos ni parada ordenada
+### C4. Sin reconciliación de lotes huérfanos ni parada ordenada — **Resuelto en P4.1**
 
 Si el proceso muere a mitad de lote, `finish_batch` no se ejecuta y el lote
 queda `running`. No hay barrido al arranque ni manejo de señales.
@@ -96,7 +105,7 @@ queda `running`. No hay barrido al arranque ni manejo de señales.
 `running` con `created_at` antiguo; capturar `SIGTERM` para cerrar lotes en
 curso; hacer `finish_batch` idempotente.
 
-### C5. Ejecución secuencial sin cola ni cancelación
+### C5. Ejecución secuencial sin cola ni cancelación — **Abierto; acotado en P4.2**
 
 `_run_apply_batch` procesa host por host y contraseña por contraseña
 (`app.py:904-1044`), con ping + playbook por candidata. Con 256 hosts y 200
@@ -107,7 +116,7 @@ global de lotes.
 (p. ej. 8–16), cola persistente, botón “Cancelar”, timeout por host y límite de
 lotes concurrentes.
 
-### C6. Hashes de contraseñas sin sal en SQLite
+### C6. Hashes de contraseñas sin sal en SQLite — **Resuelto en P4.1**
 
 `PasswordRecord.hash_full` usa SHA-256 sin sal (`models/password.py:22-29`). Si
 se filtra la BD, las contraseñas candidatas (a menudo de baja entropía) son
@@ -116,7 +125,7 @@ atacables offline.
 **Recomendación:** HMAC-SHA256 con una clave del servidor (pepper) o Argon2id
 con sal por registro. Mantener el hash corto solo como identificador derivado.
 
-### C7. No hay allowlist de redes objetivo
+### C7. No hay allowlist de redes objetivo — **Resuelto en P4.1**
 
 Cualquier usuario autenticado puede apuntar a cualquier IP/CIDR
 (`services/host_resolver.py:150-183`). En una herramienta que prueba
@@ -125,7 +134,7 @@ credenciales y cambia la hora, esto es un riesgo de abuso interno.
 **Recomendación:** `HORA_ADMIN_ALLOWED_NETWORKS` (lista de CIDR); rechazar
 objetivos fuera de ella y registrar el intento.
 
-### C8. Sin confirmación ni protección frente a doble envío
+### C8. Sin confirmación ni protección frente a doble envío — **Resuelto en P4.1**
 
 El formulario ejecuta directamente (`templates/index.html:161-177`). Un doble
 clic crea dos lotes y puede lanzar dos cambios simultáneos.
@@ -133,7 +142,7 @@ clic crea dos lotes y puede lanzar dos cambios simultáneos.
 **Recomendación:** modal de confirmación con número de hosts y resumen de
 acción; deshabilitar el botón al enviar; token de idempotencia por operación.
 
-### C9. `restore` reactiva NTP aunque estuviera apagado
+### C9. `restore` reactiva NTP aunque estuviera apagado — **Resuelto en P4.1**
 
 En `cambiar_hora.yml:219-226`, con `restore` + `TIME` la condición
 `(accion == 'TIME')` fuerza la reactivación, sin mirar `hora_antes.ntp`.
@@ -142,7 +151,7 @@ En `cambiar_hora.yml:219-226`, con `restore` + `TIME` la condición
 **Recomendación:** guardar `hora_antes.ntp` y restaurar exactamente ese valor;
 probar el caso “NTP estaba off”.
 
-### C10. La API legacy no verifica el resultado
+### C10. La API legacy no verifica el resultado — **Resuelto en P4.2**
 
 `run_ansible_playbook` considera éxito solo con `returncode == 0`
 (`services/ansible_runner.py:275-282`), ignorando `HORA_VERIFIED`.
@@ -182,23 +191,22 @@ añadir test que demuestre que `HORA_VERIFIED=false` no es éxito.
   añadir TOTP/OIDC es la mejora de mayor impacto.
 - **RBAC:** hoy hay un único rol admin. Añadir roles (`viewer`, `operator`,
   `approver`, `admin`) y aprobaciones para lotes grandes.
-- **Sesión:** `remember=bool(request.form.get("remember"))` (`app.py:639`)
-  convierte `"0"`/`"false"` en `True`. Usar `_form_bool`. Además faltan
-  `REMEMBER_COOKIE_SECURE` y `REMEMBER_COOKIE_DURATION`;
-  `PERMANENT_SESSION_LIFETIME` no aplica porque no se hace
-  `session.permanent = True`.
+- **Sesión:** resuelto en P4.1 (`session.permanent`, `REMEMBER_COOKIE_SECURE`
+  y duración). Queda usar `_form_bool` para `remember` y valorar
+  `session.clear()` antes de `login_user`.
 - **Fijación de sesión:** hacer `session.clear()` antes de `login_user`.
 - **Bloqueo de cuenta:** el rate limit es solo por IP y en memoria. Añadir
   intentos por usuario, bloqueo temporal y auditoría de logins fallidos.
-- **Allowlist de red:** ver C7.
+- **Allowlist de red:** implementada en P4.1; revisar que cubra todos los
+  destinos y registrar los rechazos.
 - **Host key checking:** está activo por defecto, pero no hay provisión de
   `known_hosts`; el primer acceso falla. Añadir `ssh-keyscan` guiado o un
   `known_hosts` gestionado.
 - **Contraseña de sudo distinta de SSH:** hoy se reutiliza la misma
   (`ansible_become_password = ansible_password`). Soportar credenciales
   separadas.
-- **Cabeceras:** añadir `no-store` también a JSON/API,
-  `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy` y valorar
+- **Cabeceras:** `no-store` ya está en HTML y en `/api/task-status`. Valorar
+  `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy` y
   `X-Permitted-Cross-Domain-Policies`.
 - **CSP/CDN:** Bootstrap, iconos y Google Fonts vienen de CDN sin SRI
   (`templates/base.html:9-17`). En una herramienta de infraestructura suele
@@ -208,7 +216,8 @@ añadir test que demuestre que `HORA_VERIFIED=false` no es éxito.
 
 ### 4.3. Secretos y vault
 
-- Hashes sin sal (C6).
+- ~~Hashes sin sal (C6).~~ Resuelto con HMAC-SHA256 y pepper; queda valorar
+  Argon2id con sal por registro si se quiere resistencia a GPU.
 - **Concurrencia del vault:** `encrypt_passwords` y `remove_password` hacen
   read-modify-write sin `flock`; dos operaciones simultáneas pueden perder
   datos. Añadir bloqueo de fichero.
@@ -297,9 +306,11 @@ una migración v4:
 - `UNIQUE(batch_id, host)` para garantizar “un resultado final por host”.
 - `audit_events`.
 - Backfill de `executions` antiguas a lotes o vista separada.
-- Implementar `HISTORY_RETENTION_DAYS` y `JOB_RETENTION_HOURS`, hoy definidos
-  pero **sin uso** (`config.py:228-229`).
-- Separar estadísticas de previews de las de ejecuciones reales.
+- Implementar `HISTORY_RETENTION_DAYS`, hoy definido pero **sin purga de
+  lotes**. `JOB_RETENTION_HOURS` ya se aplica al arrancar a las instantáneas de
+  tareas.
+- Las estadísticas ya separan ejecuciones reales de simuladas; falta separar
+  previews y añadir filtros por operador/fecha.
 - Añadir paginación, filtros (estado, operador, fecha, objetivo) y exportación
   CSV/JSON.
 
@@ -334,8 +345,6 @@ una migración v4:
 
 ### 4.9. UX/frontend
 
-- Banner de `DRY_RUN` (C1).
-- Confirmación con número de hosts y resumen (C8).
 - Preservar todos los parámetros al volver de un error o al pulsar “Ejecutar
   esta configuración”: hoy se pierden `admin_user`, `password_origin`,
   `ntp_servers`, `sync_rtc` y `force` (`templates/batch.html:170-173`,
@@ -351,16 +360,16 @@ una migración v4:
 
 ### 4.10. Testing y CI
 
-Cobertura actual: 61 tests, buena base. Faltan:
+Cobertura actual: 88 tests, buena base. El CI ya existe (Python 3.11–3.13,
+compilación, YAML y pytest). Faltan:
 
-- CI (GitHub Actions/GitLab CI) con `ruff`, `black --check`, `mypy`,
-  `pytest --cov`, `ansible-lint`, `yamllint`, `pip-audit`, `bandit`.
-- Tests de los marcadores del playbook con stdout grabado (incluido
-  `HORA_VERIFIED=false`).
+- Linters y tipos en CI: `ruff`, `black --check`, `mypy`, `ansible-lint`,
+  `yamllint`, `pip-audit`, `bandit`, `pytest --cov`.
+- Tests de los marcadores del playbook con stdout grabado (la ruta legacy ya
+  exige `HORA_VERIFIED`; falta cubrir `HORA_VERIFIED=false`).
 - Test de integración con un contenedor Ubuntu y Ansible real.
-- Tests de: `restore` con NTP off, `TIME` + `keep`, idempotencia en segunda
-  ejecución, `dry_run`, reconciliación de huérfanos, `finish_batch`
-  idempotente, estados límite de `_derive_status`.
+- Tests de `finish_batch` idempotente, estados límite de `_derive_status`,
+  presupuesto de tiempo agotado a mitad de lote y concurrencia de lotes.
 - Tests de seguridad: CSRF en cada ruta POST, redacción de secretos en logs,
   ownership de tareas.
 - Tests de concurrencia y de lotes grandes.
@@ -408,18 +417,21 @@ Cobertura actual: 61 tests, buena base. Faltan:
 
 ## 5. Roadmap recomendado
 
-### P4.1 — Hardening urgente (1–2 semanas)
+### P4.1/P4.2 — Hardening (completado)
 
-1. Banner + columna `dry_run`.
-2. Corregir `restore` y bloquear/avisar `TIME` + `keep`.
-3. Worker `threads`/`gevent`, timeout > SSE, estado de tareas persistido.
-4. Reconciliación de lotes huérfanos y parada ordenada.
-5. Confirmación + idempotencia de envío.
-6. Allowlist de redes.
-7. Hashes con pepper.
-8. Corregir `remember`, cookies y `session.permanent`.
-9. Cap/redacción de salida y `no-store` en JSON.
-10. Tests de regresión de todo lo anterior.
+1. ✅ Banner + columna `dry_run` + métricas separadas.
+2. ✅ `restore` fiel y aviso de `TIME` + `keep` (bloqueo pendiente).
+3. ✅ Worker `gthread`, timeout > SSE, estado de tareas persistido.
+4. ✅ Reconciliación de lotes y tareas huérfanas al arrancar.
+5. ✅ Confirmación + idempotencia de envío.
+6. ✅ Allowlist de redes.
+7. ✅ Hashes con pepper.
+8. ✅ Cookies y `session.permanent`.
+9. ✅ Cap/redacción de salida, `no-store` y vista previa real en simulación.
+10. ✅ Tests de regresión; quedan linters/tipos y pruebas de integración real.
+
+Pendiente inmediato: bloquear `TIME` + `keep`, tope de intentos ya aplicado y
+presupuesto de tiempo por lote ya aplicado.
 
 ### P5 — Operación (3–5 semanas)
 
@@ -439,18 +451,19 @@ Cobertura actual: 61 tests, buena base. Faltan:
 
 ---
 
-## 6. Quick wins (menos de un día cada uno)
+## 6. Quick wins
 
-1. Banner de `DRY_RUN` + badge en historial.
-2. `dry_run` en `execution_batches` y en el detalle.
-3. `_form_bool` para `remember`; `REMEMBER_COOKIE_SECURE` y duración.
-4. Validar `admin_user`, zona horaria existente y `DEFAULT_NTP_SERVERS`.
-5. Restaurar el estado previo de NTP en `restore`.
-6. Reconciliar lotes `running` al arrancar.
-7. Índices únicos `(batch_id, host)` y `password_hash_full`.
-8. Capar y redactar errores de Ansible; `no-store` en JSON.
-9. Modal de confirmación + deshabilitar botón al enviar.
-10. Corregir `README.md:31` y commitear `ANALISIS.md`.
+Completados en P4.1/P4.2: banner y `dry_run`, cookies, `restore`, reconciliación
+al arrancar, `no-store`, confirmación/idempotencia, allowlist, pepper y vista
+previa real en simulación.
+
+Pendientes rápidos:
+
+1. Validar `admin_user`, que la zona horaria exista y los servidores NTP.
+2. Índices únicos `(batch_id, host)` y `password_hash_full`.
+3. Bloquear `TIME` + `keep` si NTP está activo.
+4. Self-hosting con SRI de Bootstrap/iconos/fuentes.
+5. Exportación CSV/JSON del historial.
 
 ---
 

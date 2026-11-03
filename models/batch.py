@@ -258,7 +258,13 @@ class ExecutionBatch:
 
     @staticmethod
     def get_stats(db_path: str = None) -> Dict[str, Any]:
-        """Estadísticas globales de lotes y hosts."""
+        """Estadísticas globales de lotes y hosts.
+
+        Los contadores de éxito/fallo son solo de ejecuciones reales: los
+        lotes simulados (``dry_run=1``) se agregan aparte para no presentar
+        una simulación como un cambio aplicado. ``preview`` cuenta las
+        inspecciones reales de solo lectura.
+        """
         if db_path is None:
             db_path = _default_db_path()
 
@@ -268,6 +274,12 @@ class ExecutionBatch:
                     "SELECT COUNT(*) FROM execution_batches"
                 ).fetchone()[0]
             )
+            simulated_batches = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM execution_batches "
+                    "WHERE dry_run = 1 AND status != 'preview'"
+                ).fetchone()[0]
+            )
             hosts = int(
                 conn.execute(
                     "SELECT COUNT(*) FROM execution_hosts"
@@ -275,21 +287,39 @@ class ExecutionBatch:
             )
             rows = conn.execute(
                 """
-                SELECT result, COUNT(*) AS total
-                FROM execution_hosts
-                GROUP BY result
+                SELECT b.dry_run AS dry_run, h.result AS result,
+                       COUNT(*) AS total
+                FROM execution_hosts h
+                JOIN execution_batches b ON b.batch_id = h.batch_id
+                GROUP BY b.dry_run, h.result
                 """
             ).fetchall()
 
-        by_result = {row["result"]: int(row["total"]) for row in rows}
+        real = {
+            row["result"]: int(row["total"])
+            for row in rows
+            if not row["dry_run"]
+        }
+        # Una vista previa es una inspección real aunque el lote se cree en
+        # modo DRY_RUN; no debe contarse como cambio simulado.
+        preview = sum(
+            int(row["total"]) for row in rows if row["result"] == "preview"
+        )
+        simulated = sum(
+            int(row["total"])
+            for row in rows
+            if row["dry_run"] and row["result"] != "preview"
+        )
         return {
             "batches": batches,
+            "simulated_batches": simulated_batches,
             "hosts": hosts,
-            "success": by_result.get("success", 0),
-            "failure": by_result.get("failure", 0),
-            "skipped": by_result.get("skipped", 0),
-            "error": by_result.get("error", 0),
-            "preview": by_result.get("preview", 0),
+            "success": real.get("success", 0),
+            "failure": real.get("failure", 0),
+            "skipped": real.get("skipped", 0),
+            "error": real.get("error", 0),
+            "preview": preview,
+            "simulated": simulated,
         }
 
     # ------------------------------------------------------------------

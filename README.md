@@ -13,8 +13,8 @@ verificación posterior, idempotencia, lotes auditables e historial en SQLite.
 
 ## Estado actual
 
-Fases **P0–P4 y la primera tanda de P4.1 completadas**. Suite de pruebas:
-**81 tests**. Incluye empaquetado Docker con Nginx y TLS.
+Fases **P0–P4, P4.1 y P4.2 completadas**. Suite de pruebas: **88 tests**.
+Incluye empaquetado Docker con Nginx y TLS.
 
 | Fase | Contenido |
 |---|---|
@@ -24,6 +24,7 @@ Fases **P0–P4 y la primera tanda de P4.1 completadas**. Suite de pruebas:
 | P3 | CSRF, rate limiting, límites CIDR/hosts, cabeceras de seguridad |
 | P4 | Grupo completo, best-effort, lotes, vista previa, verificación, idempotencia, UTC/local, política NTP |
 | P4.1 | DRY RUN visible y persistido, `restore` fiel al estado previo, aviso `TIME`+`keep`, JSON sin caché |
+| P4.2 | Vista previa real en simulación, intentos y tiempo acotados, hostnames, verificación en ruta legacy |
 
 ---
 
@@ -34,10 +35,16 @@ Fases **P0–P4 y la primera tanda de P4.1 completadas**. Suite de pruebas:
 - **Objetivo único o CIDR**: IP, hostname resuelto o rango CIDR acotado.
 - **Todos los hosts**: la operación recorre el grupo completo; un fallo no
   detiene el resto (best-effort).
-- **Reintento de contraseñas**: si una contraseña autentica pero el playbook
-  falla, se prueban las siguientes candidatas para ese host.
+- **Reintento de contraseñas acotado**: si una contraseña autentica pero el
+  playbook falla, se prueban las siguientes candidatas hasta
+  `HORA_ADMIN_MAX_PASSWORD_ATTEMPTS` (3 por defecto).
 - **Vista previa**: inspecciona cada host sin cambiar nada y muestra su estado
-  actual, el plan y si haría falta cambiar algo.
+  actual, el plan y si haría falta cambiar algo. La inspección es real aunque
+  `DRY_RUN` esté activo: es de solo lectura y evita ocultar hosts caídos o
+  credenciales inválidas.
+- **Presupuesto de tiempo por lote**: al agotarse
+  `HORA_ADMIN_BATCH_TIME_BUDGET` (1 h por defecto), los hosts pendientes se
+  registran como omitidos en vez de dejar el lote abierto indefinidamente.
 - **Consola en vivo**: muestra la salida de `ansible-playbook` línea a línea
   durante la ejecución, con auto-scroll, limpieza, descarga y redacción de
   secretos conocidos.
@@ -107,7 +114,7 @@ config.py                  Configuración central y rutas con fallback
 gunicorn.conf.py           Configuración de Gunicorn
 Dockerfile                 Imagen de la aplicación (Gunicorn + Tini)
 docker-compose.yml         App + Nginx con TLS
-docker/                    Entrypoint y configuración de Nginx
+docker/                    Entrypoint, Nginx y empaquetado para otra PC
 certs/                     Certificado TLS (autofirmado o real)
 models/
   db.py                    Conexiones SQLite, WAL, busy_timeout y migraciones
@@ -202,6 +209,18 @@ docker compose --env-file .env.docker up -d --build
 curl -fk https://localhost/healthz
 ```
 
+Para llevarlo a otra PC (con o sin acceso a Docker Hub) y arrancarlo allí sin
+reconstruir nada:
+
+```bash
+./docker/export-images.sh
+# genera dist/hora-admin-despliegue/ (LEEME.txt + DESPLIEGUE.md)
+
+# en la PC de destino, dentro de esa carpeta:
+docker load -i imagenes/hora-admin-images.tar
+docker compose --env-file .env.docker up -d --no-build
+```
+
 Ajusta `TLS_CN`/`TLS_SAN` al nombre o IP real de acceso para evitar avisos del
 navegador por el nombre del certificado. Guía completa, copias de seguridad,
 certificado real y diagnóstico en [docs/DOCKER.md](docs/DOCKER.md).
@@ -222,7 +241,7 @@ una `HORA_ADMIN_SECRET_KEY` aleatoria.
 | `HORA_ADMIN_DATA_DIR` | `/var/lib/hora-admin` | SQLite y clave de sesión |
 | `HORA_ADMIN_LOG_DIR` | `/var/log/hora-admin` | Logs |
 | `HORA_ADMIN_SESSION_HOURS` | `8` | Duración de sesión (1–72 h) |
-| `HORA_ADMIN_JOB_RETENTION_HOURS` | `24` | Retención de instantáneas de tareas (1–720 h) |
+| `HORA_ADMIN_JOB_RETENTION_HOURS` | `24` | Retención de instantáneas de tareas (mínimo 1 h) |
 | `HORA_ADMIN_REMEMBER_DAYS` | `7` | Duración de la cookie “recordarme” (1–30 días) |
 | `HORA_ADMIN_MAX_UPLOAD_BYTES` | `2097152` | Tamaño máximo de subida |
 | `HORA_ADMIN_HOST` / `HORA_ADMIN_PORT` | `127.0.0.1` / `5000` | Servidor de desarrollo |
@@ -242,6 +261,8 @@ una `HORA_ADMIN_SECRET_KEY` aleatoria.
 | `HORA_ADMIN_PLAYBOOK_TIMEOUT` | `300` | Timeout de playbook (s) |
 | `HORA_ADMIN_CONNECT_TIMEOUT` | `10` | Timeout de conexión SSH (s) |
 | `HORA_ADMIN_TIME_TOLERANCE` | `120` | Desviación máxima al verificar hora (s) |
+| `HORA_ADMIN_MAX_PASSWORD_ATTEMPTS` | `3` | Candidatas máximas probadas por host |
+| `HORA_ADMIN_BATCH_TIME_BUDGET` | `3600` | Presupuesto de tiempo del lote (s) |
 | `HORA_ADMIN_DEFAULT_NTP_SERVERS` | `pool.ntp.org` | Servidores NTP por defecto |
 | `HORA_ADMIN_MAX_NTP_SERVERS` | `8` | Máximo de servidores NTP |
 
@@ -321,15 +342,18 @@ Estas variables las lee `gunicorn.conf.py`, no `config.py`:
    (`TZ`/`TIME`), valor, semántica UTC/local, política NTP, servidores NTP,
    RTC y “Forzar”.
 4. **Vista previa (recomendada)**: inspecciona todos los hosts sin cambiar
-   nada y muestra estado actual, plan y si haría falta cambiar algo.
+   nada y muestra estado actual, plan y si haría falta cambiar algo. Se ejecuta
+   también con `DRY_RUN=1` porque es de solo lectura.
 5. **Ejecución**: aplica el cambio en todos los hosts, verifica el estado final
    y registra un lote con el resultado de cada host.
 6. **Progreso**: `/progress/<task_id>` con SSE y consola de Ansible en vivo;
    al terminar enlaza al detalle.
 7. **Historial**: `/history` muestra lotes, contadores, operador y duración.
 
-Con `HORA_ADMIN_DRY_RUN=1` el playbook no se ejecuta: se simula el resultado.
-Para ejecutar de verdad, define `HORA_ADMIN_DRY_RUN=0` y reinicia el servicio.
+Con `HORA_ADMIN_DRY_RUN=1` el playbook de cambio no se ejecuta: se simula el
+resultado y el lote queda marcado como simulación. La vista previa sí
+inspecciona los hosts de verdad (solo lectura). Para ejecutar de verdad, define
+`HORA_ADMIN_DRY_RUN=0` y reinicia el servicio.
 
 ### Acciones
 
@@ -473,7 +497,8 @@ Define `hora_estado` con: `timezone`, `ntp`, `ntp_synchronized`,
   línea a 500 caracteres. El snapshot persistido puede perder la última fracción
   de segundo antes de un reinicio.
 - **Ejecución secuencial**: los hosts se procesan uno a uno; no hay
-  paralelismo, cancelación ni reintento selectivo de fallidos.
+  paralelismo, cancelación ni reintento selectivo de fallidos. Los intentos
+  por host y el tiempo total del lote sí están acotados.
 - **Sin RBAC/MFA**: un único rol administrador; la allowlist de red es global.
 - **Sin inventario/CSV/grupos**: solo IP/CIDR.
 - **Solo Ubuntu/systemd**: no hay soporte para RHEL, Windows o dispositivos de

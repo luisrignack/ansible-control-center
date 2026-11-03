@@ -1,5 +1,5 @@
 # tests/test_p4.py
-# Pruebas de la fase P4: lotes, todos los hosts, todas las contraseñas,
+# Pruebas de la fase P4: lotes, todos los hosts, contraseñas acotadas,
 # vista previa, verificación e idempotencia registrada por host.
 from __future__ import annotations
 
@@ -449,13 +449,124 @@ def test_real_execution_is_not_marked_as_dry_run(client, monkeypatch):
     ).data
 
 
-def test_task_status_json_is_not_cached(client):
+def test_task_status_json_is_not_cached(client, monkeypatch):
     _login(client)
+    monkeypatch.setattr(
+        app_module, "resolve_target", lambda _target: ["10.0.0.70"]
+    )
+    monkeypatch.setattr(
+        app_module,
+        "inspect_host",
+        lambda host, **_kwargs: {
+            "success": True,
+            "host": host,
+            "state": {"timezone": "UTC", "ntp": False, "epoch": 100},
+            "error": "",
+        },
+    )
     task_id = _start_execution(client, "preview")
     _wait_for_task(client, task_id)
 
     response = client.get(f"/api/task-status/{task_id}")
     assert response.headers["Cache-Control"] == "no-store"
+
+
+def test_preview_inspects_for_real_even_in_dry_run(client, monkeypatch):
+    _login(client)
+    seen = {}
+    monkeypatch.setattr(app_module, "DRY_RUN", True)
+    monkeypatch.setattr(
+        app_module, "resolve_target", lambda _target: ["10.0.0.71"]
+    )
+
+    def fake_inspect(host, **kwargs):
+        seen["force_real"] = kwargs.get("force_real")
+        return {
+            "success": True,
+            "host": host,
+            "state": {"timezone": "UTC", "ntp": False, "epoch": 100},
+            "error": "",
+        }
+
+    monkeypatch.setattr(app_module, "inspect_host", fake_inspect)
+
+    task_id = _start_execution(client, "preview")
+    status = _wait_for_task(client, task_id)
+
+    # La simulación no debe ocultar que el host no existe o no autentica.
+    assert seen["force_real"] is True
+    assert status["overall_result"] == "preview"
+    batch = ExecutionBatch.get_batch(
+        status["batch_id"], db_path=app_module.get_db_path()
+    )
+    assert batch is not None
+    assert batch.status == "preview"
+    # Una vista previa es una inspección real, no una ejecución simulada.
+    assert batch.dry_run is False
+
+
+def test_password_attempts_per_host_are_capped(client, monkeypatch):
+    _login(client)
+    calls = []
+    monkeypatch.setattr(app_module, "MAX_PASSWORD_ATTEMPTS", 1)
+    monkeypatch.setattr(
+        app_module, "resolve_target", lambda _target: ["10.0.0.72"]
+    )
+    monkeypatch.setattr(
+        app_module,
+        "test_ansible_ping",
+        lambda **_kwargs: {"success": True, "error": ""},
+    )
+
+    def fake_apply(host, password=None, **_kwargs):
+        calls.append(password)
+        return {
+            "success": False,
+            "host": host,
+            "error": "la verificación falló",
+            "before_state": None,
+            "after_state": None,
+        }
+
+    monkeypatch.setattr(app_module, "apply_host", fake_apply)
+
+    task_id = _start_execution(client, "execute")
+    status = _wait_for_task(client, task_id)
+
+    assert calls == ["clave-uno"]
+    batch = ExecutionBatch.get_batch(
+        status["batch_id"], db_path=app_module.get_db_path()
+    )
+    assert batch is not None
+    assert batch.failure_count == 1
+
+
+def test_batch_time_budget_skips_remaining_hosts(client, monkeypatch):
+    _login(client)
+    monkeypatch.setattr(app_module, "BATCH_TIME_BUDGET_SECONDS", 0)
+    monkeypatch.setattr(
+        app_module,
+        "resolve_target",
+        lambda _target: ["10.0.0.73", "10.0.0.74"],
+    )
+
+    def must_not_run(**_kwargs):
+        raise AssertionError("No debe procesarse ningún host sin presupuesto")
+
+    monkeypatch.setattr(app_module, "test_ansible_ping", must_not_run)
+    monkeypatch.setattr(app_module, "apply_host", must_not_run)
+
+    task_id = _start_execution(client, "execute")
+    status = _wait_for_task(client, task_id)
+
+    assert status["overall_result"] == "failure", status
+    batch = ExecutionBatch.get_batch(
+        status["batch_id"], db_path=app_module.get_db_path()
+    )
+    assert batch is not None
+    assert batch.total_hosts == 2
+    assert batch.skipped_count == 2
+    assert batch.success_count == 0
 
 
 def test_restore_does_not_add_net_ntp_change():
@@ -484,6 +595,32 @@ def test_restore_does_not_add_net_ntp_change():
             False,
         )
         is True
+    )
+    # configure reescribe la configuración NTP: sin la lista de servidores en
+    # el estado no se puede prometer que no habrá cambios.
+    assert (
+        app_module._would_change(
+            {"timezone": "UTC", "ntp": True, "epoch": 1000},
+            "TZ",
+            "UTC",
+            "utc",
+            "configure",
+            False,
+            ntp_servers=["pool.ntp.org"],
+        )
+        is True
+    )
+    # Un "False" serializado por Ansible no debe tratarse como NTP activo.
+    assert (
+        app_module._would_change(
+            {"timezone": "UTC", "ntp": "False", "epoch": 1000},
+            "TZ",
+            "UTC",
+            "utc",
+            "off",
+            False,
+        )
+        is False
     )
 
 

@@ -5,7 +5,7 @@ equipos de una red local, pudiendo elegir entre una hora exacta o una zona
 horaria concreta.
 
 **Fecha:** 2026-11-03
-**Estado del proyecto:** fases P0, P1, P2, P3 y P4 completadas.
+**Estado del proyecto:** fases P0–P4.2 completadas.
 **Alcance de este documento:** análisis funcional y de posibilidades. No
 describe una implementación cerrada, sino el espacio de opciones y la brecha
 entre lo que existe hoy y lo que puede llegar a ser el sistema.
@@ -34,13 +34,14 @@ operación sobre un grupo de equipos:
 Quedan brechas importantes para producción a gran escala, analizadas en
 [ANALISIS_Y_RECOMENDACIONES](docs/ANALISIS_Y_RECOMENDACIONES.md):
 
-- `DRY_RUN` es invisible en la interfaz y no se guarda en el lote.
-- `TIME` con política NTP `keep` puede ser revertido por NTP.
-- `restore` reactiva NTP aunque estuviera desactivado.
-- Ejecución secuencial, sin cancelación ni reintento selectivo.
-- Estado SSE en memoria; sin reconciliación de lotes huérfanos.
-- Sin retención automática, RBAC, MFA ni allowlist de redes.
-- Hashes de contraseñas candidatas sin sal.
+- `TIME` con política NTP `keep` puede ser revertido por NTP; se avisa, pero
+  no se bloquea.
+- Ejecución secuencial, sin paralelismo, cola persistente ni cancelación. Los
+  intentos por host y el tiempo del lote sí están acotados.
+- Estado SSE en memoria con instantáneas en SQLite y reconciliación al
+  arrancar; varios workers seguirían necesitando un almacén compartido.
+- Sin retención automática del historial, RBAC ni MFA. La allowlist de redes
+  ya existe.
 - Un único worker recomendado; SSE y timeout de Gunicorn pueden interferir.
 
 Las dos decisiones que más condicionan el diseño —semántica UTC/local y
@@ -64,7 +65,8 @@ por defecto operativo y qué combinaciones bloquear.
 3. Se descifra el vault con `ansible-vault` o se procesa el `.txt` en memoria.
 4. Opcionalmente, `app.py` ejecuta una **vista previa**: inspecciona todos los
    hosts sin cambiar nada y guarda un lote en estado `preview`.
-5. `app.py` recorre **todos** los hosts y todas las contraseñas candidatas:
+5. `app.py` recorre **todos** los hosts y hasta
+   `HORA_ADMIN_MAX_PASSWORD_ATTEMPTS` contraseñas candidatas por host:
    - ejecuta `ansible -m ping`;
    - si el ping funciona, ejecuta `ansible/cambiar_hora.yml` con la semántica
      de hora y la política NTP elegidas;
@@ -137,8 +139,8 @@ Leyenda: ✅ implementado · ⚠️ parcial o con matices · ❌ no existe.
 | Sincronizar RTC | ✅ | Opcional con `hwclock --systohc`; puede fallar en VMs |
 | Verificar estado antes/después | ✅ | `timedatectl show`, `date`, `hwclock` |
 | Idempotencia | ✅ | Salvo `force` |
-| Dry-run | ⚠️ | Activo por defecto, pero invisible en UI y no guardado |
-| Reintentos | ⚠️ | Reintento de contraseñas; no reintento de hosts fallidos |
+| Dry-run | ✅ | Visible, persistido, métricas separadas y vista previa real |
+| Reintentos | ⚠️ | Candidatas acotadas por host; no se reintentan hosts fallidos |
 | Paralelismo | ❌ | Secuencial |
 | Continuar si un host falla | ✅ | Best-effort |
 | Resultado por host | ✅ | Estado previo/posterior, error y duración |
@@ -157,7 +159,7 @@ Leyenda: ✅ implementado · ⚠️ parcial o con matices · ❌ no existe.
 | Exportación CSV/JSON | ❌ | No existe |
 | API pública / CLI de ejecución | ❌ | Solo endpoints internos |
 | Rollback automático | ❌ | Estado previo guardado; reversión manual |
-| Retención automática | ❌ | Variables definidas sin job de purga |
+| Retención automática | ⚠️ | Tareas sí; historial de lotes sin job de purga |
 | Multiplataforma | ❌ | Solo Ubuntu/systemd |
 
 ---
@@ -369,15 +371,14 @@ Opciones:
    cambio.
 
 P4 implementa las cinco opciones como política explícita (`keep`, `off`,
-`restore`, `configure`) y verifica el estado final. Quedan dos matices
-importantes:
+`restore`, `configure`) y verifica el estado final. Queda un matiz importante:
 
-- `TIME` + `keep` deja NTP activo y este puede revertir la hora fijada.
-- `restore` reactiva NTP aunque estuviera desactivado antes; no restaura
-  exactamente el estado previo.
+- `TIME` + `keep` deja NTP activo y este puede revertir la hora fijada; la
+  vista previa avisa, pero no se bloquea.
 
-La política por defecto sigue siendo `keep`, adecuada para `TZ` pero no para
-`TIME`.
+`restore` ya respeta el estado previo: solo reactiva NTP si estaba activo
+antes. La política por defecto sigue siendo `keep`, adecuada para `TZ` pero no
+para `TIME`.
 
 ### 7.3. ¿Qué significa “grupo”?
 
@@ -421,7 +422,8 @@ estado final. La vista previa muestra `would_change` para cada host.
 
 1. **Ejecutar en todos los hosts**, no solo en el primero.
 2. **Continuar ante fallos** y agregar resultados por host.
-3. **Probar todas las contraseñas** si una autentica pero el playbook falla.
+3. **Probar más contraseñas** si una autentica pero el playbook falla, con un
+   tope por host y un presupuesto de tiempo por lote.
 4. **Modelo de lote** en BD: `batch_id`, operador, objetivo, acción, valor y
    estado global.
 5. **Resultado por host:** estado previo, estado posterior, error y duración.
@@ -514,12 +516,10 @@ resultados por host permite auditar qué ocurrió en cada equipo.
 Para considerarlo una herramienta de producción a gran escala faltan,
 principalmente:
 
-- hacer visible y persistente el modo `DRY_RUN`;
-- corregir `TIME` + `keep` y la semántica de `restore`;
-- paralelismo, cancelación y reintento selectivo;
-- estado de tareas persistente y reconciliación de lotes huérfanos;
-- RBAC, MFA, allowlist de redes y auditoría independiente;
-- retención automática y rollback asistido.
+- bloquear (no solo avisar) `TIME` + `keep`;
+- paralelismo, cola persistente, cancelación y reintento selectivo;
+- RBAC, MFA y auditoría independiente (la allowlist de redes ya existe);
+- retención automática del historial y rollback asistido.
 
 El análisis detallado, los hallazgos priorizados y el roadmap están en
 [ANALISIS_Y_RECOMENDACIONES](docs/ANALISIS_Y_RECOMENDACIONES.md).

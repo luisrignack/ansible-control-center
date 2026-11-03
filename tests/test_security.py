@@ -90,6 +90,17 @@ def test_validate_target_accepts_small_range():
     assert validate_target("192.168.1.10", max_hosts=256, min_prefix=22) is None
 
 
+def test_validate_target_accepts_resolvable_hostname():
+    assert validate_target("localhost", max_hosts=256, min_prefix=22) is None
+    assert resolve_target("localhost") == ["127.0.0.1"]
+
+
+def test_validate_target_rejects_unresolvable_hostname():
+    error = validate_target("host.invalid", max_hosts=256, min_prefix=22)
+    assert error is not None
+    assert "IP o rango CIDR" in error
+
+
 def test_resolve_target_does_not_enumerate_huge_range():
     assert resolve_target("10.0.0.0/8", max_hosts=256, min_prefix=22) == []
     assert resolve_target("0.0.0.0/0", max_hosts=256, min_prefix=22) == []

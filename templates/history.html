@@ -10,9 +10,14 @@
                 <h4 class="mb-0"><i class="bi bi-clock-history me-2"></i> Historial de Lotes</h4>
                 <div class="d-flex gap-2 small">
                     <span class="badge bg-secondary">{{ stats.batches }} lote(s)</span>
-                    <span class="badge bg-success">{{ stats.success }} éxito(s)</span>
+                    <span class="badge bg-success">{{ stats.success }} éxito(s) real(es)</span>
                     <span class="badge bg-danger">{{ stats.failure }} fallo(s)</span>
                     <span class="badge bg-warning text-dark">{{ stats.error }} error(es)</span>
+                    {% if stats.simulated %}
+                    <span class="badge bg-secondary" title="Hosts de lotes simulados; no son cambios reales">
+                        {{ stats.simulated }} simulado(s)
+                    </span>
+                    {% endif %}
                 </div>
             </div>
             <div class="card-body p-0">

@@ -120,6 +120,13 @@
                             <!-- Se llenará dinámicamente por JS -->
                         </div>
 
+                        <!-- Opciones de zona horaria (datalist estático para el navegador) -->
+                        <datalist id="timezoneList">
+                            {% for tz in common_timezones %}
+                            <option value="{{ tz }}">
+                            {% endfor %}
+                        </datalist>
+
                         <!-- Política NTP -->
                         <div class="col-md-6">
                             <label for="ntpPolicy" class="form-label fw-medium">
@@ -292,20 +299,9 @@ function updateValueField(action, currentValue) {
     valueField.innerHTML = '';
 
     if (action === 'TZ') {
-        const dl = document.createElement('datalist');
-        dl.id = 'timezoneList';
-
-        {% for tz in common_timezones %}
-        const opt = document.createElement('option');
-        opt.value = '{{ tz }}';
-        opt.label = '{{ tz }}';
-        dl.appendChild(opt);
-        {% endfor %}
-
         valueField.innerHTML = '<label for="actionValue" class="form-label">Zona Horaria</label>' +
             '<input list="timezoneList" type="text" class="form-control" id="actionValue" name="value" ' +
-            'placeholder="Ej: America/Argentina/Buenos_Aires" required>';
-        valueField.appendChild(dl);
+            'placeholder="Ej: America/Argentina/Buenos_Aires" required autocomplete="off">';
         if (currentValue) {
             document.getElementById('actionValue').value = currentValue;
         }

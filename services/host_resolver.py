@@ -2,10 +2,18 @@
 # Resolución de IPs/rangos CIDR con límites de seguridad.
 import ipaddress
 import logging
+import re
 import socket
 from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+# Hostname DNS razonable: etiquetas alfanuméricas separadas por puntos.
+_HOSTNAME_RE = re.compile(
+    r"^(?=.{1,253}$)"
+    r"(?:[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)*\.?$"
+)
 
 
 def _effective_limits(
@@ -210,7 +218,18 @@ def validate_target(
     if not value:
         return "La IP o rango es obligatorio."
     if not validate_ip_format(value):
-        return "IP o rango CIDR inválido."
+        # La interfaz admite también un hostname resoluble. Se valida su
+        # sintaxis y se comprueba la allowlist contra la IP resultante para no
+        # eludir HORA_ADMIN_ALLOWED_NETWORKS resolviendo un nombre.
+        if "/" in value or not _HOSTNAME_RE.fullmatch(value):
+            return "IP o rango CIDR inválido."
+        try:
+            resolved = socket.gethostbyname(value)
+        except (socket.gaierror, UnicodeError):
+            return "IP o rango CIDR inválido (hostname no resoluble)."
+        if not _ip_allowed(resolved):
+            return "La IP está fuera de las redes permitidas."
+        return None
     if "/" not in value:
         if not _ip_allowed(value):
             return "La IP está fuera de las redes permitidas."

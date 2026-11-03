@@ -357,12 +357,30 @@ def run_ansible_playbook(
         logger.exception("Error ejecutando playbook para %s", host)
         return _result(host, False, error=str(exc), playbook_path=path)
 
-    success = process.returncode == 0
+    # Compatibilidad con llamadas antiguas: ya no basta con que el proceso
+    # termine bien. Igual que ``apply_host``, exige la verificación publicada
+    # por el playbook para no reportar como éxito un cambio sin confirmar.
+    verified = _decode_bool_marker(process.stdout, "HORA_VERIFIED")
+    success = process.returncode == 0 and verified is True
+    error = ""
+    if process.returncode != 0:
+        error = _playbook_error(host, path, process)
+    elif verified is False:
+        error = (
+            _decode_text_marker(process.stdout, "HORA_ERRORS")
+            or "La verificación posterior no coincide con el objetivo."
+        )
+    elif verified is None:
+        error = (
+            "El playbook no devolvió el resultado de verificación "
+            "HORA_VERIFIED."
+        )
+
     return _result(
         host,
         success,
         output=process.stdout.strip(),
-        error="" if success else _playbook_error(host, path, process),
+        error=error,
         playbook_path=path,
     )
 
@@ -373,18 +391,23 @@ def inspect_host(
     password: Optional[str] = None,
     timeout: int = None,
     line_callback: Optional[Callable[[str], None]] = None,
+    force_real: bool = False,
 ) -> Dict[str, Any]:
     """Lee el estado de hora/zona horaria/NTP de un host sin cambiar nada.
 
     Devuelve ``state`` con el diccionario publicado por el playbook o ``None``
     si no se pudo obtener.
+
+    La inspección es de solo lectura, así que la vista previa la ejecuta de
+    verdad incluso en ``DRY_RUN`` (``force_real=True``). Simularla haría que
+    hosts inalcanzables aparecieran como inspeccionados correctamente.
     """
     path = str(INSPECT_PLAYBOOK_FILE)
 
     if not os.path.exists(path):
         return _missing_playbook(host, path)
 
-    if DRY_RUN:
+    if DRY_RUN and not force_real:
         logger.info("DRY RUN: se omite la inspección de %s", host)
         _emit_line(
             line_callback, f"[DRY RUN] Se habría inspeccionado {host}"

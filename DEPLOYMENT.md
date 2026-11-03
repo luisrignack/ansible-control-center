@@ -134,6 +134,8 @@ flask --app app init-admin
 | `HORA_ADMIN_PLAYBOOK_TIMEOUT` | `300` | Timeout de playbook (s) |
 | `HORA_ADMIN_CONNECT_TIMEOUT` | `10` | Timeout de conexión SSH (s) |
 | `HORA_ADMIN_TIME_TOLERANCE` | `120` | Tolerancia de verificación de hora (s) |
+| `HORA_ADMIN_MAX_PASSWORD_ATTEMPTS` | `3` | Candidatas máximas probadas por host |
+| `HORA_ADMIN_BATCH_TIME_BUDGET` | `3600` | Presupuesto de tiempo del lote (s) |
 | `HORA_ADMIN_DEFAULT_NTP_SERVERS` | `pool.ntp.org` | Servidores NTP por defecto |
 | `HORA_ADMIN_MAX_NTP_SERVERS` | `8` | Máximo de servidores NTP |
 | `HORA_ADMIN_LOG_LEVEL` | `INFO` | Nivel de log |
@@ -387,11 +389,13 @@ Prueba la restauración periódicamente. El procedimiento completo está en
 
 ---
 
-## 8. Seguridad y limitaciones conocidas (P0-P4)
+## 8. Seguridad y limitaciones conocidas (P0-P4.2)
 
-- `DRY_RUN=1` por defecto: no se toca ningún equipo hasta cambiarlo. **La
-  interfaz no muestra un banner de simulación y el lote no guarda `dry_run`**;
-  comprueba `HORA_ADMIN_DRY_RUN` antes de dar un cambio por real.
+- `DRY_RUN=1` por defecto: no se aplica ningún cambio hasta cambiarlo. La
+  interfaz muestra un banner, el lote guarda `dry_run` y el historial separa
+  los hosts simulados de los reales. **La vista previa sí inspecciona los
+  hosts de verdad** (playbook de solo lectura), incluso en simulación, para no
+  ocultar hosts inalcanzables o credenciales inválidas.
 - `DEBUG=0` por defecto; nunca actives el depurador en producción.
 - Login con hash Werkzeug y sesión protegida por Flask-Login.
 - **CSRF:** todos los `POST/PUT/PATCH/DELETE` exigen un token de sesión con
@@ -409,7 +413,9 @@ Prueba la restauración periódicamente. El procedimiento completo está en
 - **Proxy inverso:** activa `HORA_ADMIN_TRUST_PROXY=1` solo si nginx/apache es
   de confianza; así se leen `X-Forwarded-For/Proto` para la IP real y HTTPS.
 - Las contraseñas candidatas se cifran con `ansible-vault`; SQLite solo guarda
-  hashes cortos para la interfaz. Los hashes completos son SHA-256 sin sal.
+  hashes cortos para la interfaz. Los hashes completos son HMAC-SHA256 con un
+  pepper persistido en `DATA_DIR` (compatibilidad de lectura con SHA-256
+  heredados).
 - La contraseña de conexión de Ansible se pasa en un fichero temporal `0600`
   mediante `--extra-vars @fichero`; nunca va en la línea de comandos ni en los
   logs. El fichero se borra tras cada intento.
@@ -429,8 +435,12 @@ Prueba la restauración periódicamente. El procedimiento completo está en
   host en `execution_hosts` (estado previo/posterior, error y duración). El
   historial principal es el lote; `executions` se conserva como registro
   heredado por host.
-- **Best-effort:** un host inaccesible o un playbook fallido no detiene el
-  resto del lote. El estado global será `partial` si hubo éxitos y fallos.
+- **Best-effort acotado:** un host inaccesible o un playbook fallido no
+  detiene el resto del lote. Se prueban como máximo
+  `HORA_ADMIN_MAX_PASSWORD_ATTEMPTS` candidatas por host (3 por defecto) y el
+  lote completo tiene un presupuesto de `HORA_ADMIN_BATCH_TIME_BUDGET` segundos
+  (3600 por defecto); los hosts pendientes quedan como `skipped`. El estado
+  global será `partial` si hubo éxitos y fallos.
 - **Verificación:** el lote solo cuenta un host como éxito si el playbook
   confirma el estado final (`HORA_VERIFIED`). La tolerancia de hora se ajusta
   con `HORA_ADMIN_TIME_TOLERANCE`.
@@ -440,18 +450,19 @@ Prueba la restauración periódicamente. El procedimiento completo está en
   desactivado, `restore` lo desactiva/reactiva alrededor del cambio y
   `configure` escribe servidores NTP en chrony o systemd-timesyncd.
   - `TIME` + `keep` puede ser revertido por NTP: usa `off`, `restore` o
-    `configure` para cambios de hora.
-  - `restore` reactiva NTP aunque estuviera desactivado antes; no es una
-    restauración exacta del estado previo.
-- **Sin reconciliación automática:** si el proceso muere, el lote puede quedar
-  `running`. Ciérralo manualmente
-  ([docs/OPERACION.md](docs/OPERACION.md#41-el-lote-se-queda-en-running)).
-- **Sin retención automática:** `HORA_ADMIN_HISTORY_DAYS` y
-  `HORA_ADMIN_JOB_RETENTION_HOURS` están definidas pero no se aplican.
+    `configure` para cambios de hora. La vista previa avisa de esta
+    combinación cuando detecta NTP activo.
+  - `restore` deja NTP como estaba: solo lo reactiva si estaba activo antes.
+- **Reconciliación al arrancar:** los lotes `running` se marcan como `error` y
+  las tareas incompletas se cierran; también existe
+  `flask --app app reconcile-batches`.
+- **Retención parcial:** las instantáneas de tareas se purgan al arrancar con
+  `HORA_ADMIN_JOB_RETENTION_HOURS`; `HORA_ADMIN_HISTORY_DAYS` sigue sin job de
+  purga.
 - **Sin rollback automático:** el estado previo se guarda, pero revertir es
   manual ([docs/OPERACION.md](docs/OPERACION.md#5-rollback)).
-- **Sin RBAC/MFA/allowlist:** un único rol administrador y sin lista blanca de
-  redes objetivo.
+- **Sin RBAC/MFA:** un único rol administrador. La allowlist de redes existe
+  (`HORA_ADMIN_ALLOWED_NETWORKS`) pero es global.
 
 ---
 

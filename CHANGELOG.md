@@ -7,6 +7,49 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ---
 
+## [P4.2] — 2026-11-03
+
+Correcciones de coherencia detectadas en la revisión del proyecto: simulación
+honesta, ejecución acotada y contrato playbook→app más estricto.
+
+### Añadido
+
+- **Vista previa real en DRY RUN:** `inspect_host` ejecuta el playbook de solo
+  lectura aunque la simulación esté activa (`force_real=True` desde la vista
+  previa). Así se detectan hosts caídos y credenciales inválidas en lugar de
+  marcar todos como inspeccionados.
+- **Presupuesto de tiempo por lote:** `HORA_ADMIN_BATCH_TIME_BUDGET` (3600 s
+  por defecto). Al agotarse, los hosts pendientes se registran como `skipped`
+  y el lote cierra.
+- **Tope de intentos por host:** `HORA_ADMIN_MAX_PASSWORD_ATTEMPTS` (3 por
+  defecto), aplicado también a la vista previa.
+- **Hostnames en el formulario:** `validate_target` acepta un hostname
+  resoluble y comprueba la allowlist contra la IP resuelta.
+- **Métricas separadas:** `ExecutionBatch.get_stats` excluye los lotes
+  simulados de los contadores reales y los agrega como `simulated`.
+- **Tests:** vista previa real en DRY RUN, tope de intentos, presupuesto de
+  tiempo, hostname resoluble, verificación obligatoria en la ruta legacy y
+  separación de estadísticas simuladas.
+
+### Cambiado
+
+- **Ruta legacy `run_ansible_playbook`:** ya no considera éxito un
+  `returncode == 0` sin `HORA_VERIFIED`; alinea su criterio con `apply_host`.
+- **`would_change` para NTP `configure`:** conservador si el estado no incluye
+  la lista de servidores; no promete “sin cambios” cuando el playbook reescribe
+  la configuración.
+- **Normalización de booleanos:** `_state_bool` interpreta `"True"`/`"False"`
+  serializados por versiones de Ansible con Jinja no nativa.
+- **Historial:** los éxitos reales y los hosts simulados se muestran por
+  separado; el resumen de un lote simulado empieza por “SIMULACIÓN”.
+
+### Documentación
+
+- `README`, `DEPLOYMENT`, `docs/OPERACION`, `ANALISIS` y
+  `docs/ANALISIS_Y_RECOMENDACIONES` actualizados al estado real tras P4.1/P4.2.
+
+---
+
 ## [Docker] — 2026-11-03
 
 Empaquetado del proyecto para distribuirlo como imagen y desplegarlo con
@@ -29,17 +72,28 @@ Docker Compose y HTTPS.
   `hora_data`, `hora_secrets`, `hora_logs` y `hora_ssh`; solo Nginx publica
   puertos.
 - **Configuración de ejemplo** (`.env.docker.example`) y `.dockerignore`.
+- **Empaquetado portable** (`docker/export-images.sh`): construye o reutiliza
+  las imágenes y genera la carpeta `dist/hora-admin-despliegue/` con las dos
+  imágenes en `imagenes/hora-admin-images.tar`, su ficha de arquitectura y
+  digests, `docker-compose.yml`, `Dockerfile`, `docker/`,
+  `.env.docker.example`, un `certs/` vacío, `LEEME.txt`, la guía
+  autocontenida `DESPLIEGUE.md` y `sha256sums.txt`. En la PC de destino basta
+  `docker load` + `up --no-build`: no hace falta el código fuente ni acceso a
+  Docker Hub.
+- **Guía portable** (`docker/despliegue-portable.md`): requisitos, instalación
+  en 5 pasos, tabla de configuración, certificados, SSH, copias de seguridad,
+  actualización, diagnóstico y notas de seguridad, sin depender del repositorio.
 - **`GET /healthz`**: comprobación sin autenticación que verifica el proceso y
   el acceso a SQLite, con `Cache-Control: no-store`.
 - **Documentación** (`docs/DOCKER.md`): puesta en marcha, certificados,
   primer administrador, `known_hosts`, copias de seguridad, actualización,
-  diagnóstico y notas de seguridad.
+  traslado a otra PC sin registro, diagnóstico y notas de seguridad.
 
 ### Cambiado
 
 - `README.md` incluye arranque rápido con Docker, endpoint `/healthz` y enlace
   a la guía de despliegue.
-- `.gitignore` ignora `.env.docker` y `certs/*.pem`.
+- `.gitignore` ignora `.env.docker`, `certs/*.pem`, `dist/` y `*.tar`.
 
 ---
 
@@ -279,14 +333,12 @@ fiel de `restore` y avisos de riesgo.
 
 ## Pendiente (no implementado)
 
-- Banner y persistencia de `DRY_RUN`.
-- Corrección de `TIME` + `keep` y de la semántica exacta de `restore`.
-- Paralelismo, cola persistente, cancelación y reintento de fallidos.
-- Reconciliación de lotes huérfanos y parada ordenada.
-- Retención automática (`HORA_ADMIN_HISTORY_DAYS`,
-  `HORA_ADMIN_JOB_RETENTION_HOURS`).
-- RBAC, MFA, aprobaciones y allowlist de redes.
-- Auditoría de eventos independiente.
+- Bloqueo de `TIME` + `keep` (hoy solo se avisa).
+- Paralelismo, cola persistente, cancelación y reintento de hosts fallidos.
+- Parada ordenada con captura de `SIGTERM`.
+- Retención automática del historial (`HORA_ADMIN_HISTORY_DAYS`).
+- RBAC, MFA, aprobaciones y auditoría de eventos independiente.
+- Rollback asistido y exportación de historial.
 - Inventarios, CSV, grupos y exclusiones.
 - API/CLI de ejecución, webhooks y exportación.
 - Multiplataforma (RHEL/Rocky, Windows, red).

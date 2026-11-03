@@ -41,6 +41,13 @@ Abre `https://localhost` (o la IP/nombre configurado). El certificado es
 **autofirmado**: el navegador mostrará una advertencia que debes aceptar
 manualmente.
 
+> Si necesitas llevar el despliegue a otra PC, usa el empaquetado automático de
+> la [sección 10](#10-llevar-el-despliegue-a-otra-pc-sin-registro).
+
+> Con puertos personalizados (`HORA_ADMIN_HTTPS_PORT`) entra siempre por
+> `https://host:<puerto>`: la redirección de HTTP a HTTPS no incluye el puerto
+> no estándar.
+
 ### Certificado autofirmado
 
 El contenedor de Nginx genera el certificado en el primer arranque dentro de
@@ -61,9 +68,12 @@ TLS_SAN=DNS:hora.empresa.local,IP:192.168.1.50
 Para regenerarlo:
 
 ```bash
-rm -f certs/fullchain.pem certs/privkey.pem
+sudo rm -f certs/fullchain.pem certs/privkey.pem
 docker compose --env-file .env.docker restart nginx
 ```
+
+> El contenedor de Nginx corre como `root`, así que los dos `.pem` quedan con
+> propietario `root`. Para regenerarlos hace falta `sudo`.
 
 > `HORA_ADMIN_HSTS=0` está puesto a propósito mientras el certificado sea
 > autofirmado. Actívalo solo con un certificado real y un dominio estable.
@@ -83,10 +93,12 @@ Para crearlo o rotarlo manualmente:
 docker compose exec app flask --app app init-admin
 ```
 
-Para comprobar que hay usuarios:
+Para comprobar cuántos usuarios hay:
 
 ```bash
-docker compose exec app flask --app app init-db
+docker compose exec app python -c \
+  "from config import resolve_db_path; from models.user import User; \
+   print(User.count(db_path=str(resolve_db_path())))"
 ```
 
 ---
@@ -103,8 +115,9 @@ La app ejecuta Ansible desde el contenedor. Necesita:
 Añade hosts al `known_hosts` persistente:
 
 ```bash
-docker compose exec app ssh-keyscan 10.0.0.10 10.0.0.11 >> ~/.ssh/known_hosts
-docker compose exec app chmod 600 ~/.ssh/known_hosts
+docker compose exec app sh -c \
+  'ssh-keyscan 10.0.0.10 10.0.0.11 >> /home/hora/.ssh/known_hosts'
+docker compose exec app chmod 600 /home/hora/.ssh/known_hosts
 ```
 
 También puedes pasar las líneas al arrancar con `HORA_ADMIN_KNOWN_HOSTS`, o
@@ -200,7 +213,9 @@ docker compose exec app flask --app app reconcile-batches
 | Síntoma | Causa probable | Solución |
 |---|---|---|
 | `403 Forbidden` al construir | Registro Docker bloqueado o sin login | Configura un mirror o `docker login` |
-| Nginx no arranca | Certificado ausente/corrupto | Borra `certs/*.pem` y reinicia nginx |
+| `pull access denied` o límite de pulls | Límite anónimo de Docker Hub | Autentica con `docker login` y repite |
+| `image not found` con `--no-build` | El `.tar` no se cargó o es de otra etiqueta | `docker load -i imagenes/hora-admin-images.tar` |
+| Nginx no arranca | Certificado ausente/corrupto | Borra `certs/*.pem` (con `sudo`: los crea el contenedor) y reinicia nginx |
 | `permission denied` en `/data` | Volumen con propietario incorrecto | Recrea el volumen o ajusta UID 10001 |
 | Ansible no conecta | `known_hosts` vacío o red | Añade claves o revisa `HOST_KEY_CHECKING` |
 | Progreso SSE se corta | Proxy/timeout | El timeout de Nginx es 360 s; revisa la red intermedia |
@@ -216,3 +231,66 @@ docker compose exec app flask --app app reconcile-batches
 - El certificado autofirmado **no protege frente a un atacante en la red**:
   solo cifra el tráfico. Sustitúyelo por uno de una CA de confianza.
 - No publiques `.env.docker`, `certs/privkey.pem` ni los volúmenes de secretos.
+
+---
+
+## 10. Llevar el despliegue a otra PC sin registro
+
+Si la PC de destino no tiene acceso a Docker Hub (o no quieres publicar las
+imágenes), empaqueta todo en el origen:
+
+```bash
+./docker/export-images.sh              # construye si hace falta
+# ./docker/export-images.sh --build    # fuerza la reconstrucción con --pull
+# ./docker/export-images.sh --no-build # usa las imágenes locales
+```
+
+El script deja una carpeta autocontenida (ignorada por git) en
+`dist/hora-admin-despliegue/`:
+
+| Ruta | Contenido |
+|---|---|
+| `imagenes/hora-admin-images.tar` | Imágenes `hora-admin` y `hora-admin-nginx` |
+| `imagenes/IMAGENES_INFO.txt` | Arquitectura, fecha y digests de las imágenes |
+| `docker-compose.yml` | Stack App + Nginx con TLS |
+| `.env.docker.example` | Plantilla de configuración |
+| `certs/` | Vacío; el certificado se genera al arrancar |
+| `docker/` | Entrypoint, configuración de Nginx y el propio script |
+| `Dockerfile` | Solo para reconstruir; no se usa con `--no-build` |
+| `DESPLIEGUE.md` | Guía completa, autocontenida |
+| `LEEME.txt` | Pasos mínimos (punto de entrada) |
+| `sha256sums.txt` | Integridad de todo el paquete |
+
+Copia esa carpeta a la PC de destino y allí:
+
+```bash
+sha256sum -c sha256sums.txt
+docker load -i imagenes/hora-admin-images.tar
+cp .env.docker.example .env.docker   # ajusta claves, TLS_CN y TLS_SAN
+docker compose --env-file .env.docker up -d --no-build
+curl -fk https://localhost/healthz
+```
+
+No hace falta el código fuente: `--no-build` no lee el `Dockerfile`, así que el
+paquete funciona aunque falten `app.py`, `models/` o `services/`.
+
+Las imágenes deben ser para la misma arquitectura que la PC de destino.
+Comprueba con:
+
+```bash
+docker image inspect hora-admin:latest --format '{{.Os}}/{{.Architecture}}'
+```
+
+Si no coincide, construye en el origen con `--platform linux/amd64` (o
+`linux/arm64`) y carga ese mismo paquete en el destino.
+
+> El primer arranque genera el certificado autofirmado y aplica las migraciones
+> de SQLite. No copies volúmenes de otra instalación salvo que quieras restaurar
+> sus datos.
+
+Alternativa manual, si prefieres no usar el script:
+
+```bash
+docker compose --env-file .env.docker build
+docker save hora-admin:latest hora-admin-nginx:latest -o hora-admin-images.tar
+```

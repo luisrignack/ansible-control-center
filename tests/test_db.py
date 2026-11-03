@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from models import db as db_module
+from models.batch import ExecutionBatch
 from models.db import SCHEMA_VERSION, get_connection, init_schema
 from models.execution import ExecutionRecord
 from models.password import PasswordRecord
@@ -241,6 +242,75 @@ def test_all_models_share_the_same_schema(db_path):
 
     assert {"users", "passwords", "executions"} <= tables
     assert int(db_module.SCHEMA_VERSION) >= 2
+
+
+def test_stats_separate_real_and_simulated_batches(db_path):
+    init_schema(db_path)
+
+    ExecutionBatch.create_batch(
+        batch_id="real-1",
+        operator="admin",
+        action="TZ",
+        value="UTC",
+        target="10.0.0.1",
+        status="running",
+        dry_run=False,
+        db_path=db_path,
+    )
+    ExecutionBatch.add_host_result(
+        batch_id="real-1",
+        host="10.0.0.1",
+        result="success",
+        db_path=db_path,
+    )
+    ExecutionBatch.finish_batch("real-1", db_path=db_path)
+
+    ExecutionBatch.create_batch(
+        batch_id="sim-1",
+        operator="admin",
+        action="TZ",
+        value="UTC",
+        target="10.0.0.2",
+        status="running",
+        dry_run=True,
+        db_path=db_path,
+    )
+    ExecutionBatch.add_host_result(
+        batch_id="sim-1",
+        host="10.0.0.2",
+        result="success",
+        db_path=db_path,
+    )
+    ExecutionBatch.finish_batch("sim-1", db_path=db_path)
+
+    stats = ExecutionBatch.get_stats(db_path=db_path)
+    assert stats["batches"] == 2
+    assert stats["simulated_batches"] == 1
+    assert stats["success"] == 1
+    assert stats["simulated"] == 1
+
+    # La vista previa es una inspección real, no una ejecución simulada.
+    ExecutionBatch.create_batch(
+        batch_id="preview-1",
+        operator="admin",
+        action="TZ",
+        value="UTC",
+        target="10.0.0.3",
+        status="preview",
+        dry_run=False,
+        db_path=db_path,
+    )
+    ExecutionBatch.add_host_result(
+        batch_id="preview-1",
+        host="10.0.0.3",
+        result="preview",
+        db_path=db_path,
+    )
+    ExecutionBatch.finish_batch("preview-1", db_path=db_path)
+
+    stats = ExecutionBatch.get_stats(db_path=db_path)
+    assert stats["preview"] == 1
+    assert stats["simulated"] == 1
 
 
 def test_migrates_v3_batches_to_dry_run_column(db_path):
