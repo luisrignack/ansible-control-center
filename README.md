@@ -14,7 +14,7 @@ verificación posterior, idempotencia, lotes auditables e historial en SQLite.
 ## Estado actual
 
 Fases **P0–P4 y la primera tanda de P4.1 completadas**. Suite de pruebas:
-**77 tests**.
+**78 tests**.
 
 | Fase | Contenido |
 |---|---|
@@ -57,6 +57,8 @@ Fases **P0–P4 y la primera tanda de P4.1 completadas**. Suite de pruebas:
   lectura para hashes heredados.
 - **Reconciliación de lotes huérfanos**: al arrancar, los lotes `running` se
   marcan como `error`; también existe `flask --app app reconcile-batches`.
+- **Confirmación e idempotencia**: la ejecución real pide confirmación con
+  resumen y un UUID de operación evita lotes duplicados por doble clic.
 - **DRY RUN** activo por defecto (`HORA_ADMIN_DRY_RUN=1`), visible en el panel,
   la página de progreso, el detalle del lote y el historial, y persistido en
   cada lote.

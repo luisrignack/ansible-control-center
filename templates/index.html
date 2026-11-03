@@ -23,6 +23,7 @@
                 <form id="execForm" method="POST" action="{{ url_for('index') }}"
                     enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="operation_id" value="{{ prefill.get('operation_id', '') }}">
                     <div class="row g-3">
                         <!-- Campo: IP o Rango -->
                         <div class="col-md-6">
@@ -215,12 +216,46 @@
     </div>
 </div>
 
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="confirmModalLabel">
+                    <i class="bi bi-shield-exclamation me-2"></i> Confirmar ejecución
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">Se aplicará el cambio en <strong id="confirmHosts">los hosts indicados</strong>.</p>
+                <dl class="row small mb-0">
+                    <dt class="col-4">Objetivo</dt><dd class="col-8"><code id="confirmTarget">—</code></dd>
+                    <dt class="col-4">Acción</dt><dd class="col-8" id="confirmAction">—</dd>
+                    <dt class="col-4">Valor</dt><dd class="col-8"><code id="confirmValue">—</code></dd>
+                    <dt class="col-4">NTP</dt><dd class="col-8" id="confirmNtp">—</dd>
+                    <dt class="col-4">Modo</dt><dd class="col-8" id="confirmMode">—</dd>
+                </dl>
+                <div class="alert alert-warning mt-3 mb-0 small">
+                    Un rango CIDR se expande a todos sus hosts. Revisa el objetivo
+                    antes de continuar.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-acento" id="confirmExecute">
+                    <i class="bi bi-play-circle me-1"></i> Confirmar y ejecutar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block extra_scripts %}
 <script nonce="{{ csp_nonce }}">
 const prefill = {{ prefill | tojson }};
 const defaultNtpServers = {{ default_ntp_servers | tojson }};
+const dryRunEnabled = {{ dry_run | tojson }};
 
 function updatePasswordFields(origin) {
     const stored = origin === 'stored';
@@ -283,6 +318,49 @@ function updateValueField(action, currentValue) {
         }
     }
 }
+
+// Confirmación explícita antes de ejecutar (no para vista previa).
+let confirmedSubmit = false;
+let pendingSubmitter = null;
+
+const execForm = document.getElementById('execForm');
+const confirmModalElement = document.getElementById('confirmModal');
+const confirmModal = new bootstrap.Modal(confirmModalElement);
+
+execForm.addEventListener('submit', (event) => {
+    if (confirmedSubmit) return;
+    if (!event.submitter || event.submitter.value !== 'execute') return;
+
+    event.preventDefault();
+    pendingSubmitter = event.submitter;
+
+    const target = document.getElementById('targetIp').value.trim();
+    const action = document.getElementById('action');
+    const valueInput = document.getElementById('actionValue');
+    const ntp = document.getElementById('ntpPolicy');
+    const ntpText = ntp.options[ntp.selectedIndex].text;
+
+    document.getElementById('confirmHosts').textContent = target.includes('/')
+        ? 'todos los hosts del rango ' + target
+        : 'el host ' + target;
+    document.getElementById('confirmTarget').textContent = target || '—';
+    document.getElementById('confirmAction').textContent =
+        action.options[action.selectedIndex].text;
+    document.getElementById('confirmValue').textContent =
+        (valueInput && valueInput.value) || '—';
+    document.getElementById('confirmNtp').textContent = ntpText;
+    document.getElementById('confirmMode').textContent = dryRunEnabled
+        ? 'DRY RUN (simulación, sin cambios reales)'
+        : 'Ejecución real';
+
+    confirmModal.show();
+});
+
+document.getElementById('confirmExecute').addEventListener('click', () => {
+    confirmedSubmit = true;
+    confirmModal.hide();
+    execForm.requestSubmit(pendingSubmitter || undefined);
+});
 
 // Inicializar campos al cargar
 document.addEventListener('DOMContentLoaded', () => {

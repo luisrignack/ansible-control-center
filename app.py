@@ -110,6 +110,13 @@ _tasks: Dict[str, Dict[str, Any]] = {}
 _tasks_lock = threading.Lock()
 _db_path_cache: Optional[str] = None
 
+# Idempotencia de envío: una operación solo se procesa una vez. El formulario
+# incluye un UUID oculto y aquí se recuerda el task_id asociado durante una
+# ventana corta. Es un estado por proceso (la app usa un worker por defecto).
+_OPERATION_IDS: Dict[str, Dict[str, Any]] = {}
+_OPERATION_IDS_LOCK = threading.Lock()
+_OPERATION_ID_TTL = 3600
+
 # Estados que cierran el stream SSE.
 TERMINAL_STATES = {"completed", "failed", "error", "found", "failure", "timeout"}
 
@@ -505,6 +512,48 @@ def remove_task(tid: str) -> None:
         _tasks.pop(tid, None)
 
 
+def _claim_operation_id(operation_id: str) -> Optional[str]:
+    """Reserva un envío idempotente.
+
+    Devuelve ``None`` si la operación es nueva. Si ya existía, devuelve el
+    ``task_id`` asociado o ``""`` mientras el primer envío aún se está creando.
+    """
+    if not operation_id:
+        return None
+
+    now = time.monotonic()
+    with _OPERATION_IDS_LOCK:
+        expired = [
+            key
+            for key, entry in _OPERATION_IDS.items()
+            if now - entry["created"] > _OPERATION_ID_TTL
+        ]
+        for key in expired:
+            _OPERATION_IDS.pop(key, None)
+
+        existing = _OPERATION_IDS.get(operation_id)
+        if existing is not None:
+            return existing.get("task_id", "")
+
+        _OPERATION_IDS[operation_id] = {"created": now, "task_id": ""}
+        if len(_OPERATION_IDS) > 5000:
+            oldest = min(
+                _OPERATION_IDS, key=lambda key: _OPERATION_IDS[key]["created"]
+            )
+            _OPERATION_IDS.pop(oldest, None)
+        return None
+
+
+def _complete_operation_id(operation_id: str, tid: str) -> None:
+    """Asocia el task_id definitivo a un envío ya reservado."""
+    if not operation_id:
+        return
+    with _OPERATION_IDS_LOCK:
+        entry = _OPERATION_IDS.get(operation_id)
+        if entry is not None:
+            entry["task_id"] = tid
+
+
 def generate_progress_events(task_id: str):
     yield sse_retry(1500)
     start = time.time()
@@ -683,6 +732,7 @@ def index():
             "ntp_servers",
         )
     }
+    prefill["operation_id"] = uuid.uuid4().hex
     return render_template(
         "index.html",
         common_timezones=COMMON_TIMEZONES,
@@ -733,7 +783,30 @@ def handle_execution(default_mode: str = "execute"):
     assert form is not None  # ``errors`` vacío implica formulario válido.
     operator = getattr(current_user, "username", "") or str(current_user.get_id())
 
+    operation_id = request.form.get("operation_id", "").strip()
+    duplicate = _claim_operation_id(operation_id)
+    if duplicate is not None:
+        if duplicate:
+            if _wants_json():
+                return (
+                    jsonify(
+                        {
+                            "status": "duplicate",
+                            "task_id": duplicate,
+                            "message": "Operación ya enviada",
+                        }
+                    ),
+                    409,
+                )
+            return redirect(url_for("progress_page", task_id=duplicate))
+        message = "La operación ya se está procesando; espera unos segundos."
+        if _wants_json():
+            return jsonify({"status": "duplicate", "message": message}), 409
+        flash(message, "warning")
+        return redirect(url_for("index"))
+
     tid = create_task()
+    _complete_operation_id(operation_id, tid)
     update_task(
         tid,
         {

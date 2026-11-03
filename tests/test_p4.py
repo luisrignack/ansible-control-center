@@ -589,3 +589,41 @@ def test_reconcile_orphan_running_batches(tmp_path):
 
     # Es idempotente: ya no quedan lotes en curso.
     assert ExecutionBatch.reconcile_orphans(db_path=db_path) == 0
+
+
+def test_duplicate_submission_is_idempotent(client, monkeypatch):
+    import re
+
+    _login(client)
+    monkeypatch.setattr(
+        app_module, "resolve_target", lambda _target: ["10.0.0.50"]
+    )
+    monkeypatch.setattr(
+        app_module,
+        "test_ansible_ping",
+        lambda **_kwargs: {"success": True, "error": ""},
+    )
+    monkeypatch.setattr(
+        app_module, "apply_host", lambda host, **_kwargs: _ok(host)
+    )
+
+    page = client.get("/")
+    match = re.search(
+        rb'name="operation_id" value="([0-9a-f]+)"', page.data
+    )
+    assert match is not None
+    operation_id = match.group(1).decode()
+
+    first_task = _start_execution(
+        client, "execute", operation_id=operation_id
+    )
+    second_task = _start_execution(
+        client, "execute", operation_id=operation_id
+    )
+
+    assert second_task == first_task
+    _wait_for_task(client, first_task)
+    batches = ExecutionBatch.get_batches(
+        db_path=app_module.get_db_path()
+    )
+    assert len(batches) == 1

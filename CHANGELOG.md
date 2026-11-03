@@ -33,6 +33,11 @@ fiel de `restore` y avisos de riesgo.
   antes de enumerar o conectar; una entrada inválida impide arrancar.
 - **Gunicorn `gthread`:** 4 hilos por worker y `timeout` de 330 s para que el
   SSE no bloquee el resto de peticiones ni muera a los 300 s.
+- **Confirmación e idempotencia:** modal de confirmación con objetivo, acción,
+  valor y política NTP; UUID oculto por formulario y memoria acotada para que
+  un doble envío redirija al progreso existente en vez de crear otro lote.
+- **CI:** workflow de GitHub Actions con Python 3.11–3.13, compilación,
+  validación YAML de Ansible y `pytest`.
 - **Tests nuevos:** migración v3→v4, visibilidad/persistencia de `dry_run`,
   ejecución real sin marca, `no-store`, aviso `TIME`+`keep` en vista previa y
   semántica de `restore`/`off`/`configure` en la vista previa, cookies de
@@ -51,6 +56,8 @@ fiel de `restore` y avisos de riesgo.
 ### Limitaciones restantes de P4.1
 
 - Estado de tareas persistido (el SSE y la consola siguen en memoria).
+- La idempotencia de envío es por proceso; al escalar a varios workers hará
+  falta un almacén compartido.
 - Confirmación de envío e idempotencia de formularios.
 - CI con linters, `mypy`, `ansible-lint` y cobertura.
 
