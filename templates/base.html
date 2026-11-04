@@ -323,6 +323,31 @@
 })();
 </script>
 
+<script nonce="{{ csp_nonce }}">
+(function () {
+    // Delegación: funciona también con modales que se mueven a <body>.
+    document.addEventListener('click', function (event) {
+        const target = event.target instanceof Element ? event.target : null;
+        const button = target ? target.closest('[data-password-toggle]') : null;
+        if (!button) return;
+
+        const wrapper = button.closest('.password-field');
+        const input = wrapper ? wrapper.querySelector('input') : null;
+        if (!input) return;
+
+        const show = input.type === 'password';
+        input.type = show ? 'text' : 'password';
+        button.setAttribute('aria-pressed', show ? 'true' : 'false');
+        button.setAttribute('aria-label', show ? 'Ocultar contraseña' : 'Mostrar contraseña');
+        button.setAttribute('title', show ? 'Ocultar contraseña' : 'Mostrar contraseña');
+        const icon = button.querySelector('i');
+        if (icon) {
+            icon.className = show ? 'bi bi-eye-slash' : 'bi bi-eye';
+        }
+    });
+})();
+</script>
+
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>

@@ -411,6 +411,17 @@ DEFAULT_NTP_SERVERS: tuple[str, ...] = tuple(
 # Extensiones permitidas para archivos de contraseñas
 ALLOWED_PASSWORD_EXTENSIONS = {".txt", ".yml", ".yaml"}
 
+# Orígenes permitidos para las contraseñas candidatas del vault. El valor se
+# guarda en SQLite y se muestra en la tabla de credenciales.
+PASSWORD_ORIGINS: tuple[tuple[str, str], ...] = (
+    ("manual", "Manual"),
+    ("file", "Archivo"),
+    ("generated", "Generada"),
+    ("shared", "Compartida"),
+    ("other", "Otra"),
+)
+PASSWORD_ORIGIN_VALUES = frozenset(code for code, _label in PASSWORD_ORIGINS)
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------

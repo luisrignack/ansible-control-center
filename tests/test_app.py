@@ -240,6 +240,63 @@ def test_temporal_txt_execution_records_history(client):
     assert b"success" in history.data.lower()
 
 
+def test_passwords_view_lists_origin_options_and_password_toggles(client):
+    _login(client)
+    response = client.get("/passwords")
+    body = response.get_data(as_text=True)
+
+    assert 'id="passwordOriginModal"' in body
+    assert 'name="origin"' in body
+    for label in ("Manual", "Archivo", "Generada", "Compartida", "Otra"):
+        assert label in body
+    assert body.count("data-password-toggle") >= 2
+
+
+def test_encrypt_rejects_invalid_origin(client):
+    _login(client)
+    response = _post(
+        client,
+        "/passwords",
+        {
+            "action": "encrypt",
+            "passwords_textarea": "clave-uno",
+            "master_password": "master-test",
+            "origin": "inventado",
+        },
+        headers={"Accept": "application/json"},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["success"] is False
+    assert "no válido" in response.get_json()["message"]
+
+
+def test_encrypt_forwards_selected_origin(client, monkeypatch):
+    _login(client)
+    captured = {}
+
+    def fake_encrypt(**kwargs):
+        captured.update(kwargs)
+        return True, "Contraseñas cifradas."
+
+    monkeypatch.setattr(app_module.VaultManager, "encrypt_passwords", fake_encrypt)
+
+    response = _post(
+        client,
+        "/passwords",
+        {
+            "action": "encrypt",
+            "passwords_textarea": "clave-uno",
+            "master_password": "master-test",
+            "origin": "generated",
+        },
+        headers={"Accept": "application/json"},
+    )
+
+    assert response.status_code == 200
+    assert captured["origin"] == "generated"
+
+
 @pytest.mark.skipif(
     shutil.which(BIN_ANSIBLE_VAULT) is None,
     reason="ansible-vault no está instalado",

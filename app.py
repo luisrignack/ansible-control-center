@@ -85,6 +85,8 @@ from config import (
     MAX_TASK_STATE_ROWS,
     NTP_POLICIES,
     NTP_SETTLE_SECONDS,
+    PASSWORD_ORIGINS,
+    PASSWORD_ORIGIN_VALUES,
     PERMANENT_SESSION_LIFETIME_SECONDS,
     RATE_LIMIT_ENABLED,
     REMEMBER_COOKIE_HTTPONLY,
@@ -2400,6 +2402,7 @@ def passwords():
                 for line in request.form.get("passwords_textarea", "").splitlines()
                 if line.strip()
             ]
+            origin = request.form.get("origin", "manual").strip().lower() or "manual"
             if not mpw:
                 return _password_response(
                     False, "Ingresa la contraseña maestra del Vault.", 400
@@ -2408,10 +2411,12 @@ def passwords():
                 return _password_response(
                     False, "Ingresa al menos una contraseña candidata.", 400
                 )
+            if origin not in PASSWORD_ORIGIN_VALUES:
+                return _password_response(False, "Origen de contraseña no válido.", 400)
             success, msg = VaultManager.encrypt_passwords(
                 passwords=pws,
                 master_password=mpw,
-                origin="manual",
+                origin=origin,
                 db_path=get_db_path(),
             )
             return _password_response(success, msg, 200 if success else 400)
@@ -2545,7 +2550,11 @@ def passwords():
     except RuntimeError:
         vault_exists = False
     return render_template(
-        "passwords.html", passwords=stored, vault_exists=vault_exists
+        "passwords.html",
+        passwords=stored,
+        vault_exists=vault_exists,
+        password_origins=PASSWORD_ORIGINS,
+        password_origin_labels=dict(PASSWORD_ORIGINS),
     )
 
 

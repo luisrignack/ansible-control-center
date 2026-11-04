@@ -84,9 +84,16 @@
                         <label for="masterPassword" class="form-label fw-medium">
                             <i class="bi bi-shield-lock me-2"></i> Contraseña Maestra del Vault
                         </label>
-                        <input type="password" class="form-control" id="masterPassword"
-                            name="master_password" placeholder="Ingresa la contraseña maestra"
-                            autocomplete="current-password" required>
+                        <div class="password-field">
+                            <input type="password" class="form-control" id="masterPassword"
+                                name="master_password" placeholder="Ingresa la contraseña maestra"
+                                autocomplete="current-password" required>
+                            <button type="button" class="password-toggle"
+                                data-password-toggle aria-pressed="false"
+                                aria-label="Mostrar contraseña" title="Mostrar contraseña">
+                                <i class="bi bi-eye" aria-hidden="true"></i>
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Archivo temporal .txt -->

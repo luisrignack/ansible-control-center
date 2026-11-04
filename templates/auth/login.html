@@ -38,8 +38,15 @@
             <label for="password" class="form-label">
                 <i class="bi bi-lock" aria-hidden="true"></i> Contraseña
             </label>
-            <input type="password" class="form-control" id="password" name="password"
-                   autocomplete="current-password" required>
+            <div class="password-field">
+                <input type="password" class="form-control" id="password" name="password"
+                       autocomplete="current-password" required>
+                <button type="button" class="password-toggle"
+                    data-password-toggle aria-pressed="false"
+                    aria-label="Mostrar contraseña" title="Mostrar contraseña">
+                    <i class="bi bi-eye" aria-hidden="true"></i>
+                </button>
+            </div>
         </div>
 
         <div class="form-check mb-4">

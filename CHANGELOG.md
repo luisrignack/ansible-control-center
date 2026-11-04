@@ -7,6 +7,24 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ---
 
+## [Orígenes de credenciales y visibilidad de contraseñas] — 2026-11-04
+
+### Añadido
+
+- **Origen configurable:** el modal “Cifrar y guardar contraseñas” ofrece
+  `Manual`, `Archivo`, `Generada`, `Compartida` y `Otra`. El servidor valida el
+  valor contra `PASSWORD_ORIGINS` y lo persiste en SQLite; la tabla muestra la
+  etiqueta legible.
+- **Botón de ojo:** todos los campos de contraseña (login, contraseña maestra
+  del panel, modal de credenciales e importación) permiten mostrar u ocultar el
+  texto sin scripts inline y respetando la CSP con nonce.
+
+### Cambiado
+
+- La tabla de credenciales traduce el código de origen a una etiqueta legible.
+
+---
+
 ## [Endurecimiento y correcciones] — 2026-11-04
 
 ### Seguridad

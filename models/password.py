@@ -58,7 +58,8 @@ class PasswordRecord:
         self.id = id
         self.password_hash = password_hash  # Hash SHA256 corto (8 caracteres) para UI
         self.creation_date = creation_date
-        self.origin = origin  # 'manual' o 'file'
+        # Origen declarado al guardar: manual, file, generated, shared u other.
+        self.origin = origin
 
     def to_dict(self) -> Dict[str, Any]:
         """Convierte el registro a diccionario (solo hash corto, nunca texto plano)."""
