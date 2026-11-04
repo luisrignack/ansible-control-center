@@ -240,15 +240,13 @@ def test_temporal_txt_execution_records_history(client):
     assert b"success" in history.data.lower()
 
 
-def test_passwords_view_lists_origin_options_and_password_toggles(client):
+def test_passwords_view_has_password_toggles_without_origin_selector(client):
     _login(client)
     response = client.get("/passwords")
     body = response.get_data(as_text=True)
 
-    assert 'id="passwordOriginModal"' in body
-    assert 'name="origin"' in body
-    for label in ("Manual", "Archivo", "Generada", "Compartida", "Otra"):
-        assert label in body
+    assert 'id="passwordOriginModal"' not in body
+    assert 'name="origin"' not in body
     assert body.count("data-password-toggle") >= 2
 
 
@@ -271,7 +269,7 @@ def test_encrypt_rejects_invalid_origin(client):
     assert "no válido" in response.get_json()["message"]
 
 
-def test_encrypt_forwards_selected_origin(client, monkeypatch):
+def test_encrypt_defaults_origin_to_manual(client, monkeypatch):
     _login(client)
     captured = {}
 
@@ -288,13 +286,12 @@ def test_encrypt_forwards_selected_origin(client, monkeypatch):
             "action": "encrypt",
             "passwords_textarea": "clave-uno",
             "master_password": "master-test",
-            "origin": "generated",
         },
         headers={"Accept": "application/json"},
     )
 
     assert response.status_code == 200
-    assert captured["origin"] == "generated"
+    assert captured["origin"] == "manual"
 
 
 @pytest.mark.skipif(

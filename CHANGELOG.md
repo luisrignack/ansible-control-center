@@ -7,6 +7,18 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ---
 
+## [Origen manual automático] — 2026-11-04
+
+### Cambiado
+
+- **Sin selector de origen en el modal:** al cifrar desde “Cifrar y guardar
+  contraseñas” el origen se asigna automáticamente como `Manual`. La
+  importación de archivos sigue registrándose como `Archivo`.
+- El servidor mantiene la validación de orígenes para llamadas directas a la
+  API y conserva las etiquetas legibles en la tabla.
+
+---
+
 ## [Orígenes de credenciales y visibilidad de contraseñas] — 2026-11-04
 
 ### Añadido

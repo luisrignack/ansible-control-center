@@ -2553,7 +2553,6 @@ def passwords():
         "passwords.html",
         passwords=stored,
         vault_exists=vault_exists,
-        password_origins=PASSWORD_ORIGINS,
         password_origin_labels=dict(PASSWORD_ORIGINS),
     )
 
