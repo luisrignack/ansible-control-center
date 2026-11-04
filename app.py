@@ -23,6 +23,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 import click
 from flask import (
@@ -98,6 +99,8 @@ from config import (
     SESSION_COOKIE_HTTPONLY,
     SESSION_COOKIE_SAMESITE,
     SESSION_COOKIE_SECURE,
+    TASK_REQUEST_EMAIL,
+    TASK_REQUEST_SUBJECT,
     TIME_REQUIRE_NTP_OFF,
     TIME_VERIFY_TOLERANCE,
     TRUST_PROXY,
@@ -128,6 +131,10 @@ from services.job_queue import JobQueue, JobQueueFull
 from services.password_tester import test_ansible_ping
 from services.rate_limiter import LIMITER
 from services.secure_temp import secure_temp_file
+from services.task_catalog import (
+    TASK_CATALOG,
+    get_task,
+)
 from services.time_utils import (
     LOCAL_TIME_AMBIGUOUS,
     LOCAL_TIME_MISSING,
@@ -1227,6 +1234,29 @@ def index():
     if request.method == "POST":
         return handle_execution()
 
+    # La portada es el catálogo: solo tarjetas. Cada tarjeta enlaza a
+    # /tarea/<task_id> para la vista de detalle de la tarea.
+    # Contacto para pedir tareas nuevas (mailto: abre el cliente de correo
+    # del sistema, p. ej. Thunderbird).
+    contact_task_mailto = "mailto:{}?subject={}".format(
+        TASK_REQUEST_EMAIL,
+        quote(TASK_REQUEST_SUBJECT, safe=""),
+    )
+    return render_template(
+        "tasks.html",
+        task_catalog=TASK_CATALOG,
+        contact_task_mailto=contact_task_mailto,
+    )
+
+
+@app.route("/tarea/<task_id>", methods=["GET"])
+@login_required
+def task_view(task_id):
+    task = get_task(task_id)
+    if task is None:
+        flash("La tarea pedida no existe en el catálogo.", "warning")
+        return redirect(url_for("index"))
+
     prefill = {
         key: request.args.get(key, "")
         for key in (
@@ -1251,6 +1281,7 @@ def index():
         default_ntp_servers=", ".join(DEFAULT_NTP_SERVERS),
         default_admin_user=ADMIN_USERNAME,
         prefill=prefill,
+        selected_task=task,
     )
 
 

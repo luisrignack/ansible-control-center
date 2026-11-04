@@ -244,6 +244,13 @@ ADMIN_PASSWORD_MIN_LENGTH = _env_int(
     "ACC_ADMIN_PASSWORD_MIN_LENGTH", 12, minimum=8, maximum=128
 )
 
+# Contacto para solicitar una tarea nueva en el catálogo (mailto en la
+# portada). El asunto también es configurable para pruebas.
+TASK_REQUEST_EMAIL = os.environ.get("ACC_TASK_REQUEST_EMAIL", "luis.rignack@etecsa.cu")
+TASK_REQUEST_SUBJECT = os.environ.get(
+    "ACC_TASK_REQUEST_SUBJECT", "solicitud de nueva tarea Ansible"
+)
+
 # ---------------------------------------------------------------------------
 # Parámetros de ejecución
 # ---------------------------------------------------------------------------

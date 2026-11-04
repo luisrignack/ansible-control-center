@@ -1,13 +1,18 @@
 {% extends "base.html" %}
 
-{% block title %}Panel de Control{% endblock %}
+{% block title %}{{ selected_task.name }}{% endblock %}
+
+{% block breadcrumb %}{{ selected_task.name }}{% endblock %}
 
 {% block content %}
-<div class="page-head">
+<div class="page-head detail-head">
     <div>
-        <div class="eyebrow">Operación</div>
-        <h1>Nueva operación</h1>
-        <p class="sub">Configura hora, zona horaria y NTP en un grupo de equipos. La vista previa inspecciona sin cambiar nada.</p>
+        <a class="back-link" href="{{ url_for('index') }}">
+            <i class="bi bi-arrow-left" aria-hidden="true"></i> Volver al catálogo
+        </a>
+        <div class="eyebrow">{% if selected_task.status == 'active' %}Tarea operativa{% else %}Tarea en preparación{% endif %}</div>
+        <h1>{{ selected_task.name }}</h1>
+        <p class="sub">{{ selected_task.summary }}</p>
     </div>
     <div class="head-actions">
         <a class="btn btn-secondary" href="{{ url_for('history') }}">
@@ -29,8 +34,40 @@
 </div>
 {% endif %}
 
+{% if selected_task.status != 'active' %}
+<div class="task-planned card fade-in" id="config">
+    <div class="card-header">
+        <h2 class="card-title">
+            <i class="bi {{ selected_task.icon }}" aria-hidden="true"></i>
+            {{ selected_task.name }}
+        </h2>
+        <span class="badge badge-accent">En preparación</span>
+    </div>
+    <div class="card-body p-4">
+        <p class="mb-3 text-muted">{{ selected_task.summary }}</p>
+        <p class="fw-medium mb-2">Plan previsto para lotes:</p>
+        <ol class="task-plan mb-3">
+            {% for step in selected_task.steps %}
+            <li>{{ step }}</li>
+            {% endfor %}
+        </ol>
+        <div class="banner banner-info" role="status">
+            <div class="banner-icon" aria-hidden="true"><i class="bi bi-tools"></i></div>
+            <div>
+                <div class="banner-title">Playbook <code>ansible/{{ selected_task.playbook }}</code> pendiente de integración</div>
+                <div class="banner-text">La configuración y la ejecución de esta tarea se habilitarán cuando su playbook esté integrado en el sistema. Mientras tanto, puedes seguir operando la tarea <a class="fw-bold" href="{{ url_for('task_view', task_id='hora') }}">Hora y zona horaria</a>.</div>
+            </div>
+        </div>
+    </div>
+    <div class="card-footer">
+        <a class="btn btn-secondary" href="{{ url_for('index') }}">
+            <i class="bi bi-arrow-left" aria-hidden="true"></i> Volver al catálogo
+        </a>
+    </div>
+</div>
+{% else %}
 <div class="grid grid-main">
-    <div class="card fade-in">
+    <div class="card fade-in" id="config">
         <div class="card-header">
             <h2 class="card-title"><i class="bi bi-sliders" aria-hidden="true"></i> Formulario de configuración</h2>
             <span class="badge badge-accent">Paso único</span>
@@ -298,6 +335,7 @@
         </div>
     </aside>
 </div>
+{% endif %}
 
 <!-- Confirmación de ejecución -->
 <div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmModalLabel" aria-hidden="true">
@@ -336,6 +374,7 @@
 {% endblock %}
 
 {% block extra_scripts %}
+{% if selected_task.status == 'active' %}
 <script nonce="{{ csp_nonce }}">
 const prefill = {{ prefill | tojson }};
 const defaultNtpServers = {{ default_ntp_servers | tojson }};
@@ -710,4 +749,5 @@ document.addEventListener('DOMContentLoaded', () => {
     updateSummary();
 });
 </script>
+{% endif %}
 {% endblock %}

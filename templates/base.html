@@ -33,10 +33,10 @@
 
         <nav class="nav" aria-label="Secciones">
             <div class="nav-label">Operación</div>
-            <a class="nav-item {% if endpoint == 'index' %}is-active{% endif %}"
+            <a class="nav-item {% if endpoint in ['index', 'task_view'] %}is-active{% endif %}"
                href="{{ url_for('index') }}"
-               {% if endpoint == 'index' %}aria-current="page"{% endif %}>
-                <i class="bi bi-grid icon" aria-hidden="true"></i> Panel
+               {% if endpoint in ['index', 'task_view'] %}aria-current="page"{% endif %}>
+                <i class="bi bi-grid icon" aria-hidden="true"></i> Tareas
             </a>
             <a class="nav-item {% if endpoint in ['history', 'batch_detail'] %}is-active{% endif %}"
                href="{{ url_for('history') }}"

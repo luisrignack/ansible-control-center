@@ -5,6 +5,50 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Catálogo de tareas en tarjetas] — 2026-11-04
+
+### Añadido
+
+- **Portada como catálogo de tareas** (inspirada en la propuesta 11 de
+  `docs/propuestas-ui/11-task-hub.html`): la página “Tareas” muestra una
+  tarjeta por tarea de Ansible con nombre, icono, chips de estado, playbook y
+  acciones. Ninguna tarea se configura en la portada.
+- **Vista de detalle por tarea `GET /tarea/<task_id>`:** cada tarjeta conduce
+  a su propia página, con enlace **“Volver al catálogo”** en la cabecera y en
+  el panel de tareas pendientes. La tarea “Hora y zona horaria” conserva ahí
+  todo el flujo existente de TZ/TIME, vista previa, verificación e
+  idempotencia; el formulario sigue enviando por `POST /` sin cambios.
+- **Registro de tareas `services/task_catalog.py`:** cada tarea es una entrada
+  con `id`, `name`, `icon`, `tone`, `summary`, `playbook`, `status`
+  (`active`/`planned`), `chips` y `steps`. Añadir una tarea nueva = añadir una
+  entrada y su playbook.
+- **Cuatro tarjetas en el catálogo:**
+  - *Hora y zona horaria* (activa).
+  - *Kaspersky Antivirus*, *Contraseña administrativa* y *Tapiz oficial*
+    (en preparación): su vista de detalle muestra el plan de lotes previsto y
+    un aviso de playbook pendiente; no exponen formulario ni ejecución hasta
+    integrar su playbook.
+- **Nuevos tests:** catálogo sin formulario, detalle de tarea activa y
+  esperada, fallback de id desconocido y acceso sin sesión.
+
+### Añadido (extra catálogo)
+
+- **Botón “Solicitar nueva tarea”** en las acciones de la portada: abre el
+  cliente de correo del sistema (p. ej. Thunderbird) vía `mailto:` a
+  `luis.rignack@etecsa.cu` con asunto `solicitud de nueva tarea Ansible`.
+  Configurable con `ACC_TASK_REQUEST_EMAIL` y `ACC_TASK_REQUEST_SUBJECT`.
+- **Hover con color por tarjeta:** al pasar el puntero (o con foco de
+  teclado) la tarjeta se tiñe con un degradado de su tono, coloreando
+  nombre, icono y chips, con un anillo sutil del mismo tono.
+
+### Cambiado
+
+- La navegación lateral renombra “Panel” a “Tareas” (activa en la portada y
+  en la vista de detalle).
+- Un id de tarea desconocido redirige al catálogo con un aviso.
+- Los scripts de la página de detalle solo se cargan cuando la tarea está
+  activa.
+
 ---
 
 ## [Copia de seguridad de /etc/timezone] — 2026-11-04

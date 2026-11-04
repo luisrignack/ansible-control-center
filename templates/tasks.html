@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Tareas{% endblock %}
+
+{% block breadcrumb %}Tareas{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div>
+        <div class="eyebrow">Catálogo de tareas</div>
+        <h1>Tareas</h1>
+        <p class="sub">Cada tarjeta es una tarea de Ansible. Elige una para abrir su vista de detalle: configuración, vista previa y ejecución.</p>
+    </div>
+    <div class="head-actions">
+        <a class="btn btn-acento" href="{{ contact_task_mailto }}"
+           title="Abrir el cliente de correo con la solicitud de una tarea nueva">
+            <i class="bi bi-envelope-plus" aria-hidden="true"></i> Solicitar nueva tarea
+        </a>
+        <a class="btn btn-secondary" href="{{ url_for('history') }}">
+            <i class="bi bi-clock-history" aria-hidden="true"></i> Ver historial
+        </a>
+        <a class="btn btn-secondary" href="{{ url_for('passwords') }}">
+            <i class="bi bi-key" aria-hidden="true"></i> Credenciales
+        </a>
+    </div>
+</div>
+
+<!-- Catálogo de tareas: una tarjeta por tarea de Ansible. -->
+<section class="task-catalog" aria-label="Tareas disponibles">
+    <div class="task-grid">
+        {% for task in task_catalog %}
+        <a class="task-card tone-{{ task.tone }}{% if task.status != 'active' %} is-planned-card{% endif %}"
+           href="{{ url_for('task_view', task_id=task.id) }}">
+            <span class="task-top">
+                <span class="task-icon" aria-hidden="true"><i class="bi {{ task.icon }}"></i></span>
+                {% if task.status != 'active' %}<span class="task-status is-planned">En preparación</span>{% endif %}
+            </span>
+            <span class="task-name">{{ task.name }}</span>
+            <span class="task-desc">{{ task.summary }}</span>
+            <span class="task-chips">
+                {% for chip in task.chips %}<span class="task-chip">{{ chip }}</span>{% endfor %}
+            </span>
+            <span class="task-foot">
+                <span>{{ task.playbook }}</span>
+                <span class="task-open">{% if task.status == 'active' %}Abrir tarea <i class="bi bi-arrow-right" aria-hidden="true"></i>{% else %}Ver detalle <i class="bi bi-arrow-right" aria-hidden="true"></i>{% endif %}</span>
+            </span>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

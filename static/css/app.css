@@ -394,6 +394,189 @@ code { color: var(--teal); font-family: var(--font-mono); font-size: .92em; }
 .grid-main { grid-template-columns: minmax(0, 1.65fr) minmax(280px, 1fr); align-items: start; }
 .stack { display: flex; flex-direction: column; gap: 16px; }
 
+/* ============================================================
+   Catálogo de tareas: una tarjeta por tarea de Ansible
+   ============================================================ */
+.task-catalog { margin-top: 18px; }
+.task-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 14px;
+}
+.task-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    padding: 16px 17px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    color: var(--text);
+    text-decoration: none;
+    box-shadow: var(--shadow-sm);
+    transition:
+        transform .16s var(--ease),
+        border-color .16s var(--ease),
+        box-shadow .16s var(--ease);
+}
+.task-card .task-icon { transition: transform .16s var(--ease); }
+.task-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Tono por tarjeta (variables locales) */
+.tone-blue { --task-tone: var(--accent); --task-soft: var(--accent-soft); }
+.tone-red { --task-tone: var(--danger); --task-soft: var(--danger-soft); }
+.tone-amber { --task-tone: var(--warn); --task-soft: var(--warn-soft); }
+.tone-teal { --task-tone: var(--teal); --task-soft: var(--ok-soft); }
+
+.task-card .task-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+.task-card .task-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 13px;
+    display: grid;
+    place-items: center;
+    font-size: 21px;
+    background: var(--task-soft);
+    color: var(--task-tone);
+}
+.task-card .task-name {
+    font-weight: 700;
+    font-size: 15.5px;
+    letter-spacing: -.01em;
+}
+.task-card .task-desc {
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--muted);
+}
+.task-card .task-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: auto;
+}
+.task-card .task-chip {
+    font: 600 10px/1.4 var(--font-mono);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 3px 8px;
+    color: var(--text-2);
+    background: var(--surface-2);
+}
+.task-card .task-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-soft);
+    font: 600 10.5px var(--font-mono);
+    color: var(--muted);
+}
+.task-card .task-open {
+    color: var(--task-tone);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.task-card .task-open .bi { margin-top: 1px; }
+.task-card.is-planned-card { background: color-mix(in srgb, var(--surface) 88%, transparent); }
+
+/* Hover: la tarjeta se tiñe con su tono. Va después de las variantes
+   (is-current / is-planned-card) para ganar en cascada. */
+.task-card:hover,
+.task-card:focus-visible,
+.task-card.is-planned-card:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--task-tone) 62%, var(--border));
+    background:
+        linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--task-soft) 65%, var(--surface)),
+            var(--surface)
+        );
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--task-tone) 38%, transparent),
+        0 14px 34px -22px rgba(3, 8, 20, .55);
+}
+.task-card:hover .task-name,
+.task-card:hover .task-open {
+    color: var(--task-tone);
+}
+.task-card:hover .task-icon {
+    transform: scale(1.06);
+}
+.task-card:hover .task-chip {
+    border-color: color-mix(in srgb, var(--task-tone) 34%, var(--border));
+    color: var(--task-tone);
+}
+
+.task-status {
+    font: 700 9.5px/1 var(--font-mono);
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    border-radius: 6px;
+    padding: 4px 8px;
+}
+.task-status.is-planned {
+    color: var(--warn);
+    background: var(--warn-soft);
+    border: 1px solid rgba(247, 196, 92, .28);
+}
+.task-planned .card-footer {
+    display: flex;
+    gap: 9px;
+    justify-content: flex-start;
+}
+.task-plan {
+    margin: 0;
+    padding-left: 20px;
+}
+.task-plan li {
+    margin-bottom: 4px;
+    color: var(--text-2);
+    font-size: 13px;
+}
+.banner-info {
+    border-color: rgba(56, 189, 248, .28);
+    background: linear-gradient(90deg, var(--info-soft), transparent 70%);
+}
+.banner-info .banner-icon { background: var(--info-soft); color: var(--info); }
+
+/* Enlace de regreso en la vista de detalle de tarea */
+.back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-decoration: none;
+    margin-bottom: 8px;
+    padding: 5px 10px 5px 8px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    transition: color .15s var(--ease), background .15s var(--ease), border-color .15s var(--ease);
+}
+.back-link .bi { margin-right: 2px; }
+.back-link:hover {
+    color: var(--text);
+    background: var(--surface-2);
+    border-color: var(--border);
+}
+.back-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (max-width: 720px) {
+    .task-grid { grid-template-columns: 1fr; }
+}
+
 .card {
     background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 140%);
     border: 1px solid var(--border-soft);

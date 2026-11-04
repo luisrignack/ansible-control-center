@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Propuesta 12 · Task Cards Bento — Ansible Control Center</title>
+<meta name="description" content="Propuesta 12: sistema de tarjetas tipo bento para las tareas de Ansible (Hora, Kaspersky, nueva tarea...), claro y colorido.">
+<style>
+/* ============================================================
+   Propuesta 12 — Task Cards Bento
+   La pantalla principal es un catálogo de TAREAS: cada tarea de
+   Ansible es una tarjeta bento con nombre, icono, estado y
+   acciones. Añadir una tarea nueva = añadir una tarjeta nueva.
+   Autocontenida: sin fuentes, imágenes ni CDN externos.
+   ============================================================ */
+:root {
+  --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --bg: #fbf8f3;
+  --bg-2: #f3efe7;
+  --surface: #ffffff;
+  --surface-2: #f8f5ef;
+  --line: #e8e2d6;
+  --line-2: #d9d2c3;
+  --text: #1e1a12;
+  --text-2: #4c4636;
+  --muted: #8a8271;
+  --blue: #2f6bff;
+  --blue-soft: #e7eeff;
+  --red: #e5484d;
+  --red-soft: #fdebec;
+  --amber: #c47f00;
+  --amber-soft: #fdf3dd;
+  --green: #1f9d61;
+  --green-soft: #e4f5ec;
+  --violet: #7c5cf0;
+  --radius: 18px;
+  --radius-sm: 12px;
+  --shadow: 0 10px 30px -18px rgba(90, 74, 40, .35);
+  --shadow-hover: 0 18px 42px -18px rgba(90, 74, 40, .45);
+}
+html[data-theme="dark"] {
+  --bg: #100e0a;
+  --bg-2: #17140f;
+  --surface: #1d1915;
+  --surface-2: #242019;
+  --line: #332d23;
+  --line-2: #463e30;
+  --text: #f4efe4;
+  --text-2: #cdc4b0;
+  --muted: #948b78;
+  --blue: #7fa4ff;
+  --blue-soft: rgba(127, 164, 255, .14);
+  --red: #ff8589;
+  --red-soft: rgba(229, 72, 77, .16);
+  --amber: #eab13d;
+  --amber-soft: rgba(196, 127, 0, .16);
+  --green: #5ad192;
+  --green-soft: rgba(31, 157, 97, .18);
+  --violet: #ab94ff;
+  --shadow: 0 10px 30px -18px rgba(0, 0, 0, .8);
+  --shadow-hover: 0 18px 42px -18px rgba(0, 0, 0, .9);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; min-height: 100vh; overflow-x: hidden;
+  background: var(--bg); color: var(--text);
+  font: 14px/1.55 var(--font); -webkit-font-smoothing: antialiased;
+  transition: background .3s, color .3s;
+}
+a { color: inherit; text-decoration: none; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+h1, h2, h3, p { margin: 0; }
+svg.icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.skip { position: absolute; left: -999px; top: 10px; z-index: 100; background: var(--blue); color: #fff; padding: 9px 14px; border-radius: 9px; font-weight: 700; }
+.skip:focus { left: 12px; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 6px; }
+::selection { background: rgba(47, 107, 255, .25); }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 20px; border: 2px solid transparent; background-clip: content-box; }
+
+/* Shell ------------------------------------------------------ */
+.app { display: grid; grid-template-columns: 68px minmax(0, 1fr); min-height: 100vh; }
+.rail {
+  position: sticky; top: 0; height: 100vh; z-index: 20;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 16px 0; border-right: 1px solid var(--line); background: var(--surface);
+}
+.rail .logo {
+  width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
+  background: linear-gradient(145deg, var(--blue), var(--violet)); color: #fff; margin-bottom: 10px;
+}
+.rail .logo svg { width: 20px; height: 20px; }
+.rail-item {
+  width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
+  color: var(--muted); border: 1px solid transparent; position: relative;
+}
+.rail-item:hover { color: var(--text); background: var(--surface-2); }
+.rail-item[aria-current="page"] { color: var(--blue); background: var(--blue-soft); border-color: color-mix(in srgb, var(--blue) 30%, transparent); }
+.rail-item[data-badge]::after {
+  content: attr(data-badge);
+  position: absolute; top: 4px; right: 4px; min-width: 15px; height: 15px;
+  border-radius: 999px; background: var(--red); color: #fff;
+  font: 700 9px/15px var(--mono); text-align: center; padding: 0 3px;
+}
+.rail .spacer { flex: 1; }
+
+/* Topbar ----------------------------------------------------- */
+.main { min-width: 0; }
+.topbar {
+  position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 14px;
+  padding: 14px 28px; border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter: blur(14px);
+}
+.topbar .crumb { font: 600 17px var(--font); letter-spacing: -.02em; }
+.topbar .crumb small { display: block; font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.search {
+  margin-left: auto; display: flex; align-items: center; gap: 9px;
+  width: min(320px, 40vw); padding: 9px 13px; border: 1px solid var(--line);
+  border-radius: 999px; background: var(--surface); color: var(--muted);
+}
+.search input { border: 0; background: none; outline: none; width: 100%; font-size: 13px; color: var(--text); }
+.search kbd { font: 600 10px var(--mono); color: var(--muted); border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 5px; }
+.top-actions { display: flex; align-items: center; gap: 9px; }
+.ghost-btn {
+  width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--text-2);
+}
+.ghost-btn:hover { color: var(--text); border-color: var(--line-2); }
+.avatar {
+  width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--amber-soft); color: var(--amber); font: 700 12px var(--font);
+}
+
+/* Page head -------------------------------------------------- */
+.page { padding: 30px 28px 60px; max-width: 1180px; margin: 0 auto; }
+.page-head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; margin-bottom: 22px; }
+.page-head h1 { font-size: clamp(24px, 3.2vw, 30px); letter-spacing: -.03em; font-weight: 700; }
+.page-head p { color: var(--muted); max-width: 560px; margin-top: 5px; }
+.page-head .new-btn {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border-radius: 12px; border: 1px solid var(--text);
+  background: var(--text); color: var(--bg); font-weight: 650; font-size: 13px;
+  box-shadow: var(--shadow); transition: transform .15s ease;
+}
+.page-head .new-btn:hover { transform: translateY(-1px); }
+
+/* Segmented filter ------------------------------------------ */
+.segmented {
+  display: inline-flex; gap: 3px; padding: 4px; border: 1px solid var(--line);
+  border-radius: 999px; background: var(--surface-2); margin-bottom: 20px;
+}
+.segmented button {
+  border: 0; background: none; padding: 7px 14px; border-radius: 999px;
+  font-size: 12.5px; font-weight: 600; color: var(--muted);
+}
+.segmented button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+
+/* Bento grid ------------------------------------------------- */
+.bento {
+  display: grid; gap: 16px;
+  grid-template-columns: repeat(12, 1fr);
+  grid-auto-rows: minmax(120px, auto);
+}
+.tile {
+  position: relative; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface); box-shadow: var(--shadow); overflow: hidden;
+  padding: 20px; display: flex; flex-direction: column; gap: 10px;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.tile:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); border-color: var(--line-2); }
+.tile[hidden] { display: none; }
+.span-6 { grid-column: span 6; }
+.span-8 { grid-column: span 8; }
+.span-4 { grid-column: span 4; }
+.span-3 { grid-column: span 3; }
+.span-12 { grid-column: span 12; }
+@media (max-width: 980px) {
+  .bento { grid-template-columns: repeat(6, 1fr); }
+  .span-6, .span-8, .span-4 { grid-column: span 6; }
+  .span-3 { grid-column: span 3; }
+}
+@media (max-width: 620px) {
+  .page { padding: 22px 16px 50px; }
+  .topbar { padding: 12px 16px; }
+  .search { display: none; }
+  .bento { grid-template-columns: 1fr; }
+  .span-6, .span-8, .span-4, .span-3, .span-12 { grid-column: span 1; }
+}
+
+/* Task card -------------------------------------------------- */
+.task-top { display: flex; align-items: flex-start; gap: 12px; }
+.task-icon {
+  width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; flex: none;
+}
+.task-icon svg { width: 22px; height: 22px; }
+.tone-blue .task-icon { background: var(--blue-soft); color: var(--blue); }
+.tone-red .task-icon { background: var(--red-soft); color: var(--red); }
+.task-title { flex: 1; min-width: 0; }
+.task-title h2 { font-size: 18px; font-weight: 700; letter-spacing: -.02em; }
+.task-title span { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.task-menu {
+  width: 32px; height: 32px; border-radius: 9px; border: 1px solid transparent;
+  background: none; color: var(--muted); display: grid; place-items: center;
+}
+.task-menu:hover { border-color: var(--line); color: var(--text); background: var(--surface-2); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: 600 10.5px var(--mono); letter-spacing: .02em;
+  padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--text-2);
+}
+.chip .pip { width: 6px; height: 6px; border-radius: 50%; }
+.chip.ok { color: var(--green); background: var(--green-soft); border-color: transparent; }
+.chip.ok .pip { background: var(--green); }
+.chip.warn { color: var(--amber); background: var(--amber-soft); border-color: transparent; }
+.chip.warn .pip { background: var(--amber); }
+.chip.draft { color: var(--muted); }
+.chip.tone { color: var(--blue); background: var(--blue-soft); border-color: transparent; }
+.task-stats { display: flex; gap: 18px; margin-top: auto; padding-top: 8px; flex-wrap: wrap; }
+.task-stat b { display: block; font-size: 16px; font-weight: 700; letter-spacing: -.02em; }
+.task-stat span { font-size: 10.5px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+.task-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.btn {
+  display: inline-flex; align-items: center; gap: 7px; padding: 9px 14px;
+  border-radius: 11px; font-size: 12.5px; font-weight: 650; border: 1px solid var(--line);
+  background: var(--surface); color: var(--text); transition: .15s;
+}
+.btn:hover { border-color: var(--line-2); background: var(--surface-2); }
+.btn.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+.btn.primary:hover { opacity: .88; background: var(--text); }
+.steps { display: flex; flex-direction: column; gap: 7px; margin-top: 4px; }
+.step { display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: var(--text-2); }
+.step .n {
+  width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; flex: none;
+  font: 700 10px var(--mono); background: var(--surface-2); border: 1px solid var(--line); color: var(--muted);
+}
+.step.done .n { background: var(--green-soft); color: var(--green); border-color: transparent; }
+
+/* New task tile (dashed) ------------------------------------ */
+.tile.new-tile {
+  border: 1.5px dashed var(--line-2); background: transparent; box-shadow: none;
+  align-items: center; justify-content: center; text-align: center; color: var(--muted);
+  cursor: pointer; gap: 8px;
+}
+.tile.new-tile:hover { border-color: var(--blue); color: var(--blue); background: color-mix(in srgb, var(--blue-soft) 55%, transparent); }
+.new-tile .plus {
+  width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center;
+  border: 1.5px dashed currentColor;
+}
+.new-tile b { color: var(--text-2); font-size: 13.5px; }
+.new-tile small { font-size: 11px; }
+
+/* Side tiles -------------------------------------------------- */
+.tile-label { font: 700 10px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.big-num { font-size: clamp(30px, 3.6vw, 40px); font-weight: 750; letter-spacing: -.04em; line-height: 1; }
+.big-num small { font-size: 14px; color: var(--muted); font-weight: 600; letter-spacing: 0; }
+.bar { height: 7px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 8px; border: 1px solid var(--line); }
+.bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--green), color-mix(in srgb, var(--green) 55%, var(--blue))); width: 0; transition: width 1s var(--ease, ease); }
+.legend { display: flex; gap: 14px; margin-top: 10px; font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+.legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+.event { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+.event:first-of-type { border-top: 0; }
+.event .pip { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.event b { display: block; font-weight: 650; }
+.event span { color: var(--muted); font-size: 11px; }
+.event time { margin-left: auto; font: 600 10.5px var(--mono); color: var(--muted); flex: none; }
+
+/* Modal ------------------------------------------------------- */
+.overlay {
+  position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--text) 32%, transparent); backdrop-filter: blur(6px); padding: 20px;
+}
+.overlay.open { display: flex; }
+.modal {
+  width: min(520px, 100%); border-radius: var(--radius); border: 1px solid var(--line);
+  background: var(--surface); box-shadow: var(--shadow-hover); padding: 24px;
+}
+.modal h2 { font-size: 19px; letter-spacing: -.02em; }
+.modal .desc { color: var(--muted); font-size: 13px; margin-top: 6px; }
+.modal .field { margin-top: 16px; }
+.modal label { display: block; font: 600 12px var(--font); margin-bottom: 6px; }
+.modal input, .modal select {
+  width: 100%; padding: 10px 12px; border-radius: 11px; border: 1px solid var(--line);
+  background: var(--surface-2); outline: none;
+}
+.modal input:focus, .modal select:focus { border-color: var(--blue); }
+.modal .modal-actions { display: flex; gap: 9px; margin-top: 22px; justify-content: flex-end; }
+.modal .close-x { position: absolute; top: 14px; right: 14px; }
+.modal { position: relative; }
+.warn-note {
+  display: flex; gap: 9px; margin-top: 14px; padding: 10px 12px; border-radius: 11px;
+  background: var(--amber-soft); color: var(--amber); font-size: 12px; font-weight: 600;
+}
+
+/* Toast ------------------------------------------------------- */
+.toast {
+  position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 90px);
+  z-index: 70; padding: 12px 18px; border-radius: 12px; font-size: 13px; font-weight: 600;
+  background: var(--text); color: var(--bg); box-shadow: var(--shadow-hover);
+  transition: transform .35s cubic-bezier(.2, .8, .2, 1); pointer-events: none;
+}
+.toast.show { transform: translate(-50%, 0); }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Saltar al contenido</a>
+
+<!-- Iconos SVG reutilizables -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <g id="i-cube"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></g>
+    <g id="i-clock"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></g>
+    <g id="i-shield"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9.5 12l2 2 3.5-3.5"/></g>
+    <g id="i-plus"><path d="M12 5v14M5 12h14"/></g>
+    <g id="i-play"><path d="M7 5l12 7-12 7z"/></g>
+    <g id="i-eye"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></g>
+    <g id="i-more"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></g>
+    <g id="i-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4l1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></g>
+    <g id="i-moon"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></g>
+    <g id="i-grid"><rect x="4" y="4" width="7" height="7" rx="1.6"/><rect x="13" y="4" width="7" height="7" rx="1.6"/><rect x="4" y="13" width="7" height="7" rx="1.6"/><rect x="13" y="13" width="7" height="7" rx="1.6"/></g>
+    <g id="i-history"><path d="M3.5 12a8.5 8.5 0 11-2.5 6"/><path d="M3 12H.8M3.5 12l-2 2" transform="translate(1.5 0)"/><path d="M12 8v4l3 2"/></g>
+    <g id="i-key"><circle cx="8" cy="15" r="4.5"/><path d="M11.5 12L20 3.5M16 7.5l3 3M13.5 10l2.5 2.5"/></g>
+    <g id="i-book"><path d="M4 5a3 3 0 013-3h13v18H7a3 3 0 00-3 3z"/><path d="M20 16H7a3 3 0 00-3 3"/></g>
+    <g id="i-list"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></g>
+    <g id="i-arrow"><path d="M5 12h13M13 6l6 6-6 6"/></g>
+    <g id="i-x"><path d="M6 6l12 12M18 6L6 18"/></g>
+    <g id="i-warn"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17.5v.01"/></g>
+  </defs>
+</svg>
+
+<div class="app">
+  <!-- Rail lateral -->
+  <nav class="rail" aria-label="Navegación principal">
+    <span class="logo" aria-hidden="true"><svg class="icon"><use href="#i-cube"/></svg></span>
+    <a class="rail-item" href="#main" aria-current="page" title="Tareas"><svg class="icon"><use href="#i-grid"/></svg></a>
+    <a class="rail-item" href="#" title="Ejecuciones"><svg class="icon"><use href="#i-play"/></svg></a>
+    <a class="rail-item" href="#" data-badge="3" title="Historial"><svg class="icon"><use href="#i-history"/></svg></a>
+    <a class="rail-item" href="#" title="Credenciales"><svg class="icon"><use href="#i-key"/></svg></a>
+    <span class="spacer"></span>
+    <a class="rail-item" href="#" title="Documentación"><svg class="icon"><use href="#i-book"/></svg></a>
+    <button class="rail-item" type="button" id="themeBtn" title="Cambiar tema" aria-label="Cambiar tema">
+      <svg class="icon"><use href="#i-moon" id="themeIconUse"/></svg>
+    </button>
+    <span class="avatar" title="lj acevedo">LA</span>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="crumb"><small>Ansible Control Center</small>Centro de tareas</div>
+      <label class="search">
+        <svg class="icon" style="width:15px;height:15px"><use href="#i-list"/></svg>
+        <input type="search" id="taskSearch" placeholder="Buscar tarea…" aria-label="Buscar tarea">
+        <kbd>/</kbd>
+      </label>
+      <div class="top-actions">
+        <button class="ghost-btn" type="button" title="Historial" aria-label="Historial"><svg class="icon"><use href="#i-history"/></svg></button>
+        <button class="ghost-btn" type="button" title="Credenciales" aria-label="Credenciales"><svg class="icon"><use href="#i-key"/></svg></button>
+      </div>
+    </header>
+
+    <main id="main" class="page">
+      <div class="page-head">
+        <div>
+          <h1>Tareas</h1>
+          <p>Cada tarjeta es una tarea de Ansible del sistema. Elige una para configurar sus parámetros, previsualizarla sobre los hosts o ejecutarla.</p>
+        </div>
+        <button class="new-btn" type="button" id="newTaskBtn">
+          <svg class="icon" style="width:15px;height:15px"><use href="#i-plus"/></svg> Nueva tarea
+        </button>
+      </div>
+
+      <div class="segmented" role="group" aria-label="Filtrar tareas">
+        <button type="button" data-filter="all" aria-pressed="true">Todas</button>
+        <button type="button" data-filter="system" aria-pressed="false">Sistema</button>
+        <button type="button" data-filter="security" aria-pressed="false">Seguridad</button>
+        <button type="button" data-filter="_draft" aria-pressed="false">Borradores</button>
+      </div>
+
+      <!-- Bento de tareas -->
+      <section class="bento" id="bento" aria-label="Catálogo de tareas">
+
+        <!-- Tarea: Hora -->
+        <article class="tile span-6 tone-blue" data-task="hora" data-category="system">
+          <div class="task-top">
+            <span class="task-icon"><svg class="icon"><use href="#i-clock"/></svg></span>
+            <div class="task-title">
+              <h2>Hora</h2>
+              <span>Sincronizar hora, zona horaria y NTP · instrucciones: cambiar_hora.yml</span>
+            </div>
+            <button class="task-menu" type="button" aria-label="Más opciones de Hora"><svg class="icon"><use href="#i-more"/></svg></button>
+          </div>
+          <div class="chips">
+            <span class="chip ok"><span class="pip"></span>Lista</span>
+            <span class="chip tone">Sistema</span>
+            <span class="chip">Europe/Madrid</span>
+            <span class="chip">NTP · restore</span>
+          </div>
+          <div class="task-actions">
+            <button class="btn primary" type="button" data-run="Hora"><svg class="icon" style="width:14px;height:14px"><use href="#i-play"/></svg> Ejecutar</button>
+            <button class="btn" type="button"><svg class="icon" style="width:14px;height:14px"><use href="#i-eye"/></svg> Vista previa</button>
+          </div>
+          <div class="task-stats">
+            <span class="task-stat"><b>254</b><span>hosts objetivo</span></span>
+            <span class="task-stat"><b>241</b><span>OK última pasada</span></span>
+            <span class="task-stat"><b>18&nbsp;m</b><span>duración media</span></span>
+            <span class="task-stat"><b>hace 18&nbsp;m</b><span>último lote #A7F3C9E2</span></span>
+          </div>
+        </article>
+
+        <!-- Tarea: Kaspersky -->
+        <article class="tile span-6 tone-red" data-task="kaspersky" data-category="security">
+          <div class="task-top">
+            <span class="task-icon"><svg class="icon"><use href="#i-shield"/></svg></span>
+            <div class="task-title">
+              <h2>Kaspersky</h2>
+              <span>Desinstalar KES 11.11 y instalar KES 12.1 · instrucciones: kaspersky.yml</span>
+            </div>
+            <button class="task-menu" type="button" aria-label="Más opciones de Kaspersky"><svg class="icon"><use href="#i-more"/></svg></button>
+          </div>
+          <div class="chips">
+            <span class="chip warn"><span class="pip"></span>Pendiente de revisión</span>
+            <span class="chip tone">Seguridad</span>
+            <span class="chip">2 pasos</span>
+          </div>
+          <div class="steps">
+            <div class="step done"><span class="n">✓</span> Desinstalar KES 11.11 (kes-11.11.sh)</div>
+            <div class="step"><span class="n">2</span> Instalar KES 12.1 + agente (kes-12.1.deb, ksba-12.1.deb)</div>
+          </div>
+          <div class="task-actions">
+            <button class="btn primary" type="button" data-run="Kaspersky" data-warn="1"><svg class="icon" style="width:14px;height:14px"><use href="#i-play"/></svg> Ejecutar</button>
+            <button class="btn" type="button"><svg class="icon" style="width:14px;height:14px"><use href="#i-eye"/></svg> Vista previa</button>
+          </div>
+          <div class="task-stats">
+            <span class="task-stat"><b>0</b><span>hosts ejecutados</span></span>
+            <span class="task-stat"><b>—</b><span>duración estimada 55 m</span></span>
+            <span class="task-stat"><b>nueva</b><span>sin lotes aún</span></span>
+          </div>
+        </article>
+
+        <!-- Tile nueva tarea -->
+        <button class="tile span-3 new-tile" type="button" id="newTileBtn">
+          <span class="plus"><svg class="icon"><use href="#i-plus"/></svg></span>
+          <b>Crear tarea nueva</b>
+          <small>Un playbook = una tarjeta</small>
+        </button>
+
+        <!-- Tile flota -->
+        <div class="tile span-3">
+          <span class="tile-label">Flota</span>
+          <span class="big-num">254 <small>hosts</small></span>
+          <div class="bar"><i id="fleetBar" data-width="95%"></i></div>
+          <div class="legend">
+            <span><i style="background:var(--green)"></i>241 online</span>
+            <span><i style="background:var(--red)"></i>13 con fallo SSH</span>
+          </div>
+        </div>
+
+        <!-- Tile actividad -->
+        <div class="tile span-8">
+          <span class="tile-label">Actividad reciente</span>
+          <div>
+            <div class="event"><span class="pip" style="background:var(--green)"></span><div><b>Hora — lote #A7F3C9E2 finalizado</b><span>254 hosts · 241 ok · 9 sin conexión · 4 credencial inválida</span></div><time>18 m</time></div>
+            <div class="event"><span class="pip" style="background:var(--amber)"></span><div><b>Kaspersky — plantilla creada</b><span>Desinstala 11.11 → instala 12.1 · falta validar versión objetivo</span></div><time>1 h</time></div>
+            <div class="event"><span class="pip" style="background:var(--green)"></span><div><b>Vault de credenciales regenerado</b><span>Rotación programada de claves de hosts</span></div><time>3 h</time></div>
+          </div>
+        </div>
+
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- Modal: ejecutar tarea -->
+<div class="overlay" id="runOverlay" role="dialog" aria-modal="true" aria-labelledby="runTitle">
+  <div class="modal">
+    <button class="task-menu close-x" type="button" data-close-run aria-label="Cerrar"><svg class="icon"><use href="#i-x"/></svg></button>
+    <h2 id="runTitle">Ejecutar tarea</h2>
+    <p class="desc">Configura el objetivo y las credenciales antes de lanzar el lote. La ejecución es best-effort: un fallo no detiene el resto de hosts.</p>
+    <div class="field">
+      <label for="fTarget">IP, CIDR o rango (deja vacío = todos los hosts)</label>
+      <input id="fTarget" type="text" placeholder="172.17.128.118-172.17.128.235" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="field">
+      <label for="fPassword">Contraseña maestra del vault</label>
+      <input id="fPassword" type="password" autocomplete="current-password" placeholder="••••••••••••">
+    </div>
+    <div class="warn-note" id="runWarn" hidden>
+      <svg class="icon" style="width:16px;height:16px"><use href="#i-warn"/></svg>
+      <span>Esta tarea desinstala software en los hosts. Revisa la vista previa antes de ejecutar.</span>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" type="button" data-close-run>Cancelar</button>
+      <button class="btn primary" type="button" id="confirmRun"><svg class="icon" style="width:14px;height:14px"><use href="#i-play"/></svg> Lanzar lote</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* Tema --------------------------------------------------- */
+  var root = document.documentElement;
+  var use = document.getElementById("themeIconUse");
+  function applyTheme(t) {
+    root.setAttribute("data-theme", t);
+    use.setAttribute("href", t === "dark" ? "#i-sun" : "#i-moon");
+  }
+  var saved = null;
+  try { saved = localStorage.getItem("acc12-theme"); } catch (e) {}
+  applyTheme(saved === "dark" ? "dark" : "light");
+  document.getElementById("themeBtn").addEventListener("click", function () {
+    var next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    applyTheme(next);
+    try { localStorage.setItem("acc12-theme", next); } catch (e) {}
+  });
+
+  /* Filtros ------------------------------------------------ */
+  var buttons = Array.prototype.slice.call(document.querySelectorAll(".segmented button"));
+  var tiles = Array.prototype.slice.call(document.querySelectorAll(".tile[data-category]"));
+  buttons.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var f = btn.getAttribute("data-filter");
+      buttons.forEach(function (b) { b.setAttribute("aria-pressed", b === btn ? "true" : "false"); });
+      tiles.forEach(function (tile) {
+        var cat = tile.getAttribute("data-category");
+        var show = f === "all" || (f === "_draft" ? false : cat === f);
+        tile.hidden = !show;
+      });
+    });
+  });
+
+  /* Búsqueda ----------------------------------------------- */
+  var search = document.getElementById("taskSearch");
+  search.addEventListener("input", function () {
+    var term = search.value.trim().toLowerCase();
+    tiles.forEach(function (tile) {
+      tile.hidden = term && !tile.getAttribute("data-task").includes(term.replace(/\s+/g, ""));
+    });
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "/" && !/input|textarea|select/i.test(document.activeElement.tagName)) {
+      e.preventDefault(); search.focus();
+    }
+    if (e.key === "Escape") closeRun();
+  });
+
+  /* Modal de ejecución ------------------------------------- */
+  var overlay = document.getElementById("runOverlay");
+  var runTitle = document.getElementById("runTitle");
+  var runWarn = document.getElementById("runWarn");
+  function openRun(task, warn) {
+    runTitle.textContent = "Ejecutar tarea — " + task;
+    runWarn.hidden = !warn;
+    overlay.classList.add("open");
+    document.getElementById("fPassword").focus();
+  }
+  function closeRun() { overlay.classList.remove("open"); }
+  document.querySelectorAll("[data-run]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      openRun(btn.getAttribute("data-run"), btn.hasAttribute("data-warn"));
+    });
+  });
+  overlay.addEventListener("click", function (e) { if (e.target === overlay) closeRun(); });
+  overlay.querySelectorAll("[data-close-run]").forEach(function (b) {
+    b.addEventListener("click", closeRun);
+  });
+
+  /* Toast --------------------------------------------------- */
+  var toast = document.getElementById("toast");
+  var toastTimer = null;
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toast.classList.remove("show"); }, 3200);
+  }
+  document.getElementById("confirmRun").addEventListener("click", function () {
+    closeRun();
+    showToast("Lote lanzado · consulta Ejecuciones para el progreso en vivo");
+  });
+
+  /* Placeholder "nueva tarea" ------------------------------- */
+  function newTask(e) {
+    e && e.preventDefault();
+    showToast("La creación de tareas llegará con el playbook kaspersky.yml integrado");
+  }
+  document.getElementById("newTileBtn").addEventListener("click", newTask);
+  document.getElementById("newTaskBtn").addEventListener("click", newTask);
+
+  /* Barras animadas ----------------------------------------- */
+  var bar = document.getElementById("fleetBar");
+  if (bar) setTimeout(function () { bar.style.width = bar.getAttribute("data-width"); }, 250);
+})();
+</script>
+</body>
+</html>

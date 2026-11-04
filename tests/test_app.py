@@ -68,9 +68,35 @@ def test_login_and_dashboard(client):
     response = _login(client)
     assert response.status_code == 302
 
-    dashboard = client.get("/")
-    assert dashboard.status_code == 200
-    assert b"Formulario de" in dashboard.data
+    catalog = client.get("/")
+    assert catalog.status_code == 200
+    assert "Catálogo de tareas".encode() in catalog.data
+    assert b"Formulario de" not in catalog.data
+    assert 'href="mailto:luis.rignack@etecsa.cu?subject=solicitud%20de%20nueva%20tarea%20Ansible"' in catalog.get_data(as_text=True)
+
+
+def test_task_detail_routes(client):
+    _login(client)
+
+    hora = client.get("/tarea/hora")
+    assert hora.status_code == 200
+    assert b"Formulario de" in hora.data
+    assert b'name="operation_id"' in hora.data
+    assert "Volver al catálogo".encode() in hora.data
+
+    planned = client.get("/tarea/kaspersky")
+    assert planned.status_code == 200
+    assert "En preparación".encode() in planned.data
+    assert b"Formulario de" not in planned.data
+    assert "Volver al catálogo".encode() in planned.data
+
+    unknown = client.get("/tarea/loquesea")
+    assert unknown.status_code == 302
+    assert unknown.headers["Location"].endswith("/")
+
+
+def test_task_detail_requires_login(client):
+    assert client.get("/tarea/hora").status_code == 302
 
 
 def test_invalid_credentials(client):

@@ -1,10 +1,10 @@
 # Propuestas de interfaz — Ansible Control Center
 
-Diez direcciones visuales para la consola de automatización **Ansible Control Center**.
+Doce direcciones visuales para la consola de automatización **Ansible Control Center**.
 Cada propuesta es un archivo HTML autocontenido: se abre con doble clic, funciona sin
 red y no carga CDN, fuentes ni imágenes externas.
 
-Abre [`index.html`](index.html) para ver la galería con vistas previas reales de las diez
+Abre [`index.html`](index.html) para ver la galería con vistas previas reales de las doce
 propuestas, filtros por tono/densidad y una tabla comparativa.
 
 | # | Propuesta | Tono | Densidad | Ideal para |
@@ -19,6 +19,13 @@ propuestas, filtros por tono/densidad y una tabla comparativa.
 | 08 | [Nordic Minimal](08-nordic-minimal.html) | Claro | Baja | Producto sereno y legible |
 | 09 | [SaaS Indigo](09-saas-indigo.html) | Mixto | Media | Presentación comercial + consola |
 | 10 | [Ops Data](10-ops-data.html) | Claro | Muy alta | Tablas, filtros y trabajo por teclado |
+| 11 | [Task Hub](11-task-hub.html) | Mixto | Media | **Centro de tareas en tarjetas**: Hora y Kaspersky como tarjetas operativas, preparado para tareas nuevas |
+| 12 | [Task Cards Bento](12-task-cards-bento.html) | Mixto | Media | **Bento grid de tareas**: tarjeta por tarea, hueco “Crear tarea nueva”, tiles de flota y actividad |
+
+Las propuestas **11 y 12** implementan el sistema de tarjetas de tareas pedido
+para el crecimiento multi-tarea (Hora, Kaspersky y futuras tareas de Ansible):
+cada tarea es una tarjeta con nombre, descripción del playbook, chips de
+estado, estadísticas de última ejecución y acciones (Ejecutar, Vista previa).
 
 ## Cómo verlas
 

@@ -750,7 +750,7 @@ def test_duplicate_submission_is_idempotent(client, monkeypatch):
         app_module, "apply_host", lambda host, **_kwargs: _ok(host)
     )
 
-    page = client.get("/")
+    page = client.get("/tarea/hora")
     match = re.search(
         rb'name="operation_id" value="([0-9a-f]+)"', page.data
     )
