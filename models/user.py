@@ -48,6 +48,7 @@ class User(UserMixin):
         role: str = "admin",
         failed_attempts: int = 0,
         locked_until: Optional[str] = None,
+        auth_source: str = "local",
     ):
         self.id = id
         self.username = username
@@ -57,12 +58,19 @@ class User(UserMixin):
         self.role = role if role in VALID_ROLES else "viewer"
         self.failed_attempts = int(failed_attempts or 0)
         self.locked_until = _parse_datetime(locked_until)
+        # Origen de la cuenta: ``local`` (creada aquí, con contraseña) o
+        # ``ldaps`` (creada al primer login corporativo exitoso, sin
+        # contraseña local; el rol lo asigna el admin en /usuarios).
+        self.auth_source = auth_source if auth_source in ("local", "ldaps") else "local"
 
     @property
     def is_active(self) -> bool:  # Flask-Login
         return self._is_active
 
     def check_password(self, password: str) -> bool:
+        # Las cuentas LDAPS no tienen contraseña local: nunca coinciden.
+        if not self.password_hash:
+            return False
         return check_password_hash(self.password_hash, password)
 
     # ------------------------------------------------------------------
@@ -150,30 +158,56 @@ class User(UserMixin):
         db_path: str = None,
         is_active: bool = True,
         role: str = "admin",
+        auth_source: str = "local",
     ) -> "User":
-        """Crea el usuario o actualiza su contraseña si ya existe."""
+        """Crea el usuario o actualiza su contraseña si ya existe.
+
+        Con ``auth_source='ldaps'`` la cuenta es una sombra corporativa: no
+        lleva contraseña local (``password_hash`` vacío) y su contraseña la
+        valida el servidor LDAPS en cada login.
+        """
         if db_path is None:
             db_path = _default_db_path()
         if role not in VALID_ROLES:
             raise ValueError(f"Rol no válido: {role}")
+        if auth_source not in ("local", "ldaps"):
+            raise ValueError(f"Origen de cuenta no válido: {auth_source}")
+        if auth_source == "ldaps" and password:
+            raise ValueError(
+                "Una cuenta LDAPS no guarda contraseñas locales; "
+                "pasa password='' ."
+            )
 
-        password_hash = generate_password_hash(password)
+        password_hash = (
+            generate_password_hash(password)
+            if auth_source == "local"
+            else ""
+        )
         created_at = _now_iso()
 
         with get_connection(db_path) as conn:
             conn.execute(
                 """
                 INSERT INTO users
-                    (username, password_hash, is_active, created_at, role)
-                VALUES (?, ?, ?, ?, ?)
+                    (username, password_hash, is_active, created_at, role,
+                     auth_source)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(username) DO UPDATE SET
                     password_hash = excluded.password_hash,
                     is_active = excluded.is_active,
                     role = excluded.role,
+                    auth_source = excluded.auth_source,
                     failed_attempts = 0,
                     locked_until = NULL
                 """,
-                (username, password_hash, 1 if is_active else 0, created_at, role),
+                (
+                    username,
+                    password_hash,
+                    1 if is_active else 0,
+                    created_at,
+                    role,
+                    auth_source,
+                ),
             )
 
         user = cls.get_by_username(username, db_path=db_path)
@@ -182,7 +216,7 @@ class User(UserMixin):
 
     _SELECT = (
         "SELECT id, username, password_hash, is_active, created_at, role, "
-        "failed_attempts, locked_until FROM users "
+        "failed_attempts, locked_until, auth_source FROM users "
     )
 
     @classmethod
@@ -216,6 +250,33 @@ class User(UserMixin):
 
         with get_connection(db_path) as conn:
             return int(conn.execute("SELECT COUNT(*) FROM users").fetchone()[0])
+
+    @classmethod
+    def all(cls, db_path: str = None) -> list["User"]:
+        """Todos los usuarios (administración de la página /usuarios)."""
+        if db_path is None:
+            db_path = _default_db_path()
+
+        with get_connection(db_path) as conn:
+            rows = conn.execute(
+                cls._SELECT + "ORDER BY username COLLATE NOCASE"
+            ).fetchall()
+
+        return [cls(*row) for row in rows]
+
+    @classmethod
+    def set_active(
+        cls, username: str, active: bool, db_path: str = None
+    ) -> bool:
+        """Activa o desactiva la cuenta por nombre."""
+        if db_path is None:
+            db_path = _default_db_path()
+        with get_connection(db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE users SET is_active = ? WHERE username = ?",
+                (1 if active else 0, username),
+            )
+            return bool(cursor.rowcount)
 
 
 class AuthEvent:

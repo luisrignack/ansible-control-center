@@ -5,6 +5,38 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Login corporativo LDAPS y gestión de usuarios] — 2026-11-04
+
+### Añadido
+
+- **Autenticación por LDAPS** (`ACC_LDAP_ENABLED=1`): el login local sigue
+  intacto; si la credencial no es local, la app se conecta al directorio
+  con el servicio de solo lectura (`rouser`), busca el `uid`
+  (`ou=etecsa.cu,ou=people,dc=etecsa,dc=cu`, `objectClass=person`) y valida
+  la contraseña con un bind simple del DN del usuario. Construido sobre
+  `ldap3` (pura Python, vendada en `vendor/wheels` para builds sin red);
+  TLS con CA local vía `ACC_LDAP_TLS_CA_FILE`.
+- **Cuentas sombra corporativas**: primer login LDAP crea la cuenta con
+  rol `viewer` y sin contraseña local (columna nueva `users.auth_source`,
+  migración v10). El admin local promueve el rol en **/usuarios** —
+  página nueva solo-admin que lista todas las cuentas (origen, estado, rol
+  y último acceso) y permite asignar rol (`viewer`/`operator`/`admin`) y
+  activar/desactivar cuentas (protege el propio admin y registra eventos en
+  la auditoría).
+- **Política de colisión**: un uid del directorio no puede tomar el nombre
+  de una cuenta local (p. ej. `admin`): la cuenta local tiene prioridad y
+  el login LDAP con ese nombre se rechaza sin tocar el directorio.
+- Eventos de auditoría: `ldap_first_login`, `ldap_unreachable`,
+  `login_disabled`, `login_rejected_local_account`, `role_updated`,
+  `account_state_changed`.
+
+### Pruebas
+
+- 25 pruebas nuevas en `tests/test_ldap.py` (cliente con conexión falsa,
+  sin red; flujos de primer login, colisión con cuenta local, contraseña
+  inválida, unreachable, permisos de /usuarios y cambios de rol).
+  Suite completa: 221 passed.
+
 ## [Tarjeta única "Zona horaria" (America/Caracas)] — 2026-11-04
 
 ### Cambiado

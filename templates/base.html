@@ -69,6 +69,13 @@
             </a>
             {% endif %}
             {% if current_user.has_role('admin') %}
+            <a class="nav-item {% if endpoint == 'usuarios' %}is-active{% endif %}"
+               href="{{ url_for('usuarios') }}"
+               {% if endpoint == 'usuarios' %}aria-current="page"{% endif %}>
+                <i class="bi bi-people icon" aria-hidden="true"></i> Usuarios
+            </a>
+            {% endif %}
+            {% if current_user.has_role('admin') %}
             <div class="nav-label">Seguridad</div>
             <a class="nav-item {% if endpoint == 'audit' %}is-active{% endif %}"
                href="{{ url_for('audit') }}"

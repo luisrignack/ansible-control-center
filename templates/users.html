@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block title %}Usuarios{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div>
+        <div class="eyebrow">Seguridad</div>
+        <h1>Usuarios</h1>
+        <p class="sub">
+            Cuentas locales y corporativas (LDAPS). Los usuarios corporativos
+            entran con rol básico en su primer acceso; el admin local decide
+            aquí quién puede operar (operator) o administrar (admin).
+        </p>
+    </div>
+    <div class="head-actions">
+        <span class="badge bg-secondary">{{ users | length }} cuenta(s)</span>
+        {% if ldap_supported %}
+        <span class="badge bg-success" title="El directorio corporativo está activo">LDAPS activo</span>
+        {% else %}
+        <span class="badge bg-warning text-dark" title="Solo se autentican cuentas locales">Solo local</span>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card fade-in">
+    <div class="card-header">
+        <h2 class="card-title"><i class="bi bi-people" aria-hidden="true"></i> Cuentas de la aplicación</h2>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive p-3">
+            <table class="table table-borderless mb-0 align-middle" id="usersTable">
+                <thead>
+                    <tr>
+                        <th scope="col">Usuario</th>
+                        <th scope="col">Origen</th>
+                        <th scope="col">Estado</th>
+                        <th scope="col">Rol</th>
+                        <th scope="col">Último acceso</th>
+                        <th scope="col">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                    <tr id="{{ user.username }}">
+                        <td>
+                            <code>{{ user.username }}</code>
+                            {% if user.username == current_user.username %}
+                            <span class="badge bg-secondary ms-1">tu cuenta</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if user.auth_source == 'ldaps' %}
+                            <span class="badge bg-info text-dark">LDAPS</span>
+                            {% else %}
+                            <span class="badge bg-secondary">local</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if user.is_active %}
+                            <span class="badge bg-success">activa</span>
+                            {% else %}
+                            <span class="badge bg-danger">desactivada</span>
+                            {% endif %}
+                            {% if user.is_locked %}<span class="badge bg-warning text-dark ms-1">bloqueada</span>{% endif %}
+                        </td>
+                        <td>
+                            {% if user.username == current_user.username %}
+                            <span class="text-secondary">{{ user.role }}</span>
+                            {% else %}
+                            <form method="post" action="{{ url_for('usuarios_rol') }}" class="d-flex gap-2 align-items-center">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="username" value="{{ user.username }}">
+                                <input type="hidden" name="next_username" value="{{ user.username }}">
+                                <select name="role" class="form-select form-select-sm w-auto" aria-label="Rol de {{ user.username }}">
+                                    {% for option in roles_in_ui %}
+                                    <option value="{{ option }}" {% if option == user.role %}selected{% endif %}>{{ option }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button type="submit" class="btn btn-sm btn-outline-primary">Asignar</button>
+                            </form>
+                            {% endif %}
+                        </td>
+                        <td><small>{{ (last_login.get(user.username) or "—")[:19].replace("T", " ") }}</small></td>
+                        <td>
+                            {% if user.username != current_user.username %}
+                            <form method="post" action="{{ url_for('usuarios_estado') }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="username" value="{{ user.username }}">
+                                <input type="hidden" name="active" value="{{ '0' if user.is_active else '1' }}">
+                                <button type="submit"
+                                        class="btn btn-sm {% if user.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %}">
+                                    {{ 'Desactivar' if user.is_active else 'Reactivar' }}
+                                </button>
+                            </form>
+                            {% else %}
+                            <small class="text-secondary">—</small>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card-footer text-secondary">
+        <small>
+            Las cuentas <strong>LDAPS</strong> no guardan contraseña en este
+            equipo: se validan en el directorio en cada login. «Desactivar»
+            solo bloquea el acceso a la aplicación.
+        </small>
+    </div>
+</div>
+{% endblock %}

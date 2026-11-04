@@ -134,7 +134,9 @@ from models.ops import (
 )
 from models.password import PasswordRecord
 from models.user import AuthEvent, User
+import config
 import services.ansible_runner as ansible_runner_module
+import services.ldap_auth as ldap_auth
 import services.password_tester as password_tester_module
 from services.ansible_runner import apply_host, inspect_host
 from services.csrf import csrf_protect, generate_csrf_token, rotate_csrf_token
@@ -1230,6 +1232,150 @@ def healthz():
     return response
 
 
+def _finish_session_login(user: "User", client_ip: str, event: str, detail: str):
+    """Completa el flujo común tras validar credenciales (local o LDAPS)."""
+    user.register_success(db_path=get_db_path())
+    AuthEvent.record(
+        user.username,
+        client_ip,
+        event,
+        detail,
+        db_path=get_db_path(),
+    )
+    LIMITER.reset(f"login:{client_ip}")
+    rotate_csrf_token()
+    session.permanent = True
+    login_user(user, remember=bool(request.form.get("remember")))
+    next_url = request.args.get("next") or request.form.get("next")
+    return redirect(next_url if _is_safe_redirect(next_url) else url_for("index"))
+
+
+def _register_login_failure(
+    user: Optional["User"], username: str, client_ip: str, detail: str = ""
+) -> None:
+    """Registra un intento fallido (bloqueo, evento y flash)."""
+    locked = False
+    if user is not None:
+        try:
+            locked = user.register_failure(
+                LOGIN_LOCKOUT_THRESHOLD,
+                LOGIN_LOCKOUT_MINUTES,
+                db_path=get_db_path(),
+            )
+        except Exception:  # pragma: no cover - no tumbar el login
+            logger.exception("No se pudo registrar el fallo de login")
+    AuthEvent.record(
+        username,
+        client_ip,
+        "account_locked" if locked else "login_failure",
+        ("Cuenta bloqueada por intentos fallidos" if locked else detail)
+        or "Credenciales incorrectas",
+        db_path=get_db_path(),
+    )
+    logger.warning("Intento de login fallido para usuario=%r", username)
+    if locked:
+        flash(
+            "Demasiados intentos fallidos: la cuenta quedó bloqueada "
+            f"durante {LOGIN_LOCKOUT_MINUTES} minutos.",
+            "danger",
+        )
+    else:
+        flash("Usuario o contraseña incorrectos.", "danger")
+
+
+def _try_ldap_login(
+    username: str, password: str, user: Optional["User"], client_ip: str
+) -> None:
+    """Intenta el login corporativo LDAPS para el usuario tipeado.
+
+    Solo se llama cuando la cuenta local no valida contraseñas (o no
+    existe) y LDAPS está habilitado. Devuelve la respuesta de la sesión
+    creada o ``None``.
+    """
+    # Una cuenta local preexistente con ese nombre nunca se autentica vía
+    # LDAP: evita que un uid del directorio tome un rol local (p. ej. admin).
+    if user is not None and user.auth_source == "local":
+        AuthEvent.record(
+            username,
+            client_ip,
+            "login_rejected_local_account",
+            "El nombre corresponde a una cuenta local; se negó el login LDAP",
+            db_path=get_db_path(),
+        )
+        flash(
+            "Ese nombre corresponde a una cuenta local del sistema: "
+            "registra tu contraseña local.",
+            "danger",
+        )
+        return
+
+    if user is not None and not user.is_active:
+        AuthEvent.record(
+            username,
+            client_ip,
+            "login_disabled",
+            "Cuenta LDAP desactivada por el admin",
+            db_path=get_db_path(),
+        )
+        flash(
+            "La cuenta está desactivada. Pide al administrador que la "
+            "active de nuevo.",
+            "danger",
+        )
+        return
+
+    try:
+        ldap_user = ldap_auth.authenticate(username, password)
+    except ldap_auth.LdapError as exc:
+        logger.error("LDAPS no disponible para %s: %s", username, exc)
+        AuthEvent.record(
+            username,
+            client_ip,
+            "ldap_unreachable",
+            str(exc),
+            db_path=get_db_path(),
+        )
+        flash(
+            "Servidor LDAP no disponible. Inténtalo más tarde o pregunta "
+            "al administrador.",
+            "danger",
+        )
+        return
+
+    if ldap_user is None:
+        _register_login_failure(
+            user, username, client_ip, "Credenciales LDAPS incorrectas"
+        )
+        return
+
+    first_login = False
+    if user is None:
+        # Cuenta sombra corporativa: sin contraseña local, rol base y el
+        # admin local decide el rol definitivo en /usuarios.
+        user = User.create_or_update(
+            username,
+            "",
+            db_path=get_db_path(),
+            role=config.LDAP_DEFAULT_ROLE,
+            auth_source="ldaps",
+        )
+        first_login = True
+        AuthEvent.record(
+            username,
+            client_ip,
+            "ldap_first_login",
+            f"Cuenta creada con rol '{user.role}' (LDAPS); pendiente de "
+            "promoción por el admin",
+            db_path=get_db_path(),
+        )
+    return _finish_session_login(
+        user,
+        client_ip,
+        "ldap_first_login" if first_login else "login_success",
+        f"Autenticación LDAPS ({user.role})",
+    )
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
@@ -1270,49 +1416,19 @@ def login():
                 "danger",
             )
         elif user is not None and user.is_active and user.check_password(password):
-            user.register_success(db_path=get_db_path())
-            AuthEvent.record(
-                username,
-                client_ip,
-                "login_success",
-                "Inicio de sesión correcto",
-                db_path=get_db_path(),
+            # Ruta local: el admin (y cualquier cuenta creada aquí) primero.
+            return _finish_session_login(
+                user, client_ip, "login_success", "Inicio de sesión correcto"
             )
-            LIMITER.reset(f"login:{client_ip}")
-            rotate_csrf_token()
-            session.permanent = True
-            login_user(user, remember=bool(request.form.get("remember")))
-            next_url = request.args.get("next") or request.form.get("next")
-            return redirect(next_url if _is_safe_redirect(next_url) else url_for("index"))
+        elif password and ldap_auth.ldap_enabled():
+            # Ruta corporativa: la credencial se valida en el directorio.
+            # Para nombres ya tomados por cuentas locales el helper no
+            # consulta el directorio y explica la política al usuario.
+            ldap_response = _try_ldap_login(username, password, user, client_ip)
+            if ldap_response is not None:
+                return ldap_response
         else:
-            locked = False
-            if user is not None:
-                try:
-                    locked = user.register_failure(
-                        LOGIN_LOCKOUT_THRESHOLD,
-                        LOGIN_LOCKOUT_MINUTES,
-                        db_path=get_db_path(),
-                    )
-                except Exception:  # pragma: no cover - no tumbar el login
-                    logger.exception("No se pudo registrar el fallo de login")
-            AuthEvent.record(
-                username,
-                client_ip,
-                "account_locked" if locked else "login_failure",
-                "Cuenta bloqueada por intentos fallidos"
-                if locked
-                else "Credenciales incorrectas",
-                db_path=get_db_path(),
-            )
-            logger.warning("Intento de login fallido para usuario=%r", username)
-            if locked:
-                flash(
-                    "Demasiados intentos fallidos: la cuenta quedó bloqueada "
-                    f"durante {LOGIN_LOCKOUT_MINUTES} minutos.",
-                    "danger",
-                )
-            else:
-                flash("Usuario o contraseña incorrectos.", "danger")
+            _register_login_failure(user, username, client_ip)
 
     no_admin = User.count(db_path=get_db_path()) == 0
     return render_template("auth/login.html", no_admin=no_admin)
@@ -3372,6 +3488,106 @@ def audit():
     return render_template(
         "audit.html", events=events, retention_days=AUTH_EVENT_RETENTION_DAYS
     )
+
+
+# ---------------------------------------------------------------------------
+# Administración de usuarios (roles y cuentas LDAPS)
+# ---------------------------------------------------------------------------
+@app.route("/usuarios")
+@roles_required("admin")
+def usuarios():
+    """Lista de todas las cuentas: local y LDAPS (solo el admin entra)."""
+    ldap_support = ldap_auth.ldap_enabled()
+    users = User.all(db_path=get_db_path())
+    last_events = AuthEvent.recent(limit=200, db_path=get_db_path())
+    last_login: Dict[str, str] = {}
+    for event in last_events:
+        event_kind = (event["event"] or "")
+        if event_kind in ("login_success", "ldap_first_login"):
+            last_login.setdefault(event["username"], event["timestamp"])
+    return render_template(
+        "users.html",
+        users=users,
+        roles_in_ui=("viewer", "operator", "admin"),
+        ldap_supported=ldap_support,
+        last_login=last_login,
+    )
+
+
+@app.route("/usuarios/rol", methods=["POST"])
+@roles_required("admin")
+def usuarios_rol():
+    """El admin local asigna (o retira) roles a cualquier cuenta."""
+    username = (request.form.get("username") or "").strip()
+    next_username = (request.form.get("next_username") or "").strip()
+    if not username:
+        flash("Nombre de usuario no indicado.", "danger")
+        return redirect(url_for("usuarios"))
+
+    if username == current_user.username:
+        flash("No puedes cambiar tu propio rol desde aquí.", "danger")
+        return redirect(url_for("usuarios"))
+
+    if not User.get_by_username(username, db_path=get_db_path()):
+        flash(f"El usuario '{username}' no existe.", "danger")
+        return redirect(url_for("usuarios"))
+
+    try:
+        User.set_role(username, request.form.get("role") or "", db_path=get_db_path())
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("usuarios"))
+
+    AuthEvent.record(
+        username,
+        _client_ip(),
+        "role_updated",
+        f"El admin '{current_user.username}' fijó rol "
+        f"'{request.form.get('role')}'",
+        db_path=get_db_path(),
+    )
+    flash(f"Rol de '{username}' actualizado.", "success")
+    return redirect(
+        url_for("usuarios")
+        + (f"#{next_username}" if next_username else "")
+    )
+
+
+@app.route("/usuarios/estado", methods=["POST"])
+@roles_required("admin")
+def usuarios_estado():
+    """Activa o desactiva una cuenta (bloquea el acceso, sin borrar datos)."""
+    username = (request.form.get("username") or "").strip()
+    is_active = (request.form.get("active") or "").strip().lower() in {
+        "1", "true", "si", "sí", "yes", "on"
+    }
+    if not username:
+        flash("Nombre de usuario no indicado.", "danger")
+        return redirect(url_for("usuarios"))
+
+    if username == current_user.username:
+        flash("No puedes desactivar tu propia cuenta.", "danger")
+        return redirect(url_for("usuarios"))
+
+    if not User.get_by_username(username, db_path=get_db_path()):
+        flash(f"El usuario '{username}' no existe.", "danger")
+        return redirect(url_for("usuarios"))
+
+    User.set_active(username, is_active, db_path=get_db_path())
+    AuthEvent.record(
+        username,
+        _client_ip(),
+        "account_state_changed",
+        f"El admin '{current_user.username}' "
+        + ("activó" if is_active else "desactivó")
+        + " la cuenta",
+        db_path=get_db_path(),
+    )
+    flash(
+        f"Cuenta de '{username}' " + ("activada." if is_active else "desactivada."),
+        "success",
+    )
+    return redirect(url_for("usuarios"))
 
 
 @app.route("/settings/dry-run", methods=["POST"])

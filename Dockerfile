@@ -29,8 +29,9 @@ RUN groupadd --gid 10001 acc \
 WORKDIR /app
 
 COPY requirements.txt ./
+COPY vendor/wheels/ /wheels/
 RUN python -m pip install --upgrade pip \
-    && python -m pip install -r requirements.txt
+    && python -m pip install -r requirements.txt --find-links /wheels
 
 COPY --chown=acc:acc . .
 

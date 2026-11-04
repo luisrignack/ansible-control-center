@@ -80,6 +80,14 @@ empaquetado Docker con Nginx y TLS.
 ### Seguridad
 
 - Login con Flask-Login y hash Werkzeug.
+- **Login corporativo opcional por LDAPS**: con `ACC_LDAP_ENABLED=1` la app
+  busca el `uid` en el directorio (bind de solo lectura) y valida la
+  contraseña con un bind simple al DN del usuario (modelo Nuxeo). La
+  contraseña no se guarda en la aplicación; en el primer login se crea una
+  cuenta con rol básico (`viewer`) que el **admin local promueve en
+  `/usuarios`**: asigna roles (`viewer`/`operator`/`admin`) y activa o
+  desactiva cuentas. El nombre de una cuenta local nunca puede ser
+  tomado por un uid del directorio: la cuenta local tiene prioridad.
 - CSRF en todos los métodos mutables, con caducidad configurable.
 - Rate limiting en login, ejecuciones y operaciones del vault.
 - Límites de CIDR/hosts antes de enumerar el rango.
@@ -308,6 +316,26 @@ una `ACC_SECRET_KEY` aleatoria.
 | `ACC_VAULT_RATE_WINDOW` | `60` | Ventana de vault (s) |
 | `ACC_ADMIN_PASSWORD_MIN_LENGTH` | `12` | Longitud mínima del admin |
 | `ACC_USERNAME` | `admin` | Usuario por defecto de `init-admin` |
+
+### LDAPS (autenticación corporativa)
+
+| Variable | Por defecto | Descripción |
+|---|---|---|
+| `ACC_LDAP_ENABLED` | `0` | Activar login por LDAPS |
+| `ACC_LDAP_URL` | `ldaps://lds.etecsa.cu:636` | URL del directorio (636/TLS) |
+| `ACC_LDAP_BIND_DN` | `uid=rouser,ou=Special Users,dc=etecsa,dc=cu` | Usuario de solo lectura para buscar |
+| `ACC_LDAP_BIND_PASSWORD` / `_FILE` | — | Contraseña del bind (usar `_FILE` como Docker secret) |
+| `ACC_LDAP_USER_BASE` | `ou=etecsa.cu,ou=people,dc=etecsa,dc=cu` | Base de búsqueda de usuarios |
+| `ACC_LDAP_USER_FILTER` | `(objectClass=person)` | Filtro de búsqueda |
+| `ACC_LDAP_USER_SCOPE` | `onelevel` | `onelevel` o `subtree` |
+| `ACC_LDAP_USERNAME_ATTR` | `uid` | Atributo del nombre de usuario |
+| `ACC_LDAP_SEARCH_SIZE_LIMIT` | `200` | Máximo de entradas |
+| `ACC_LDAP_SEARCH_TIMEOUT` | `10` | Límite de la búsqueda (s) |
+| `ACC_LDAP_CONNECT_TIMEOUT` | `5` | Timeout de conexión (s) |
+| `ACC_LDAP_RETRIES` | `2` | Reintentos ante fallo de red |
+| `ACC_LDAP_TLS_VERIFY` | `1` | Validar el certificado TLS |
+| `ACC_LDAP_TLS_CA_FILE` | CA del sistema | Archivo de la CA del directorio |
+| `ACC_LDAP_DEFAULT_ROLE` | `viewer` | Rol de la cuenta en el primer login |
 
 ### Logging
 

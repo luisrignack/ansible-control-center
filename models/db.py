@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 def _secure_sqlite_files(path: str) -> None:
@@ -417,6 +417,20 @@ def _migrate_v9(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v10(conn: sqlite3.Connection) -> None:
+    """Marcar el origen de cada cuenta: local o autenticada por LDAPS.
+
+    Las cuentas creadas por el primer login LDAPS no guardan contraseña
+    local (``password_hash`` vacío), solo el rol asignado por el admin.
+    """
+    _ensure_column(
+        conn,
+        "users",
+        "auth_source",
+        "auth_source TEXT NOT NULL DEFAULT 'local'",
+    )
+
+
 def init_schema(db_path: str) -> None:
     """Crea o migra el esquema de forma idempotente y no destructiva.
 
@@ -445,6 +459,7 @@ def init_schema(db_path: str) -> None:
         _migrate_v7(conn)
         _migrate_v8(conn)
         _migrate_v9(conn)
+        _migrate_v10(conn)
         # No se rebaja la versión de una base creada por una versión más nueva.
         if version < SCHEMA_VERSION:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
