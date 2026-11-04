@@ -146,11 +146,14 @@ def test_ansible_ping(
     password: str,
     timeout: int = None,
     cancel_event=None,
+    private_key: str = None,
 ) -> Dict[str, Any]:
     """Ejecuta ``ansible -m ping`` con la contraseña candidata.
 
     La contraseña se pasa en un fichero temporal 0600 mediante
     ``--extra-vars @fichero``, no como argumento de línea de comandos.
+    Con ``private_key``, la autenticación SSH usa la clave y la contraseña
+    queda solo para el become (sudo).
     """
     result: Dict[str, Any] = {"success": False, "host": host, "error": ""}
 
@@ -167,13 +170,16 @@ def test_ansible_ping(
             "dry_run": True,
         }
 
-    if not password:
-        result["error"] = "No se proporcionó contraseña."
+    if not password and not private_key:
+        result["error"] = "No se proporcionó contraseña ni clave SSH."
         return result
 
     try:
         with secure_temp_file(
-            json.dumps({"ansible_password": password}),
+            json.dumps({"ansible_password": password} | (
+                {"ansible_ssh_private_key_file": private_key}
+                if private_key else {}
+            )),
             prefix=".ansible-ping-",
             suffix=".json",
         ) as vars_file:

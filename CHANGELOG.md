@@ -5,6 +5,77 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Operación del bloque A] — 2026-11-04
+
+### Añadido
+
+- **Inventario persistente de grupos y hosts** (`GET/POST /inventario`, solo
+  lectura para operadores, escritura para admins): grupos con descripción,
+  hosts validados como IPv4 al añadirlos y clave SSH opcional por grupo. La
+  clave privada se guarda en `SECRETS_DIR/inventory_keys/` con `0600` y nunca
+  sale de ahí.
+- **Objetivo por grupo en la vista de tarea:** el formulario permite elegir
+  entre IP manual (como siempre) o un grupo del inventario. Los hosts se
+  leen del inventario **en el momento de ejecutar**, así que el grupo es
+  siempre el estado actual; el lote queda registrado con el nombre del grupo
+  como objetivo.
+- **Programaciones** (`GET/POST /programaciones`): una, diaria o semanal; el
+  horario se interpreta en UTC. Un hilo de fondo (`services/scheduler.py`)
+  revisa cada 15 s la tabla `schedules` y lanza los lotes por la misma cola
+  que la operación manual, con el operador registrado como
+  `agenda:<nombre>`. La contraseña maestra del vault se guarda **cifrada con
+  Fernet**, con la clave en `SECRETS_DIR/scheduler_password.key` (0600); sin
+  ella el disparo falla de forma segura. Un lote no lanza la tarea si su
+  tarea dejó de estar activa: la programación se desactiva con error
+  registrado.
+- **Notificación de lotes por correo (SMTP opcional):** `ACC_SMTP_HOST`,
+  `ACC_SMTP_PORT`, `ACC_SMTP_USER`, `ACC_SMTP_PASSWORD`, `ACC_SMTP_FROM`,
+  `ACC_SMTP_STARTTLS`, `ACC_NOTIFY_TO` y `ACC_NOTIFY_LEVEL`
+  (`off`/`failures`/`all`). Al cerrar cada lote se envía un resumen (con la
+  lista de hosts con problema) y un fallo de correo no afecta el resultado
+  persistido.
+- **Doble aprobación (two-person rule) para tareas destructivas:** tabla
+  `approvals` y página `GET/POST /aprobaciones` (solo admins). Una tarea
+  marcada como destructiva en el catálogo exige una solicitud aprobada por
+  un admin **distinto del ejecutor**; la aprobación caduca al cabo de
+  `ACC_APPROVAL_TTL_MINUTES` (30 por defecto) y es de un solo uso. Los
+  parámetros de la solicitud se guardan **sin secretos** (hash de
+  parámetros) y la ejecución solo procede si el hash coincide.
+- **Resultados por host con rol mínimo por tarea:** el catálogo incorpora
+  `min_role` y `destructive`; “Hora” queda `operator` no destructiva y las
+  tres tareas en preparación quedan `admin`/destructivas. Un `viewer`
+  (solo lectura) sigue bloqueado para lanzar Ansible.
+- **Re-ejecutar lote:** en la lista de lotes y en la tarjeta de un lote
+  terminado (no de vista previa) hay un botón **“Re-ejecutar esta
+  configuración”** que reabre el formulario de la tarea con los mismos
+  parámetros prellenados.
+- **Autenticación SSH por clave:** los playbooks y el ping Ansible aceptan
+  `private_key`; la clave viaja por `--extra-vars @fichero 0600` (nunca en la
+  línea de comandos) y con clave la contraseña queda solo para sudo.
+
+### Esquema
+
+- Migración v8 (`SCHEMA_VERSION = 8`): tablas `inventory_groups`,
+  `inventory_hosts`, `schedules` y `approvals`, todas idempotentes.
+
+### Interfaz
+
+- Navegación nueva: Inventario y Programaciones (visibles a operadores) y
+  Aprobaciones (solo admins).
+- Plantillas nuevas `inventory.html`, `schedules.html`, `approvals.html` con
+  el estilo del resto del sistema y tokens CSRF en todos los formularios.
+
+### Pruebas
+
+- 18 tests nuevos en `tests/test_ops.py`: CRUD de inventario y permisos,
+  ejecución e2e por grupo (con hosts leídos del inventario y error de grupo
+  vacío), disparo y recurrencia de programaciones, desactivación por tarea
+  fuera del catálogo, notificador (silencioso sin SMTP, envío de fallos y
+  nivel `all` para vistas previas), ciclo completo de doble aprobación
+  (pendiente → decidida → consumida → un solo uso),
+  re-ejecutar en lote terminado y ausencia en vista previa, y transmisión de
+  la clave SSH a `ansible-playbook` y a los hooks de lote.
+
 ## [Catálogo de tareas en tarjetas] — 2026-11-04
 
 ### Añadido

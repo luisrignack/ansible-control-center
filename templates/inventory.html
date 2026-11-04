@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block title %}Inventario{% endblock %}
+
+{% block breadcrumb %}Inventario{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div>
+        <div class="eyebrow">Operación</div>
+        <h1>Inventario de hosts</h1>
+        <p class="sub">Grupos persistentes de hosts que pueden usarse como objetivo de cualquier tarea, con clave SSH opcional por grupo.</p>
+    </div>
+</div>
+
+{% if current_user.has_role('admin') %}
+<div class="card fade-in mb-4">
+    <div class="card-header">
+        <h2 class="card-title"><i class="bi bi-plus-circle" aria-hidden="true"></i> Nuevo grupo</h2>
+    </div>
+    <div class="card-body p-4">
+        <form method="post" action="{{ url_for('inventario') }}" class="row g-3 align-items-end">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="create_group">
+            <div class="col-md-4">
+                <label for="groupName" class="form-label fw-medium">Nombre del grupo</label>
+                <input type="text" class="form-control" id="groupName" name="name"
+                    placeholder="ej. Oficina Central" maxlength="80" required>
+            </div>
+            <div class="col-md-6">
+                <label for="groupDescription" class="form-label fw-medium">Descripción</label>
+                <input type="text" class="form-control" id="groupDescription" name="description"
+                    placeholder="opcional" maxlength="300">
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-acento w-100">Crear grupo</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% if groups %}
+    {% for group in groups %}
+    <div class="card fade-in mb-4">
+        <div class="card-header">
+            <h2 class="card-title">
+                <i class="bi bi-hdd-rack" aria-hidden="true"></i> {{ group.name }}
+                <small class="text-secondary ms-2">{{ group.description }}</small>
+            </h2>
+            <span class="badge badge-accent">{{ group.hosts | length }} host(s)</span>
+        </div>
+        <div class="card-body p-4">
+            {% if group.ssh_key_path %}
+            <div class="banner banner-info mb-3" role="status">
+                <div class="banner-icon" aria-hidden="true"><i class="bi bi-key"></i></div>
+                <div>
+                    <div class="banner-title">Autenticación SSH por clave activa</div>
+                    <div class="banner-text"><code>{{ group.ssh_key_path }}</code>. Con la clave, la contraseña se usa solo para sudo (become).</div>
+                </div>
+            </div>
+            {% endif %}
+            <div class="table-responsive">
+                <table class="table table-borderless table-sm align-middle mb-3">
+                    <thead>
+                        <tr>
+                            <th scope="col">Host</th>
+                            <th scope="col">Etiqueta</th>
+                            <th scope="col">Añadido</th>
+                            {% if current_user.has_role('admin') %}<th scope="col"></th>{% endif %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for host in group.hosts %}
+                        <tr>
+                            <td><code>{{ host.address }}</code></td>
+                            <td><small>{{ host.label or '—' }}</small></td>
+                            <td><small>{{ host.created_at[:16] if host.created_at else '—' }}</small></td>
+                            {% if current_user.has_role('admin') %}
+                            <td class="text-end">
+                                <form method="post" action="{{ url_for('inventario') }}" class="d-inline">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <input type="hidden" name="action" value="delete_host">
+                                    <input type="hidden" name="host_id" value="{{ host.id }}">
+                                    <button type="submit" class="icon-btn" title="Quitar host del grupo"
+                                        aria-label="Quitar host {{ host.address }}">
+                                        <i class="bi bi-trash" aria-hidden="true"></i>
+                                    </button>
+                                </form>
+                            </td>
+                            {% endif %}
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="4" class="text-center py-3"><small class="text-secondary">El grupo está vacío.</small></td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            {% if current_user.has_role('admin') %}
+            <div class="row g-3">
+                <div class="col-12">
+                    <hr class="my-2">
+                </div>
+                <div class="col-12 col-md-7">
+                    <form method="post" action="{{ url_for('inventario') }}" class="row g-2 align-items-end">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="add_host">
+                        <input type="hidden" name="group_id" value="{{ group.id }}">
+                        <div class="col-5">
+                            <label class="form-label small mb-1" for="hostAddress{{ group.id }}">IPv4 a añadir</label>
+                            <input type="text" class="form-control" id="hostAddress{{ group.id }}" name="address"
+                                placeholder="172.17.128.120" required>
+                        </div>
+                        <div class="col-5">
+                            <label class="form-label small mb-1" for="hostLabel{{ group.id }}">Etiqueta</label>
+                            <input type="text" class="form-control" id="hostLabel{{ group.id }}" name="label"
+                                placeholder="opcional" maxlength="80">
+                        </div>
+                        <div class="col-2">
+                            <button type="submit" class="btn btn-secondary w-100">Añadir host</button>
+                        </div>
+                    </form>
+                </div>
+                <div class="col-12 col-md-5">
+                    <form method="post" action="{{ url_for('inventario') }}" enctype="multipart/form-data"
+                        class="row g-2 align-items-end">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="upload_key">
+                        <input type="hidden" name="group_id" value="{{ group.id }}">
+                        <div class="col-8">
+                            <label class="form-label small mb-1" for="sshKey{{ group.id }}">Clave privada SSH (.pem)</label>
+                            <input type="file" class="form-control form-control-sm" id="sshKey{{ group.id }}"
+                                name="ssh_key" accept=".pem,.key,.ppk,text/plain">
+                        </div>
+                        <div class="col-2 d-grid">
+                            <button type="submit" class="btn btn-secondary">Subir</button>
+                        </div>
+                        <div class="col-2 d-grid">
+                            <button type="submit" class="btn btn-outline-danger" formaction="{{ url_for('inventario') }}"
+                                onclick="return confirm('¿Eliminar el grupo {{ group.name }} y sus hosts?');"
+                                formnovalidate
+                                form="deleteGroup{{ group.id }}">Eliminar</button>
+                        </div>
+                    </form>
+                    <form id="deleteGroup{{ group.id }}" method="post" action="{{ url_for('inventario') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="delete_group">
+                        <input type="hidden" name="group_id" value="{{ group.id }}">
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+{% else %}
+<div class="card fade-in">
+    <div class="card-body text-center py-5">
+        <p class="text-secondary mb-0">Todavía no hay grupos de inventario.
+        {% if current_user.has_role('admin') %}Crea el primero con el formulario de arriba.{% else %}Un administrador puede crearlos.{% endif %}</p>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

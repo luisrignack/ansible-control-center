@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 def _secure_sqlite_files(path: str) -> None:
@@ -338,6 +338,75 @@ def _migrate_v7(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v8(conn: sqlite3.Connection) -> None:
+    """Inventario de grupos/hosts, programaciones y aprobaciones.
+
+    Todas con ``CREATE TABLE IF NOT EXISTS``: la migración es idempotente y
+    nunca transforma datos, así que puede ejecutarse siempre.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS inventory_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT NOT NULL DEFAULT '',
+            os_flavor TEXT NOT NULL DEFAULT 'linux',
+            connection TEXT NOT NULL DEFAULT 'ssh',
+            ssh_key_path TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS inventory_hosts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL
+                REFERENCES inventory_groups(id) ON DELETE CASCADE,
+            address TEXT NOT NULL,
+            label TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            UNIQUE (group_id, address)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_inventory_hosts_group
+            ON inventory_hosts (group_id);
+
+        CREATE TABLE IF NOT EXISTS schedules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            task_id TEXT NOT NULL DEFAULT 'hora',
+            run_at TEXT NOT NULL,
+            recurrence TEXT NOT NULL DEFAULT 'once',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            params TEXT NOT NULL DEFAULT '{}',
+            last_run TEXT,
+            last_batch TEXT,
+            last_error TEXT NOT NULL DEFAULT '',
+            created_by TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_schedules_due
+            ON schedules (enabled, run_at);
+
+        CREATE TABLE IF NOT EXISTS approvals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id TEXT NOT NULL,
+            params_hash TEXT NOT NULL,
+            params TEXT NOT NULL DEFAULT '{}',
+            requested_by TEXT NOT NULL,
+            requested_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            approver TEXT,
+            decided_at TEXT,
+            note TEXT NOT NULL DEFAULT '',
+            consumed_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_approvals_status
+            ON approvals (status, task_id);
+        """
+    )
+
+
 def init_schema(db_path: str) -> None:
     """Crea o migra el esquema de forma idempotente y no destructiva.
 
@@ -364,6 +433,7 @@ def init_schema(db_path: str) -> None:
         _migrate_v5(conn)
         _migrate_v6(conn)
         _migrate_v7(conn)
+        _migrate_v8(conn)
         # No se rebaja la versión de una base creada por una versión más nueva.
         if version < SCHEMA_VERSION:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

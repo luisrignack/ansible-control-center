@@ -252,6 +252,32 @@ TASK_REQUEST_SUBJECT = os.environ.get(
 )
 
 # ---------------------------------------------------------------------------
+# Notificaciones de lotes por correo (SMTP opcional)
+# ---------------------------------------------------------------------------
+# ACC_NOTIFY_LEVEL: "off" (por defecto, sin correos), "failures" (solo lotes
+# con fallos/errores/omisiones) o "all" (todos los lotes). Sin SMTP configurado
+# es un no-op silencioso: nunca tumba la ejecución de un lote.
+SMTP_HOST = os.environ.get("ACC_SMTP_HOST", "")
+SMTP_PORT = _env_int("ACC_SMTP_PORT", 25, minimum=1, maximum=65535)
+SMTP_USER = os.environ.get("ACC_SMTP_USER", "")
+SMTP_PASSWORD = os.environ.get("ACC_SMTP_PASSWORD", "")
+SMTP_FROM = os.environ.get("ACC_SMTP_FROM", "")
+SMTP_STARTTLS = _env_bool("ACC_SMTP_STARTTLS", SMTP_PORT == 587)
+NOTIFY_LEVEL = os.environ.get("ACC_NOTIFY_LEVEL", "off").strip().lower()
+NOTIFY_TO = [
+    addr.strip()
+    for addr in os.environ.get("ACC_NOTIFY_TO", "").split(",")
+    if addr.strip()
+]
+
+# ---------------------------------------------------------------------------
+# Doble aprobación (two-person rule) de tareas destructivas
+# ---------------------------------------------------------------------------
+# Una solicitud aprobada por un admin distinto del ejecutor habilita una
+# ejecución de tarea destructiva durante esta ventana, y es de un solo uso.
+APPROVAL_TTL_MINUTES = _env_int("ACC_APPROVAL_TTL_MINUTES", 30, minimum=1, maximum=1440)
+
+# ---------------------------------------------------------------------------
 # Parámetros de ejecución
 # ---------------------------------------------------------------------------
 # DRY RUN activado por defecto: al arrancar no se toca ningún equipo real.

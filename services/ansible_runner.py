@@ -118,6 +118,7 @@ def _invoke_playbook(
     timeout: Optional[int] = None,
     line_callback: Optional[Callable[[str], None]] = None,
     cancel_event: Optional[threading.Event] = None,
+    private_key: Optional[str] = None,
 ) -> subprocess.CompletedProcess:
     """Ejecuta ``ansible-playbook`` con las credenciales en un fichero 0600.
 
@@ -129,6 +130,10 @@ def _invoke_playbook(
     payload = dict(extra_vars)
     payload["ansible_password"] = password
     payload["ansible_become_password"] = password
+    if private_key:
+        # La clave se pasa por variables de conexión, no por línea de
+        # comandos, para que no aparezca en ``ps`` ni en el historial.
+        payload["ansible_ssh_private_key_file"] = private_key
 
     with secure_temp_file(
         json.dumps(payload), prefix=".ansible-vars-", suffix=".json"
@@ -327,6 +332,7 @@ def run_ansible_playbook(
     timeout: int = None,
     line_callback: Optional[Callable[[str], None]] = None,
     cancel_event: Optional[threading.Event] = None,
+    private_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Ejecuta el playbook de configuración de hora contra un host.
 
@@ -391,6 +397,7 @@ def run_ansible_playbook(
             timeout=timeout,
             line_callback=line_callback,
             cancel_event=cancel_event,
+            private_key=private_key,
         )
     except FileNotFoundError:
         return _result(
@@ -453,6 +460,7 @@ def inspect_host(
     line_callback: Optional[Callable[[str], None]] = None,
     force_real: bool = False,
     cancel_event: Optional[threading.Event] = None,
+    private_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Lee el estado de hora/zona horaria/NTP de un host sin cambiar nada.
 
@@ -500,6 +508,7 @@ def inspect_host(
             timeout=timeout,
             line_callback=line_callback,
             cancel_event=cancel_event,
+            private_key=private_key,
         )
     except FileNotFoundError:
         return _result(
@@ -551,6 +560,7 @@ def apply_host(
     value: str,
     password: Optional[str] = None,
     time_mode: str = "utc",
+    private_key: Optional[str] = None,
     ntp_policy: str = "keep",
     ntp_servers: Optional[List[str]] = None,
     sync_rtc: bool = False,
@@ -640,6 +650,7 @@ def apply_host(
             timeout=timeout,
             line_callback=line_callback,
             cancel_event=cancel_event,
+            private_key=private_key,
         )
     except FileNotFoundError:
         return _result(

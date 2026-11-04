@@ -169,6 +169,15 @@
             </a>
         </div>
         {% endif %}
+
+        {% if batch.status not in ['preview'] and not batch.target.startswith('Inventario:') %}
+        <div class="card-footer mt-4 pt-3">
+            <a class="btn btn-secondary"
+               href="{{ url_for('index', target_ip=batch.target, action=batch.action, value=batch.value, time_mode=batch.time_mode, time_zone=batch.time_zone or '', time_fold=batch.local_fold if batch.local_fold is not none else '', ntp_policy=batch.ntp_policy, ntp_servers=batch.ntp_servers|join(', '), sync_rtc='1' if batch.sync_rtc else '', force='1' if batch.force else '', admin_user=batch.admin_user, password_origin=batch.password_origin) }}">
+                <i class="bi bi-arrow-repeat" aria-hidden="true"></i> Re-ejecutar esta configuración
+            </a>
+        </div>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

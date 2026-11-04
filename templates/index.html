@@ -77,23 +77,51 @@
                 enctype="multipart/form-data">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="operation_id" value="{{ prefill.get('operation_id', '') }}">
+                <input type="hidden" name="task" value="{{ selected_task.id }}">
                 <div class="row g-3">
-                    <!-- Campo: IP o Rango -->
-                    <div class="col-md-6">
-                        <label for="targetIp" class="form-label fw-medium">
-                            <i class="bi bi-globe me-2"></i> IP, CIDR o rango
+                    <!-- Campo: Objetivo (manual o grupo del inventario) -->
+                    <div class="col-12">
+                        <label class="form-label fw-medium d-block">
+                            <i class="bi bi-bullseye me-2"></i> Objetivo
                         </label>
-                        <input type="text" class="form-control" id="targetIp" name="target_ip"
-                            value="{{ prefill.get('target_ip', '') }}"
-                            placeholder="172.17.128.118-172.17.128.235"
-                            inputmode="text" autocomplete="off" spellcheck="false"
-                            aria-describedby="targetHelp targetError" required>
-                        <div class="form-text" id="targetHelp">
-                            Rango inclusivo: <code>172.17.128.118-172.17.128.235</code>.
-                            También una IP (<code>192.168.1.10</code>) o un CIDR
-                            (<code>192.168.1.0/24</code>).
+                        <div class="d-flex flex-wrap gap-3 mb-2" role="radiogroup" aria-label="Modo de objetivo">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="target_mode"
+                                    id="targetModeManual" value="manual" checked>
+                                <label class="form-check-label" for="targetModeManual">IP, CIDR o rango manual</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="target_mode"
+                                    id="targetModeGroup" value="group">
+                                <label class="form-check-label" for="targetModeGroup">Grupo del inventario</label>
+                            </div>
                         </div>
-                        <div class="invalid-feedback" id="targetError"></div>
+                        <div id="targetManualField">
+                            <input type="text" class="form-control" id="targetIp" name="target_ip"
+                                value="{{ prefill.get('target_ip', '') }}"
+                                placeholder="172.17.128.118-172.17.128.235"
+                                inputmode="text" autocomplete="off" spellcheck="false"
+                                aria-describedby="targetHelp targetError" required>
+                            <div class="form-text" id="targetHelp">
+                                Rango inclusivo: <code>172.17.128.118-172.17.128.235</code>.
+                                También una IP (<code>192.168.1.10</code>) o un CIDR
+                                (<code>192.168.1.0/24</code>).
+                            </div>
+                            <div class="invalid-feedback" id="targetError"></div>
+                        </div>
+                        <div id="targetGroupField" class="d-none">
+                            <select class="form-select" id="targetGroup" name="target_group" aria-label="Grupo del inventario">
+                                <option value="">Selecciona un grupo…</option>
+                                {% for group in inventory_groups %}
+                                <option value="{{ group.id }}">{{ group.name }} · {{ group.host_count }} host(s)</option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">
+                                Los hosts del grupo se leerán al ejecutar: lo que veas en el
+                                <a href="{{ url_for('inventario') }}">inventario</a> en ese
+                                momento es exactamente lo que se procesará.
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Campo: Usuario administrador -->
@@ -534,12 +562,44 @@ if (targetInput) {
     });
 }
 
+const targetModeManual = document.getElementById('targetModeManual');
+const targetModeGroup = document.getElementById('targetModeGroup');
+const targetManualField = document.getElementById('targetManualField');
+const targetGroupField = document.getElementById('targetGroupField');
+const targetGroupSelect = document.getElementById('targetGroup');
+
+function currentTargetMode() {
+    if (targetModeGroup && targetModeGroup.checked) return 'group';
+    return 'manual';
+}
+
+function updateTargetModeFields() {
+    const mode = currentTargetMode();
+    targetManualField.classList.toggle('d-none', mode !== 'manual');
+    targetGroupField.classList.toggle('d-none', mode !== 'group');
+    if (targetInput) targetInput.required = mode === 'manual';
+    if (targetGroupSelect) targetGroupSelect.required = mode === 'group';
+    updateSummary();
+}
+
+if (targetModeManual && targetModeGroup) {
+    for (const radio of [targetModeManual, targetModeGroup]) {
+        radio.addEventListener('change', updateTargetModeFields);
+    }
+}
+
 function updateSummary() {
     const target = document.getElementById('targetIp');
     const targetValue = target ? target.value.trim() : '';
     const targetEl = document.getElementById('sumTarget');
     if (targetEl) {
-        targetEl.textContent = targetValue ? describeTarget(targetValue) : '—';
+        if (currentTargetMode() === 'group') {
+            const option = targetGroupSelect && targetGroupSelect.selectedIndex > 0
+                ? targetGroupSelect.options[targetGroupSelect.selectedIndex] : null;
+            targetEl.textContent = option ? 'Grupo: ' + option.textContent : '—';
+        } else {
+            targetEl.textContent = targetValue ? describeTarget(targetValue) : '—';
+        }
     }
 
     const action = document.getElementById('action');
@@ -663,6 +723,38 @@ document.body.appendChild(confirmModalElement);
 const confirmModal = new bootstrap.Modal(confirmModalElement);
 
 execForm.addEventListener('submit', (event) => {
+    if (currentTargetMode() === 'group') {
+        if (targetGroupSelect && !targetGroupSelect.value) {
+            event.preventDefault();
+            targetGroupSelect.classList.add('is-invalid');
+            targetGroupSelect.focus();
+            return;
+        }
+        targetGroupSelect.classList.remove('is-invalid');
+        if (confirmedSubmit) return;
+        if (!event.submitter || event.submitter.value !== 'execute') return;
+
+        event.preventDefault();
+        pendingSubmitter = event.submitter;
+        const option = targetGroupSelect.options[targetGroupSelect.selectedIndex];
+        document.getElementById('confirmHosts').textContent =
+            'todos los hosts del grupo ' + option.textContent;
+        document.getElementById('confirmTarget').textContent = 'inventario:' + targetGroupSelect.value;
+        document.getElementById('confirmAction').textContent =
+            document.getElementById('action').options[document.getElementById('action').selectedIndex].text;
+        const valueInput = document.getElementById('actionValue');
+        document.getElementById('confirmValue').textContent =
+            (valueInput && valueInput.value) || '—';
+        const ntp = document.getElementById('ntpPolicy');
+        document.getElementById('confirmNtp').textContent =
+            ntp.options[ntp.selectedIndex].text;
+        document.getElementById('confirmMode').textContent = dryRunEnabled
+            ? 'DRY RUN (simulación, sin cambios reales)'
+            : 'Ejecución real';
+        confirmModal.show();
+        return;
+    }
+
     const targetElement = document.getElementById('targetIp');
     const normalizedTarget = normalizeTarget(targetElement.value);
     if (normalizedTarget !== targetElement.value) {
@@ -725,6 +817,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updatePasswordFields(originSelect.value);
     updateNtpFields(ntpSelect.value);
     updateTimeModeField(actionSelect.value);
+    updateTargetModeFields();
 
     originSelect.addEventListener('change', (event) => {
         updatePasswordFields(event.target.value);

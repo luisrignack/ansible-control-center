@@ -48,6 +48,23 @@
                {% if endpoint == 'passwords' %}aria-current="page"{% endif %}>
                 <i class="bi bi-key icon" aria-hidden="true"></i> Credenciales
             </a>
+            <a class="nav-item {% if endpoint == 'inventario' %}is-active{% endif %}"
+               href="{{ url_for('inventario') }}"
+               {% if endpoint == 'inventario' %}aria-current="page"{% endif %}>
+                <i class="bi bi-hdd-rack icon" aria-hidden="true"></i> Inventario
+            </a>
+            <a class="nav-item {% if endpoint == 'programaciones' %}is-active{% endif %}"
+               href="{{ url_for('programaciones') }}"
+               {% if endpoint == 'programaciones' %}aria-current="page"{% endif %}>
+                <i class="bi bi-calendar2-week icon" aria-hidden="true"></i> Programaciones
+            </a>
+            {% if current_user.has_role('admin') %}
+            <a class="nav-item {% if endpoint == 'aprobaciones' %}is-active{% endif %}"
+               href="{{ url_for('aprobaciones') }}"
+               {% if endpoint == 'aprobaciones' %}aria-current="page"{% endif %}>
+                <i class="bi bi-clipboard2-check icon" aria-hidden="true"></i> Aprobaciones
+            </a>
+            {% endif %}
             {% if current_user.has_role('admin') %}
             <div class="nav-label">Seguridad</div>
             <a class="nav-item {% if endpoint == 'audit' %}is-active{% endif %}"

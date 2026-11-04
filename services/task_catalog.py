@@ -32,6 +32,8 @@ TASK_CATALOG: List[Dict[str, Any]] = [
         ),
         "playbook": "cambiar_hora.yml",
         "status": STATUS_ACTIVE,
+        "min_role": "operator",
+        "destructive": False,
         "chips": ["Operativa", "Acción TZ / TIME", "254 hosts"],
         "steps": [],
     },
@@ -46,6 +48,8 @@ TASK_CATALOG: List[Dict[str, Any]] = [
         ),
         "playbook": "kaspersky.yml",
         "status": STATUS_PLANNED,
+        "min_role": "admin",
+        "destructive": True,
         "chips": ["En preparación", "2 pasos", "Seguridad"],
         "steps": [
             "Desinstalar la versión en vigor de KES en cada host.",
@@ -64,6 +68,8 @@ TASK_CATALOG: List[Dict[str, Any]] = [
         ),
         "playbook": "contrasena.yml",
         "status": STATUS_PLANNED,
+        "min_role": "admin",
+        "destructive": True,
         "chips": ["En preparación", "Credenciales", "Rotación"],
         "steps": [
             "Validar la contraseña candidata contra un host de muestra.",
@@ -82,6 +88,8 @@ TASK_CATALOG: List[Dict[str, Any]] = [
         ),
         "playbook": "tapiz.yml",
         "status": STATUS_PLANNED,
+        "min_role": "operator",
+        "destructive": False,
         "chips": ["En preparación", "Escritorio", "Plantilla"],
         "steps": [
             "Copiar la imagen del tapiz a cada host y fijar permisos.",

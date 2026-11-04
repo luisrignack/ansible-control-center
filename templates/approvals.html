@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Aprobaciones{% endblock %}
+
+{% block breadcrumb %}Aprobaciones{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div>
+        <div class="eyebrow">Seguridad</div>
+        <h1>Doble aprobación</h1>
+        <p class="sub">Regla de dos personas para tareas destructivas: un administrador distinto del ejecutor debe autorizar cada lanzamiento. Las aprobaciones caducan al cabo del TTL configurado y son de un solo uso.</p>
+    </div>
+</div>
+
+<div class="card fade-in mb-4">
+    <div class="card-header">
+        <h2 class="card-title"><i class="bi bi-hourglass-split" aria-hidden="true"></i> Pendientes</h2>
+        <span class="badge badge-accent">{{ pending | length }}</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive p-3">
+            <table class="table table-borderless mb-0 table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th scope="col">#</th>
+                        <th scope="col">Tarea</th>
+                        <th scope="col">Solicitante</th>
+                        <th scope="col">Operación</th>
+                        <th scope="col">Fecha</th>
+                        <th scope="col">Decisión</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for req in pending %}
+                    <tr>
+                        <td><code>{{ req.id }}</code></td>
+                        <td><strong>{{ req.task_id }}</strong></td>
+                        <td><small>{{ req.requested_by }}</small></td>
+                        <td><small><code>{{ req.detail or '—' }}</code></small></td>
+                        <td><small>{{ req.requested_at[:16] }} UTC</small></td>
+                        <td>
+                            <form method="post" action="{{ url_for('aprobaciones') }}" class="d-flex gap-2 align-items-center">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="request_id" value="{{ req.id }}">
+                                <input type="text" class="form-control form-control-sm" name="note"
+                                    placeholder="nota (opcional)" maxlength="300" size="14">
+                                <button type="submit" name="action" value="approve"
+                                    class="btn btn-sm btn-success"
+                                    title="No puedes aprobar tu propia solicitud">
+                                    <i class="bi bi-check2-circle" aria-hidden="true"></i> Aprobar
+                                </button>
+                                <button type="submit" name="action" value="reject"
+                                    class="btn btn-sm btn-outline-danger">
+                                    <i class="bi bi-x-circle" aria-hidden="true"></i> Rechazar
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4">
+                            <small class="text-secondary">No hay solicitudes pendientes.</small>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card fade-in">
+    <div class="card-header">
+        <h2 class="card-title"><i class="bi bi-journal-check" aria-hidden="true"></i> Decididas</h2>
+        <span class="badge bg-secondary">{{ decided | length }}</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive p-3">
+            <table class="table table-borderless mb-0 table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th scope="col">#</th>
+                        <th scope="col">Tarea</th>
+                        <th scope="col">Solicitante</th>
+                        <th scope="col">Estado</th>
+                        <th scope="col">Aprobador</th>
+                        <th scope="col">Decidida</th>
+                        <th scope="col">Nota</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for req in decided %}
+                    <tr>
+                        <td><code>{{ req.id }}</code></td>
+                        <td><strong>{{ req.task_id }}</strong></td>
+                        <td><small>{{ req.requested_by }}</small></td>
+                        <td>
+                            <span class="badge {% if req.status == 'approved' %}bg-success{% elif req.status == 'rejected' %}bg-danger{% else %}bg-secondary{% endif %}">
+                                {{ req.status }}
+                            </span>
+                        </td>
+                        <td><small>{{ req.approver or '—' }}</small></td>
+                        <td><small>{{ (req.decided_at or '—')[:16] }}</small></td>
+                        <td><small>{{ req.note or '—' }}</small></td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center py-4">
+                            <small class="text-secondary">Sin historial de decisiones todavía.</small>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

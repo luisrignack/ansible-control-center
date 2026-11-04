@@ -53,6 +53,7 @@ from config import (
     ADMIN_PASSWORD_MIN_LENGTH,
     ADMIN_USERNAME,
     ALLOWED_PASSWORD_EXTENSIONS,
+    APPROVAL_TTL_MINUTES,
     AUTH_EVENT_RETENTION_DAYS,
     BATCH_TIME_BUDGET_SECONDS,
     COMMON_TIMEZONES,
@@ -99,6 +100,7 @@ from config import (
     SESSION_COOKIE_HTTPONLY,
     SESSION_COOKIE_SAMESITE,
     SESSION_COOKIE_SECURE,
+    SECRETS_DIR,
     TASK_REQUEST_EMAIL,
     TASK_REQUEST_SUBJECT,
     TIME_REQUIRE_NTP_OFF,
@@ -120,6 +122,15 @@ from models.batch import (
 )
 from models.db import get_connection, get_setting, init_schema, set_setting
 from models.execution import ExecutionRecord
+from models.ops import (
+    ApprovalRequest,
+    APPROVAL_PENDING,
+    HostGroup,
+    InventoryHost,
+    Schedule,
+    SCHEDULE_RECURRENCES,
+    params_hash,
+)
 from models.password import PasswordRecord
 from models.user import AuthEvent, User
 import services.ansible_runner as ansible_runner_module
@@ -130,9 +141,12 @@ from services.host_resolver import pin_target, resolve_target
 from services.job_queue import JobQueue, JobQueueFull
 from services.password_tester import test_ansible_ping
 from services.rate_limiter import LIMITER
+import services.notifier as notifier
+import services.scheduler as scheduler
 from services.secure_temp import secure_temp_file
 from services.task_catalog import (
     TASK_CATALOG,
+    STATUS_ACTIVE,
     get_task,
 )
 from services.time_utils import (
@@ -448,6 +462,14 @@ def _parse_operation_form(
     y la ejecución comparten exactamente la misma validación para que lo que se
     previsualiza sea lo que después se ejecuta.
     """
+    target_mode = (
+        request.form.get("target_mode", "manual").strip().lower() or "manual"
+    )
+    target_group_raw = request.form.get("target_group", "").strip()
+    # Tarea del catálogo: determina permisos y si es destructiva. Para no
+    # romper envíos anteriores (que no enviaban el campo oculto), si falta se
+    # asume la tarea operativa por defecto del catálogo.
+    task_id = request.form.get("task", "").strip()
     target = request.form.get("target_ip", "").strip()
     admin_user = request.form.get("admin_user", "").strip()
     origin = request.form.get("password_origin", "stored").strip()
@@ -467,15 +489,67 @@ def _parse_operation_form(
 
     errors: List[str] = []
 
+    # Tarea del catálogo: determina permisos y si es destructiva.
+    # Tarea del catálogo: determina permisos y si es destructiva. Para no
+    # romper envíos anteriores (que no enviaban el campo oculto), si falta se
+    # asume la tarea operativa por defecto del catálogo.
+    if not task_id:
+        for candidate in TASK_CATALOG:
+            if candidate.get("status") == "active" and not candidate.get(
+                "destructive"
+            ):
+                task_id = candidate["id"]
+                break
+    task = get_task(task_id) if task_id else None
+    if task is None or task.get("status") != "active":
+        errors.append("Selecciona una tarea activa del catálogo.")
+    elif task.get("action") and action not in {"TZ", "TIME"}:
+        errors.append("Acción no válida.")
+
     if mode not in {"preview", "execute"}:
         errors.append("Modo de operación no válido.")
-    target_error = None
-    pinned_target, target_error = pin_target(target)
-    if target_error:
-        errors.append(target_error)
+
+    # Objetivo: manual (IP literal) o grupo del inventario persistente.
+    target_group_id: Optional[int] = None
+    group_name = ""
+    if target_mode not in {"manual", "group"}:
+        errors.append("Modo de objetivo no válido.")
+        target_mode = "manual"
+    if target_mode == "group":
+        try:
+            target_group_id = int(target_group_raw)
+        except ValueError:
+            target_group_id = None
+        group = (
+            HostGroup.get(target_group_id, db_path=get_db_path())
+            if target_group_id is not None
+            else None
+        )
+        if group is None:
+            errors.append("Selecciona un grupo del inventario válido.")
+            target_group_id = None
+        else:
+            group_name = group.name
+            if not group.host_count:
+                errors.append(
+                    f"El grupo '{group.name}' no tiene hosts; añádelos en el inventario."
+                )
+            elif group.host_count > MAX_HOSTS:
+                errors.append(
+                    f"El grupo '{group.name}' tiene {group.host_count} hosts "
+                    f"y el máximo es {MAX_HOSTS}."
+                )
+        # El objetivo real se resuelve en caliente al ejecutar (los hosts del
+        # grupo pueden cambiar entre el envío y el disparo del lote).
+        target = f"inventory:{target_group_id}" if target_group_id is not None else ""
     else:
-        # Guardar la IP literal evita que Ansible vuelva a resolver DNS.
-        target = pinned_target
+        target_error = None
+        pinned_target, target_error = pin_target(target)
+        if target_error:
+            errors.append(target_error)
+        else:
+            # Guardar la IP literal evita que Ansible vuelva a resolver DNS.
+            target = pinned_target
     if not admin_user:
         errors.append("El usuario administrador es obligatorio.")
     if action not in {"TZ", "TIME"}:
@@ -614,6 +688,11 @@ def _parse_operation_form(
     return (
         {
             "target": target,
+            "target_mode": target_mode,
+            "target_group_id": target_group_id,
+            "group_name": group_name,
+            "task_id": task_id,
+            "task_name": task.get("name", task_id) if task else task_id,
             "admin_user": admin_user,
             "origin": origin,
             "master_password": master_password,
@@ -1274,6 +1353,10 @@ def task_view(task_id):
         )
     }
     prefill["operation_id"] = uuid.uuid4().hex
+    # Si la tarea corresponde a una acción específica, solo se ofrecen las
+    # tareas activas. Los grupos del inventario alimentan el selector de
+    # objetivo por grupo.
+    inventory_groups = [g.to_dict() for g in HostGroup.all(db_path=get_db_path())]
     return render_template(
         "index.html",
         common_timezones=COMMON_TIMEZONES,
@@ -1282,6 +1365,7 @@ def task_view(task_id):
         default_admin_user=ADMIN_USERNAME,
         prefill=prefill,
         selected_task=task,
+        inventory_groups=inventory_groups,
     )
 
 
@@ -1297,6 +1381,475 @@ def preview_execution():
 def execute_execution():
     """Alias explícito para lanzar una ejecución sobre todos los hosts."""
     return handle_execution(default_mode="execute")
+
+
+# ---------------------------------------------------------------------------
+# Inventario, programaciones y aprobaciones
+# ---------------------------------------------------------------------------
+INVENTORY_KEYS_DIR = SECRETS_DIR / "inventory_keys"
+
+
+def _inventario_group_and_hosts():
+    groups = [g.to_dict() for g in HostGroup.all(db_path=get_db_path())]
+    for group in groups:
+        group["hosts"] = [
+            h.to_dict() for h in HostGroup.hosts_of(group["id"], db_path=get_db_path())
+        ]
+    return groups
+
+
+@app.route("/inventario", methods=["GET", "POST"])
+@login_required
+def inventario():
+    if request.method == "POST":
+        if not current_user.has_role("admin"):
+            abort(403)
+        action = request.form.get("action", "").strip()
+        db_path = get_db_path()
+        if action == "create_group":
+            try:
+                HostGroup.create(
+                    request.form.get("name", ""),
+                    description=request.form.get("description", ""),
+                    os_flavor="linux",
+                    connection="ssh",
+                    db_path=db_path,
+                )
+                flash("Grupo creado.", "success")
+            except ValueError as exc:
+                flash(str(exc), "danger")
+        elif action == "delete_group":
+            group = HostGroup.get(
+                request.form.get("group_id", "0"), db_path=db_path
+            ) if request.form.get("group_id", "").isdigit() else None
+            if group is None:
+                flash("El grupo no existe.", "warning")
+            else:
+                group.delete(db_path=db_path)
+                flash(f"Grupo '{group.name}' eliminado.", "success")
+        elif action == "add_host":
+            group = HostGroup.get(
+                request.form.get("group_id", "0"), db_path=db_path
+            ) if request.form.get("group_id", "").isdigit() else None
+            if group is None:
+                flash("El grupo no existe.", "warning")
+            else:
+                host, host_error = InventoryHost.add(
+                    group.id,
+                    request.form.get("address", ""),
+                    label=request.form.get("label", ""),
+                    db_path=db_path,
+                )
+                if host_error:
+                    flash(host_error, "danger")
+                else:
+                    flash("Host añadido al grupo.", "success")
+        elif action == "delete_host":
+            host_id = request.form.get("host_id", "").strip()
+            if not host_id.isdigit():
+                flash("Host no válido.", "warning")
+            else:
+                with get_connection(db_path) as conn:
+                    row = conn.execute(
+                        "SELECT * FROM inventory_hosts WHERE id = ?",
+                        (int(host_id),),
+                    ).fetchone()
+                if row is None:
+                    flash("El host no existe.", "warning")
+                else:
+                    InventoryHost.from_row(row).delete(db_path=db_path)
+                    flash("Host eliminado del grupo.", "success")
+        elif action == "upload_key":
+            gid = request.form.get("group_id", "").strip()
+            group = HostGroup.get(gid, db_path=db_path) if gid.isdigit() else None
+            uploaded = request.files.get("ssh_key")
+            if group is None:
+                flash("El grupo no existe.", "warning")
+            elif uploaded is None or not uploaded.filename:
+                flash("Selecciona el fichero de clave privada (.pem).", "warning")
+            else:
+                raw = uploaded.read(MAX_CONTENT_LENGTH + 1)
+                if len(raw) > MAX_CONTENT_LENGTH:
+                    flash("La clave es demasiado grande.", "danger")
+                elif b"OPENSSH PRIVATE KEY" not in raw and b"PRIVATE KEY" not in raw:
+                    flash(
+                        "El fichero no parece una clave privada OpenSSH/PEM.",
+                        "danger",
+                    )
+                else:
+                    try:
+                        INVENTORY_KEYS_DIR.mkdir(parents=True, exist_ok=True)
+                        os.chmod(INVENTORY_KEYS_DIR, 0o700)
+                    except OSError:  # pragma: no cover - permisos locales
+                        INVENTORY_KEYS_DIR.mkdir(parents=True, exist_ok=True)
+                    slug = "".join(
+                        ch if ch.isalnum() or ch in "-_" else "_"
+                        for ch in group.name.lower()
+                    )[:40] or f"group-{group.id}"
+                    key_path = INVENTORY_KEYS_DIR / f"{slug}.pem"
+                    fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                    with os.fdopen(fd, "wb") as key_file:
+                        key_file.write(raw)
+                    HostGroup.set_ssh_key(
+                        group.id, str(key_path), db_path=db_path
+                    )
+                    flash(
+                        "Clave SSH guardada y asociada al grupo (0600).",
+                        "success",
+                    )
+        else:
+            flash("Acción de inventario no válida.", "warning")
+        return redirect(url_for("inventario"))
+
+    return render_template(
+        "inventory.html",
+        groups=_inventario_group_and_hosts(),
+    )
+
+
+@app.route("/programaciones", methods=["GET", "POST"])
+@login_required
+def programaciones():
+    db_path = get_db_path()
+    tasks = {
+        task["id"]: task
+        for task in TASK_CATALOG
+        if task.get("status") == "active"
+    }
+    if request.method == "POST":
+        if not current_user.has_role("admin"):
+            abort(403)
+        action = request.form.get("action", "").strip()
+        if action == "toggle":
+            schedule = Schedule.get(
+                request.form.get("schedule_id", "0"), db_path=db_path
+            ) if request.form.get("schedule_id", "").isdigit() else None
+            if schedule is None:
+                flash("La programación no existe.", "warning")
+            else:
+                Schedule.set_enabled(
+                    schedule.id, not schedule.enabled, db_path=db_path
+                )
+                flash(
+                    f"Programación '{schedule.name}' "
+                    f"{'activada' if not schedule.enabled else 'desactivada'}.",
+                    "success",
+                )
+        elif action == "delete":
+            schedule = Schedule.get(
+                request.form.get("schedule_id", "0"), db_path=db_path
+            ) if request.form.get("schedule_id", "").isdigit() else None
+            if schedule is None:
+                flash("La programación no existe.", "warning")
+            else:
+                Schedule.delete(schedule.id, db_path=db_path)
+                flash(f"Programación '{schedule.name}' eliminada.", "success")
+        elif action == "create":
+            name = request.form.get("name", "").strip()
+            task_id = request.form.get("task_id", "").strip()
+            run_at_raw = request.form.get("run_at", "").strip()
+            recurrence = request.form.get("recurrence", "once").strip().lower()
+            if task_id not in tasks:
+                flash("Selecciona una tarea activa del catálogo.", "danger")
+                return redirect(url_for("programaciones"))
+            try:
+                run_at = datetime.strptime(run_at_raw, "%Y-%m-%dT%H:%M").replace(
+                    tzinfo=timezone.utc
+                )
+            except ValueError:
+                flash(
+                    "Fecha/hora inválida; usa el selector o el formato "
+                    "AAAA-MM-DDTHH:MM (hora UTC).",
+                    "danger",
+                )
+                return redirect(url_for("programaciones"))
+            master_password = request.form.get("master_password", "")
+            if not master_password:
+                flash(
+                    "La contraseña maestra del vault es obligatoria para "
+                    "operar desatendidamente.",
+                    "danger",
+                )
+                return redirect(url_for("programaciones"))
+            target_mode = (
+                request.form.get("target_mode", "manual").strip().lower()
+                or "manual"
+            )
+            target_group_id = None
+            if target_mode == "group":
+                gid = request.form.get("target_group", "").strip()
+                if gid.isdigit() and HostGroup.get(gid, db_path=db_path):
+                    target_group_id = int(gid)
+                else:
+                    flash("Selecciona un grupo del inventario válido.", "danger")
+                    return redirect(url_for("programaciones"))
+            else:
+                pinned_ip, ip_error = pin_target(
+                    request.form.get("target_ip", "").strip()
+                )
+                if ip_error or not pinned_ip:
+                    flash(ip_error or "IP objetivo no válida.", "danger")
+                    return redirect(url_for("programaciones"))
+            schedule_params = _approval_params(
+                {
+                    "target": (
+                        f"inventory:{target_group_id}"
+                        if target_mode == "group"
+                        else pinned_ip
+                    ),
+                    "target_mode": target_mode,
+                    "target_group_id": target_group_id,
+                    "task_id": task_id,
+                    "task_name": tasks[task_id]["name"],
+                    "admin_user": request.form.get("admin_user", "").strip(),
+                    "origin": "stored",
+                    "action": request.form.get("action", "TZ").strip().upper(),
+                    "value": request.form.get("value", "").strip(),
+                    "time_mode": "utc",
+                    "time_zone": "",
+                    "time_fold": None,
+                    "ntp_policy": request.form.get("ntp_policy", "keep")
+                    .strip()
+                    .lower(),
+                    "ntp_servers": [
+                        token
+                        for token in request.form.get("ntp_servers", "").split(",")
+                        if token.strip()
+                    ],
+                    "sync_rtc": _form_bool("sync_rtc"),
+                    "force": _form_bool("force"),
+                }
+            )
+            try:
+                Schedule.create(
+                    name,
+                    task_id,
+                    run_at,
+                    {
+                        **schedule_params,
+                        "master_password_enc": scheduler.encrypt_secret(
+                            master_password
+                        ),
+                    },
+                    recurrence=recurrence,
+                    created_by=getattr(current_user, "username", "") or "",
+                    db_path=db_path,
+                )
+                flash(
+                    f"Programación '{name}' creada. Se ejecutará sola (UTC) "
+                    "mientras esté activa.",
+                    "success",
+                )
+            except ValueError as exc:
+                flash(str(exc), "danger")
+        else:
+            flash("Acción de programación no válida.", "warning")
+        return redirect(url_for("programaciones"))
+
+    schedules = [s.to_dict() for s in Schedule.all(db_path=db_path)]
+    for item in schedules:
+        item["task_name"] = (
+            tasks[item["task_id"]]["name"]
+            if item["task_id"] in tasks
+            else item["task_id"]
+        )
+    return render_template(
+        "schedules.html",
+        schedules=schedules,
+        tasks=[
+            {"id": key, "name": value["name"]} for key, value in tasks.items()
+        ],
+        inventory_groups=[
+            g.to_dict() for g in HostGroup.all(db_path=db_path)
+        ],
+        recurrence_labels={
+            "once": "Una vez",
+            "daily": "Diaria",
+            "weekly": "Semanal",
+        },
+    )
+
+
+@app.route("/aprobaciones", methods=["GET", "POST"])
+@roles_required("admin")
+def aprobaciones():
+    db_path = get_db_path()
+    if request.method == "POST":
+        action = request.form.get("action", "").strip()
+        request_id = request.form.get("request_id", "").strip()
+        if not request_id.isdigit():
+            flash("Solicitud no válida.", "warning")
+            return redirect(url_for("aprobaciones"))
+        req = ApprovalRequest.get(int(request_id), db_path=db_path)
+        if action == "approve":
+            decided, decide_error = ApprovalRequest.decide(
+                int(request_id),
+                approver=getattr(current_user, "username", ""),
+                approve=True,
+                note=request.form.get("note", ""),
+                db_path=db_path,
+            )
+            if decide_error or decided is None:
+                flash(decide_error or "No se pudo aprobar.", "danger")
+            else:
+                flash(
+                    f"Solicitud #{decided.id} aprobada: el ejecutor dispone "
+                    f"de {APPROVAL_TTL_MINUTES} minutos para lanzar la tarea.",
+                    "success",
+                )
+        elif action == "reject":
+            decided, decide_error = ApprovalRequest.decide(
+                int(request_id),
+                approver=getattr(current_user, "username", ""),
+                approve=False,
+                note=request.form.get("note", ""),
+                db_path=db_path,
+            )
+            if decide_error or decided is None:
+                flash(decide_error or "No se pudo rechazar.", "danger")
+            else:
+                flash(f"Solicitud #{decided.id} rechazada.", "info")
+        else:
+            flash("Acción de aprobación no válida.", "warning")
+        return redirect(url_for("aprobaciones"))
+
+    def _pretty(req: ApprovalRequest) -> Dict[str, Any]:
+        data = req.to_dict()
+        stored = req.params
+        data["detail"] = ", ".join(
+            f"{key}={str(value)[:60]}"
+            for key, value in stored.items()
+            if key
+            in {
+                "target",
+                "group_name",
+                "admin_user",
+                "action",
+                "value",
+                "mode",
+            }
+        )
+        return data
+
+    return render_template(
+        "approvals.html",
+        approval_ttl_minutes=APPROVAL_TTL_MINUTES,
+        pending=[
+            _pretty(req)
+            for req in ApprovalRequest.list_status(
+                APPROVAL_PENDING, db_path=db_path
+            )
+        ],
+        decided=[
+            _pretty(req)
+            for req in ApprovalRequest.list_status("approved", db_path=db_path)
+            + ApprovalRequest.list_status("rejected", db_path=db_path)
+        ],
+    )
+
+
+def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
+    """Dispara una programación vencida purando la cola de trabajos normal.
+
+    ``params`` lleva los parámetros guardados (sin secretos en claro) y la
+    contraseña maestra cifrada. Registra el disparo y calcula la siguiente
+    ejecución según la recurrencia (una vez se desactiva tras el disparo).
+    """
+    db_path = get_db_path()
+    master_password = scheduler.decrypt_secret(
+        params.get("master_password_enc", "")
+    )
+    if not master_password:
+        Schedule.mark_run(
+            schedule["id"],
+            error="Contraseña maestra no descifrable; la clave de cifrado "
+            "cambió o falta.",
+            disable=True,
+            db_path=db_path,
+        )
+        return False
+
+    target = params.get("target", "")
+    if params.get("target_mode") == "group":
+        if params.get("target_group_id") is None:
+            Schedule.mark_run(
+                schedule["id"],
+                error="La programación apuntaba a un grupo eliminado.",
+                disable=True,
+                db_path=db_path,
+            )
+            return False
+        target = f"inventory:{params['target_group_id']}"
+
+    tid = create_task()
+    update_task(
+        tid,
+        {
+            "status": "running",
+            "progress": 0,
+            "message": "Lanzada por programación…",
+            "mode": "execute",
+            "completed": False,
+        },
+    )
+    try:
+        get_job_queue().submit(
+            tid,
+            execute_with_progress,
+            tid,
+            target,
+            params.get("admin_user", ADMIN_USERNAME),
+            "stored",
+            master_password,
+            params.get("action", "TZ"),
+            params.get("value", ""),
+            [],
+            mode="execute",
+            time_mode=params.get("time_mode", "utc"),
+            time_zone=params.get("time_zone", ""),
+            time_fold=params.get("time_fold"),
+            ntp_policy=params.get("ntp_policy", "keep"),
+            ntp_servers=params.get("ntp_servers") or [],
+            sync_rtc=bool(params.get("sync_rtc")),
+            force=bool(params.get("force")),
+            operator=f"agenda:{schedule['name']}",
+        )
+    except JobQueueFull as exc:
+        remove_task(tid)
+        Schedule.mark_run(
+            schedule["id"],
+            error=f"Cola llena: {str(exc)[:120]}",
+            db_path=db_path,
+        )
+        return False
+
+    schedule_row = Schedule.get(schedule["id"], db_path=db_path)
+    next_run = (
+        schedule_row.next_run_from() if schedule_row else None
+    )
+    Schedule.mark_run(
+        schedule["id"],
+        batch_id="",
+        error="",
+        next_run=next_run,
+        disable=next_run is None,
+        db_path=db_path,
+    )
+    logger.info(
+        "Programación '%s' lanzada como tarea %s",
+        schedule["name"],
+        tid,
+    )
+    return True
+
+
+def _approval_params(form: Dict[str, Any]) -> Dict[str, Any]:
+    """Parámetros estables de una ejecución, sin secretos, para aprobaciones."""
+    return {
+        key: value
+        for key, value in form.items()
+        if key not in {"master_password", "temporal_passwords"}
+    }
 
 
 def handle_execution(default_mode: str = "execute"):
@@ -1329,6 +1882,55 @@ def handle_execution(default_mode: str = "execute"):
 
     assert form is not None  # ``errors`` vacío implica formulario válido.
     operator = getattr(current_user, "username", "") or str(current_user.get_id())
+
+    # Gate por tarea: rol mínimo y doble aprobación para tareas destructivas.
+    task = get_task(form["task_id"])
+    if task is not None and task.get("min_role") == "admin":
+        if not current_user.has_role("admin"):
+            abort(403)
+    if task is not None and task.get("destructive") and form["mode"] == "execute":
+        approved, approval_error = ApprovalRequest.consume_if_approved(
+            form["task_id"],
+            _approval_params(form),
+            executor=operator,
+            approves_by_differs=True,
+            ttl_minutes=APPROVAL_TTL_MINUTES,
+            db_path=get_db_path(),
+        )
+        if not approved:
+            message = approval_error or "Se requiere doble aprobación para esta tarea."
+            if "pendiente" not in message and "ha expirado" not in message and "ya se usó" not in message:
+                approval_params = _approval_params(form)
+                pending = [
+                    req
+                    for req in ApprovalRequest.list_status(
+                        APPROVAL_PENDING, db_path=get_db_path()
+                    )
+                    if req.task_id == form["task_id"]
+                    and req.params_hash == params_hash(approval_params)
+                    and req.requested_by == operator
+                ]
+                if not pending:
+                    ApprovalRequest.create(
+                        form["task_id"],
+                        approval_params,
+                        requested_by=operator,
+                        db_path=get_db_path(),
+                    )
+                    message = (
+                        "Tarea destructiva: se registró una solicitud de "
+                        "aprobación. Un administrador distinto de ti debe "
+                        "aprobarla antes de ejecutar (tienes "
+                        f"{APPROVAL_TTL_MINUTES} minutos una vez aprobada)."
+                    )
+            flash(message, "warning")
+            if _wants_json():
+                return (
+                    jsonify({"status": "approval_required", "message": message}),
+                    403,
+                )
+            return redirect(url_for("task_view", task_id=form["task_id"]))
+
 
     operation_id = request.form.get("operation_id", "").strip()
     duplicate = _claim_operation_id(operation_id)
@@ -1550,6 +2152,7 @@ def _run_preview_batch(
     log_lines: List[str],
     target_epoch: Optional[int] = None,
     cancel_event: Optional[threading.Event] = None,
+    private_key: str = "",
 ) -> None:
     """Inspecciona todos los hosts sin cambiar nada y registra el lote.
 
@@ -1617,6 +2220,7 @@ def _run_preview_batch(
                     line_callback=line_callback,
                     force_real=True,
                     cancel_event=cancel_event,
+                    private_key=private_key or None,
                 )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_error = str(exc)
@@ -1738,6 +2342,7 @@ def _run_apply_batch(
     ntp_settle: int = 0,
     requiere_ntp_off: bool = True,
     cancel_event: Optional[threading.Event] = None,
+    private_key: str = "",
 ) -> None:
     """Aplica el cambio en todos los hosts (best-effort) y registra cada uno.
 
@@ -1818,6 +2423,7 @@ def _run_apply_batch(
                     user=admin_user,
                     password=candidate,
                     cancel_event=cancel_event,
+                    private_key=private_key or None,
                 )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_auth_error = str(exc)
@@ -1879,6 +2485,7 @@ def _run_apply_batch(
                     requiere_ntp_off=requiere_ntp_off,
                     line_callback=line_callback,
                     cancel_event=cancel_event,
+                    private_key=private_key or None,
                 )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_apply_error = str(exc)
@@ -2061,7 +2668,60 @@ def execute_with_progress(
                 "dry_run": is_dry_run(),
             },
         )
-        hosts = resolve_target(ti)
+        # Objetivo por grupo de inventario: ``inventory:<group_id>``. Los
+        # hosts se leen del inventario en caliente (el grupo puede cambiar
+        # entre el envío y el disparo) y la clave SSH del grupo, si está
+        # configurada, autentica todas las conexiones del lote.
+        private_key = ""
+        target_display = ti
+        inv_errors: List[str] = []
+        if ti.startswith("inventory:"):
+            try:
+                inv_group_id = int(ti.split(":", 1)[1])
+            except ValueError:
+                inv_group_id = None
+            inv_group = (
+                HostGroup.get(inv_group_id, db_path=db_path)
+                if inv_group_id is not None
+                else None
+            )
+            if inv_group is None:
+                update_task(
+                    tid,
+                    {
+                        "status": "error",
+                        "progress": 0,
+                        "message": "El grupo del inventario no existe",
+                        "log": [f"Objetivo inválido: {ti}"],
+                        "overall_result": "error",
+                        "completed": True,
+                    },
+                )
+                return
+            target_display = f"Inventario: {inv_group.name}"
+            hosts = []
+            for inv_host in HostGroup.hosts_of(inv_group.id, db_path=db_path):
+                pinned_inv, inv_error = pin_target(inv_host.address)
+                if inv_error or not pinned_inv:
+                    inv_errors.append(
+                        f"Descartado {inv_host.address}: "
+                        + (inv_error or "dirección inválida")
+                    )
+                    continue
+                hosts.append(pinned_inv)
+            if inv_group.ssh_key_path:
+                if os.path.exists(inv_group.ssh_key_path):
+                    private_key = inv_group.ssh_key_path
+                    inv_errors.append(
+                        f"Autenticación SSH por clave: {inv_group.ssh_key_path}"
+                    )
+                else:
+                    inv_errors.append(
+                        "Aviso: la clave SSH del grupo no existe en el "
+                        "servidor; se usará solo contraseña."
+                    )
+        else:
+            hosts = resolve_target(ti)
         if not hosts:
             update_task(
                 tid,
@@ -2096,7 +2756,9 @@ def execute_with_progress(
                 "progress": 10,
                 "message": f"Objetivo: {', '.join(hosts[:3])}"
                 + (f" +{len(hosts) - 3} más" if len(hosts) > 3 else ""),
-                "log": [f"{ti} -> {len(hosts)} host(s)"],
+                "log": [
+                    f"{target_display} -> {len(hosts)} host(s)"
+                ] + inv_errors,
             },
         )
 
@@ -2144,7 +2806,7 @@ def execute_with_progress(
             operator=operator or "desconocido",
             action=ac,
             value=vl,
-            target=ti,
+            target=target_display,
             time_mode=time_mode,
             ntp_policy=ntp_policy,
             total_hosts=len(hosts),
@@ -2201,6 +2863,7 @@ def execute_with_progress(
                 log_lines=log_lines,
                 target_epoch=target_epoch,
                 cancel_event=cancel_event,
+                private_key=private_key,
             )
         else:
             outcome = _run_apply_batch(
@@ -2226,6 +2889,7 @@ def execute_with_progress(
                 ntp_settle=NTP_SETTLE_SECONDS,
                 requiere_ntp_off=TIME_REQUIRE_NTP_OFF,
                 cancel_event=cancel_event,
+                private_key=private_key,
             )
 
         if cancel_event is not None and cancel_event.is_set():
@@ -2253,6 +2917,19 @@ def execute_with_progress(
         }:
             overall_result = "error"
         _append_log(log_lines, _batch_message(batch))
+        # Notificación opcional por correo del cierre del lote (best-effort:
+        # un fallo de SMTP no afecta el resultado ya persistido).
+        try:
+            host_results = (
+                ExecutionBatch.get_host_results(batch_id, db_path=db_path)
+                if batch is not None
+                else []
+            )
+            notify_error = notifier.notify_batch_result(batch, host_results)
+            if notify_error:
+                log_lines.append(f"Aviso: correo no enviado ({notify_error[:120]})")
+        except Exception:  # pragma: no cover - salvaguarda
+            logger.exception("No se pudo notificar el resultado del lote")
         update_task(
             tid,
             {
@@ -2846,6 +3523,16 @@ def configure_app(flask_app: Flask) -> Flask:
                 reconciled,
             )
     register_cli(flask_app)
+
+    # Programador de ejecuciones desatendidas. Un hilo daemon revisa la tabla
+    # ``schedules`` y lanza los lotes por la misma cola que la operación
+    # manual. Nunca impide el arranque si falla la inicialización.
+    try:
+        scheduler.start(
+            launch_scheduled, lambda: str(get_db_path())
+        )
+    except Exception:  # pragma: no cover - no impedir el arranque
+        logger.exception("No se pudo iniciar el programador de ejecuciones")
 
     # Apagado ordenado. El ``atexit`` se registra una sola vez por proceso; si
     # la cola nunca se creó, el callback no hace nada.
