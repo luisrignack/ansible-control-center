@@ -26,6 +26,20 @@ services:
       ACC_ALLOWED_NETWORKS: "${ACC_ALLOWED_NETWORKS:-}"
       ACC_MAX_PASSWORD_ATTEMPTS: "${ACC_MAX_PASSWORD_ATTEMPTS:-3}"
       ACC_BATCH_TIME_BUDGET: "${ACC_BATCH_TIME_BUDGET:-3600}"
+      # Autenticación corporativa LDAPS (los valores reales, incluida la
+      # contraseña del bind, viven en .env.docker o en un secret).
+      ACC_LDAP_ENABLED: "${ACC_LDAP_ENABLED:-0}"
+      ACC_LDAP_URL: "${ACC_LDAP_URL:-ldaps://lds.etecsa.cu:636}"
+      ACC_LDAP_BIND_DN: "${ACC_LDAP_BIND_DN:-uid=rouser,ou=Special Users,dc=etecsa,dc=cu}"
+      ACC_LDAP_BIND_PASSWORD: "${ACC_LDAP_BIND_PASSWORD:-}"
+      ACC_LDAP_BIND_PASSWORD_FILE: "${ACC_LDAP_BIND_PASSWORD_FILE:-}"
+      ACC_LDAP_USER_BASE: "${ACC_LDAP_USER_BASE:-ou=etecsa.cu,ou=people,dc=etecsa,dc=cu}"
+      ACC_LDAP_USER_FILTER: "${ACC_LDAP_USER_FILTER:-(objectClass=person)}"
+      ACC_LDAP_USER_SCOPE: "${ACC_LDAP_USER_SCOPE:-onelevel}"
+      ACC_LDAP_USERNAME_ATTR: "${ACC_LDAP_USERNAME_ATTR:-uid}"
+      ACC_LDAP_TLS_VERIFY: "${ACC_LDAP_TLS_VERIFY:-1}"
+      ACC_LDAP_TLS_CA_FILE: "${ACC_LDAP_TLS_CA_FILE:-}"
+      ACC_LDAP_DEFAULT_ROLE: "${ACC_LDAP_DEFAULT_ROLE:-viewer}"
       ACC_BIND: 0.0.0.0:8000
       ACC_WORKERS: "1"
       ACC_GUNICORN_WORKER_CLASS: gthread
