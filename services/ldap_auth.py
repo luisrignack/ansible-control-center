@@ -58,6 +58,13 @@ def ldap_enabled() -> bool:
     return bool(LDAP_ENABLED) and bool(LDAP_URL.strip())
 
 
+def ldap_configured() -> bool:
+    """El directorio tiene URL y datos de bind: apto para activarse."""
+    from config import LDAP_URL
+
+    return bool(LDAP_URL.strip())
+
+
 def _search_scope():
     from config import LDAP_USER_SCOPE
 

@@ -428,3 +428,69 @@ def test_admin_cannot_disable_self(client, fake_ldap):
     assert User.get_by_username(
         "admin", db_path=app_module.get_db_path()
     ).is_active
+
+
+# ---------------------------------------------------------------------------
+# Interruptor del acceso LDAPS (solo admin local)
+# ---------------------------------------------------------------------------
+def test_ldap_access_toggle_persists_and_gates_login(client, fake_ldap,
+                                                    monkeypatch):
+    # Estado inicial: ACC_LDAP_ENABLED=0 (fixture fake_ldap lo activó).
+    monkeypatch.setattr(config_module, "LDAP_ENABLED", False)
+    assert app_module.load_ldap_access_setting() is False
+
+    _login_admin(client)
+    response = _post(client, "/usuarios/ldaps", {}, follow_redirects=True)
+    assert response.status_code == 200
+    assert "Acceso por LDAPS activado." in response.get_data(as_text=True)
+    assert app_module.load_ldap_access_setting() is True
+
+    # El login LDAP funciona mientras el interruptor está en ON...
+    _logout(client)
+    response = _login_ldap(client, fake_ldap)
+    assert response.status_code == 302
+
+    _logout(client)
+    _login_admin(client)
+    response = _post(client, "/usuarios/ldaps", {}, follow_redirects=True)
+    assert "desactivado" in response.get_data(as_text=True).lower()
+    assert app_module.load_ldap_access_setting() is False
+
+    # ...y fuera, el login LDAP falla sin tocar el directorio (la sombra
+    # creada mientras estuvo ON se queda en la BD).
+    _logout(client)
+    response = _login_ldap(client, fake_ldap)
+    assert response.status_code == 200
+    assert User.count(db_path=app_module.get_db_path()) == 2  # admin + jose.cu
+
+
+def test_ldap_toggle_requires_local_admin(client, fake_ldap):
+    """Un LDAP promovido a admin administra cuentas, no el acceso."""
+    User.create_or_update(
+        "jefe.cu", "", db_path=app_module.get_db_path(),
+        role="admin", auth_source="ldaps",
+    )
+    jefe = {
+        "dn": "uid=jefe.cu,ou=etecsa.cu,ou=people,dc=etecsa,dc=cu",
+        "attributes": {"uid": ["jefe.cu"], "mail": [], "cn": ["Jefe"]},
+    }
+    ldap_auth._connect = lambda *a, **kw: FakeConnection([JOSE, jefe])
+
+    _login_ldap(client, fake_ldap, username="jefe.cu")
+    # Puede ver /usuarios, pero sin botón (no es admin local).
+    body = client.get("/usuarios").get_data(as_text=True)
+    assert "Activar acceso LDAPS" not in body
+    assert "Desactivar acceso LDAPS" not in body
+    # Y la ruta le devuelve 403.
+    assert _post(client, "/usuarios/ldaps", {}).status_code == 403
+
+
+def test_ldap_toggle_without_directory_config(client, fake_ldap,
+                                              monkeypatch):
+    monkeypatch.setattr(config_module, "LDAP_URL", "")
+    monkeypatch.setattr(config_module, "LDAP_ENABLED", False)
+    _login_admin(client)
+    response = _post(client, "/usuarios/ldaps", {}, follow_redirects=True)
+    assert response.status_code == 200
+    assert "no está configurado" in response.get_data(as_text=True)
+    assert app_module.load_ldap_access_setting() is False

@@ -80,14 +80,18 @@ empaquetado Docker con Nginx y TLS.
 ### Seguridad
 
 - Login con Flask-Login y hash Werkzeug.
-- **Login corporativo opcional por LDAPS**: con `ACC_LDAP_ENABLED=1` la app
-  busca el `uid` en el directorio (bind de solo lectura) y valida la
-  contraseña con un bind simple al DN del usuario (modelo Nuxeo). La
+- **Login corporativo opcional por LDAPS**: la app busca el `uid` en el
+  directorio (bind de solo lectura) y valida la contraseña con un bind
+  simple al DN del usuario (modelo Nuxeo). La
   contraseña no se guarda en la aplicación; en el primer login se crea una
   cuenta con rol básico (`viewer`) que el **admin local promueve en
   `/usuarios`**: asigna roles (`viewer`/`operator`/`admin`) y activa o
   desactiva cuentas. El nombre de una cuenta local nunca puede ser
   tomado por un uid del directorio: la cuenta local tiene prioridad.
+  El acceso por LDAPS se activa/desactiva con un **interruptor en
+  `/usuarios`, maniobrable únicamente por el admin local**; su estado se
+  guarda en la base de datos (antes del primer cambio decide
+  `ACC_LDAP_ENABLED`) y no requiere reiniciar el servicio.
 - CSRF en todos los métodos mutables, con caducidad configurable.
 - Rate limiting en login, ejecuciones y operaciones del vault.
 - Límites de CIDR/hosts antes de enumerar el rango.
@@ -321,7 +325,7 @@ una `ACC_SECRET_KEY` aleatoria.
 
 | Variable | Por defecto | Descripción |
 |---|---|---|
-| `ACC_LDAP_ENABLED` | `0` | Activar login por LDAPS |
+| `ACC_LDAP_ENABLED` | `0` | Estado INICIAL del acceso LDAPS; después se conmuta en la web (`/usuarios`, solo admin local) |
 | `ACC_LDAP_URL` | `ldaps://lds.etecsa.cu:636` | URL del directorio (636/TLS) |
 | `ACC_LDAP_BIND_DN` | `uid=rouser,ou=Special Users,dc=etecsa,dc=cu` | Usuario de solo lectura para buscar |
 | `ACC_LDAP_BIND_PASSWORD` / `_FILE` | — | Contraseña del bind (usar `_FILE` como Docker secret) |

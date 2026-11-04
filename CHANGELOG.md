@@ -29,6 +29,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 - Eventos de auditoría: `ldap_first_login`, `ldap_unreachable`,
   `login_disabled`, `login_rejected_local_account`, `role_updated`,
   `account_state_changed`.
+- **Interruptor de acceso en `/usuarios`**: el admin local activa o
+  desactiva el login por LDAPS desde la web (el estado persiste en la
+  tabla `app_settings`; antes del primer cambio decide
+  `ACC_LDAP_ENABLED`). Un usuario LDAP promovido a admin administra
+  cuentas y roles, pero no puede conmutar el acceso LDAPS.
 
 ### Pruebas
 

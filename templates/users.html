@@ -15,6 +15,18 @@
     </div>
     <div class="head-actions">
         <span class="badge bg-secondary">{{ users | length }} cuenta(s)</span>
+        {% if current_user.auth_source == 'local' %}
+        <form method="post" action="{{ url_for('usuarios_ldaps') }}" class="d-inline ms-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm {% if ldap_supported %}btn-outline-danger{% else %}btn-outline-success{% endif %}">
+                <i class="bi {% if ldap_supported %}bi-plug-fill{% else %}bi-plug{% endif %}" aria-hidden="true"></i>
+                {{ 'Desactivar acceso LDAPS' if ldap_supported else 'Activar acceso LDAPS' }}
+            </button>
+        </form>
+        {% if not ldap_configured %}
+        <span class="badge bg-warning text-dark" title="Falta la URL/bind del directorio en .env.docker">Sin configurar</span>
+        {% endif %}
+        {% endif %}
         {% if ldap_supported %}
         <span class="badge bg-success" title="El directorio corporativo está activo">LDAPS activo</span>
         {% else %}

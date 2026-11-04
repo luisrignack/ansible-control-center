@@ -264,6 +264,9 @@ def get_db_path() -> str:
 # Modo simulación (DRY RUN) editable desde la interfaz
 # ---------------------------------------------------------------------------
 DRY_RUN_SETTING_KEY = "dry_run"
+# Interruptor de acceso LDAPS, cambiado desde /usuarios por el admin local.
+# Antes del primer cambio decide ``ACC_LDAP_ENABLED`` (entorno).
+LDAP_ACCESS_SETTING_KEY = "ldap_access_enabled"
 _dry_run_lock = threading.Lock()
 
 
@@ -300,6 +303,27 @@ def load_dry_run_setting() -> bool:
 def persist_dry_run(enabled: bool) -> None:
     set_setting(
         DRY_RUN_SETTING_KEY,
+        "1" if enabled else "0",
+        db_path=get_db_path(),
+    )
+
+
+def load_ldap_access_setting() -> bool:
+    """Estado del interruptor de acceso LDAPS (persistido en la BD).
+
+    Antes del primer cambio desde la interfaz manda ``ACC_LDAP_ENABLED``
+    (el valor de entorno); después de cualquier conmutación decide la BD,
+    sin reinicios del contenedor.
+    """
+    stored = get_setting(LDAP_ACCESS_SETTING_KEY, db_path=get_db_path())
+    if stored is None:
+        return bool(config.LDAP_ENABLED)
+    return str(stored).strip().lower() in {"1", "true", "yes", "on", "si", "sí"}
+
+
+def persist_ldap_access(enabled: bool) -> None:
+    set_setting(
+        LDAP_ACCESS_SETTING_KEY,
         "1" if enabled else "0",
         db_path=get_db_path(),
     )
@@ -1420,7 +1444,11 @@ def login():
             return _finish_session_login(
                 user, client_ip, "login_success", "Inicio de sesión correcto"
             )
-        elif password and ldap_auth.ldap_enabled():
+        elif (
+            password
+            and load_ldap_access_setting()
+            and ldap_auth.ldap_configured()
+        ):
             # Ruta corporativa: la credencial se valida en el directorio.
             # Para nombres ya tomados por cuentas locales el helper no
             # consulta el directorio y explica la política al usuario.
@@ -3497,7 +3525,7 @@ def audit():
 @roles_required("admin")
 def usuarios():
     """Lista de todas las cuentas: local y LDAPS (solo el admin entra)."""
-    ldap_support = ldap_auth.ldap_enabled()
+    ldap_on = load_ldap_access_setting()
     users = User.all(db_path=get_db_path())
     last_events = AuthEvent.recent(limit=200, db_path=get_db_path())
     last_login: Dict[str, str] = {}
@@ -3509,9 +3537,43 @@ def usuarios():
         "users.html",
         users=users,
         roles_in_ui=("viewer", "operator", "admin"),
-        ldap_supported=ldap_support,
+        ldap_supported=ldap_on,
+        ldap_configured=ldap_auth.ldap_configured(),
         last_login=last_login,
     )
+
+
+@app.route("/usuarios/ldaps", methods=["POST"])
+@roles_required("admin")
+def usuarios_ldaps():
+    """Conmuta el acceso LDAPS: solo el admin local lo cambia."""
+    if current_user.auth_source != "local":
+        abort(403)
+
+    if not ldap_auth.ldap_configured():
+        flash(
+            "El acceso LDAPS no está configurado (falta la URL o el bind "
+            "del directorio en .env.docker).",
+            "danger",
+        )
+        return redirect(url_for("usuarios"))
+
+    enabled = not load_ldap_access_setting()
+    persist_ldap_access(enabled)
+    AuthEvent.record(
+        current_user.username,
+        _client_ip(),
+        "ldap_access_changed",
+        f"El admin local '{current_user.username}' "
+        + ("activó" if enabled else "desactivó")
+        + " el acceso por LDAPS",
+        db_path=get_db_path(),
+    )
+    flash(
+        "Acceso por LDAPS activado." if enabled else "Acceso por LDAPS desactivado.",
+        "success" if enabled else "info",
+    )
+    return redirect(url_for("usuarios"))
 
 
 @app.route("/usuarios/rol", methods=["POST"])
