@@ -1,4 +1,4 @@
-# Hora Admin
+# Ansible Control Center
 
 Aplicación web Flask + Ansible para configurar **hora, zona horaria, NTP y RTC**
 en grupos de equipos Ubuntu. Incluye autenticación, vault cifrado con
@@ -37,13 +37,13 @@ Incluye empaquetado Docker con Nginx y TLS.
   detiene el resto (best-effort).
 - **Reintento de contraseñas acotado**: si una contraseña autentica pero el
   playbook falla, se prueban las siguientes candidatas hasta
-  `HORA_ADMIN_MAX_PASSWORD_ATTEMPTS` (3 por defecto).
+  `ACC_MAX_PASSWORD_ATTEMPTS` (3 por defecto).
 - **Vista previa**: inspecciona cada host sin cambiar nada y muestra su estado
   actual, el plan y si haría falta cambiar algo. La inspección es real aunque
   `DRY_RUN` esté activo: es de solo lectura y evita ocultar hosts caídos o
   credenciales inválidas.
 - **Presupuesto de tiempo por lote**: al agotarse
-  `HORA_ADMIN_BATCH_TIME_BUDGET` (1 h por defecto), los hosts pendientes se
+  `ACC_BATCH_TIME_BUDGET` (1 h por defecto), los hosts pendientes se
   registran como omitidos en vez de dejar el lote abierto indefinidamente.
 - **Consola en vivo**: muestra la salida de `ansible-playbook` línea a línea
   durante la ejecución, con auto-scroll, limpieza, descarga y redacción de
@@ -58,7 +58,7 @@ Incluye empaquetado Docker con Nginx y TLS.
 - **RTC opcional**: `hwclock --systohc`.
 - **Sesiones acotadas**: cookie permanente de 8 h por defecto, “recordarme”
   limitado a 7 días y cookies `HttpOnly`/`SameSite=Lax` (y `Secure` con
-  `HORA_ADMIN_COOKIE_SECURE=1`).
+  `ACC_COOKIE_SECURE=1`).
 - **Hashes con pepper**: los hashes de contraseñas candidatas usan
   HMAC-SHA256 con un pepper persistido en `DATA_DIR`, con compatibilidad de
   lectura para hashes heredados.
@@ -66,9 +66,11 @@ Incluye empaquetado Docker con Nginx y TLS.
   marcan como `error`; también existe `flask --app app reconcile-batches`.
 - **Confirmación e idempotencia**: la ejecución real pide confirmación con
   resumen y un UUID de operación evita lotes duplicados por doble clic.
-- **DRY RUN** activo por defecto (`HORA_ADMIN_DRY_RUN=1`), visible en el panel,
+- **DRY RUN** activo por defecto (`ACC_DRY_RUN=1`), visible en el panel,
   la página de progreso, el detalle del lote y el historial, y persistido en
-  cada lote.
+  cada lote. Un administrador puede activarlo o desactivarlo desde el
+  interruptor **Simulación** de la barra superior; el cambio se guarda en
+  SQLite y sobrevive a los reinicios.
 
 ### Seguridad
 
@@ -215,10 +217,10 @@ reconstruir nada:
 
 ```bash
 ./docker/export-images.sh
-# genera dist/hora-admin-despliegue/ (LEEME.txt + DESPLIEGUE.md)
+# genera dist/ansible-control-center-despliegue/ (LEEME.txt + DESPLIEGUE.md)
 
 # en la PC de destino, dentro de esa carpeta:
-docker load -i imagenes/hora-admin-images.tar
+docker load -i imagenes/ansible-control-center-images.tar
 docker compose --env-file .env.docker up -d --no-build
 ```
 
@@ -231,94 +233,94 @@ certificado real y diagnóstico en [docs/DOCKER.md](docs/DOCKER.md).
 ## Configuración
 
 Se lee de `.env` (opcional) o del entorno real. `install.sh` genera `.env` con
-una `HORA_ADMIN_SECRET_KEY` aleatoria.
+una `ACC_SECRET_KEY` aleatoria.
 
 ### Rutas y sesión
 
 | Variable | Por defecto | Descripción |
 |---|---|---|
-| `HORA_ADMIN_SECRET_KEY` | generada | Clave de sesión Flask |
-| `HORA_ADMIN_SECRETS_DIR` | `/etc/hora-admin/secrets` | Secretos y vault |
-| `HORA_ADMIN_DATA_DIR` | `/var/lib/hora-admin` | SQLite y clave de sesión |
-| `HORA_ADMIN_LOG_DIR` | `/var/log/hora-admin` | Logs |
-| `HORA_ADMIN_SESSION_HOURS` | `8` | Duración de sesión (1–72 h) |
-| `HORA_ADMIN_JOB_RETENTION_HOURS` | `24` | Retención de instantáneas de tareas (mínimo 1 h) |
-| `HORA_ADMIN_REMEMBER_DAYS` | `7` | Duración de la cookie “recordarme” (1–30 días) |
-| `HORA_ADMIN_MAX_UPLOAD_BYTES` | `2097152` | Tamaño máximo de subida |
-| `HORA_ADMIN_HOST` / `HORA_ADMIN_PORT` | `127.0.0.1` / `5000` | Servidor de desarrollo |
+| `ACC_SECRET_KEY` | generada | Clave de sesión Flask |
+| `ACC_SECRETS_DIR` | `/etc/ansible-control-center/secrets` | Secretos y vault |
+| `ACC_DATA_DIR` | `/var/lib/ansible-control-center` | SQLite y clave de sesión |
+| `ACC_LOG_DIR` | `/var/log/ansible-control-center` | Logs |
+| `ACC_SESSION_HOURS` | `8` | Duración de sesión (1–72 h) |
+| `ACC_JOB_RETENTION_HOURS` | `24` | Retención de instantáneas de tareas (mínimo 1 h) |
+| `ACC_REMEMBER_DAYS` | `7` | Duración de la cookie “recordarme” (1–30 días) |
+| `ACC_MAX_UPLOAD_BYTES` | `2097152` | Tamaño máximo de subida |
+| `ACC_HOST` / `ACC_PORT` | `127.0.0.1` / `5000` | Servidor de desarrollo |
 
 ### Ejecución
 
 | Variable | Por defecto | Descripción |
 |---|---|---|
-| `HORA_ADMIN_DRY_RUN` | `1` | No ejecuta Ansible real |
-| `HORA_ADMIN_HOST_KEY_CHECKING` | `1` | Verificación estricta de clave SSH |
-| `HORA_ADMIN_MAX_HOSTS` | `256` | Máximo de hosts por ejecución |
-| `HORA_ADMIN_MIN_CIDR_PREFIX` | `22` | Prefijo IPv4 mínimo aceptado |
-| `HORA_ADMIN_ALLOWED_NETWORKS` | vacío | Allowlist de redes separadas por comas. **Obligatoria en producción**; vacío solo se acepta en desarrollo |
-| `HORA_ADMIN_MAX_PASSWORDS` | `200` | Máximo de contraseñas por vault/archivo |
-| `HORA_ADMIN_MAX_PASSWORD_LENGTH` | `512` | Longitud máxima de una contraseña |
-| `HORA_ADMIN_PING_TIMEOUT` | `30` | Timeout de `ansible -m ping` (s) |
-| `HORA_ADMIN_PLAYBOOK_TIMEOUT` | `300` | Timeout de playbook (s) |
-| `HORA_ADMIN_CONNECT_TIMEOUT` | `10` | Timeout de conexión SSH (s) |
-| `HORA_ADMIN_TIME_TOLERANCE` | `2` | Desviación máxima al verificar hora (s) |
-| `HORA_ADMIN_TIME_REQUIRE_NTP_OFF` | `1` | Rechaza `TIME` + NTP `keep` en ejecución (la vista previa solo avisa) |
-| `HORA_ADMIN_NTP_SETTLE_SECONDS` | `3` | Espera tras reactivar NTP antes de verificar (s) |
-| `HORA_ADMIN_MAX_PASSWORD_ATTEMPTS` | `3` | Candidatas máximas probadas por host |
-| `HORA_ADMIN_BATCH_TIME_BUDGET` | `3600` | Presupuesto de tiempo del lote (s) |
-| `HORA_ADMIN_DEFAULT_NTP_SERVERS` | `pool.ntp.org` | Servidores NTP por defecto |
-| `HORA_ADMIN_MAX_NTP_SERVERS` | `8` | Máximo de servidores NTP |
-| `HORA_ADMIN_JOB_WORKERS` | `2` | Trabajos concurrentes de la cola |
-| `HORA_ADMIN_JOB_QUEUE_SIZE` | `50` | Trabajos en espera antes de rechazar con error |
-| `HORA_ADMIN_JOB_SHUTDOWN_GRACE` | `10` | Espera de apagado ordenado (s) |
-| `HORA_ADMIN_MAX_MEMORY_TASKS` | `200` | Instantáneas de tarea en memoria |
-| `HORA_ADMIN_MAX_TASK_STATE_ROWS` | `500` | Filas máximas de `task_state` |
-| `HORA_ADMIN_HISTORY_DAYS` | `180` | Retención del historial de lotes (días) |
-| `HORA_ADMIN_AUTH_EVENT_DAYS` | `365` | Retención de eventos de autenticación (días) |
-| `HORA_ADMIN_LOGIN_LOCKOUT_THRESHOLD` | `5` | Fallos de login antes de bloquear la cuenta |
-| `HORA_ADMIN_LOGIN_LOCKOUT_MINUTES` | `15` | Duración del bloqueo (min) |
+| `ACC_DRY_RUN` | `1` | No ejecuta Ansible real |
+| `ACC_HOST_KEY_CHECKING` | `1` | Verificación estricta de clave SSH |
+| `ACC_MAX_HOSTS` | `256` | Máximo de hosts por ejecución |
+| `ACC_MIN_CIDR_PREFIX` | `22` | Prefijo IPv4 mínimo aceptado |
+| `ACC_ALLOWED_NETWORKS` | vacío | Allowlist de redes separadas por comas. **Obligatoria en producción**; vacío solo se acepta en desarrollo |
+| `ACC_MAX_PASSWORDS` | `200` | Máximo de contraseñas por vault/archivo |
+| `ACC_MAX_PASSWORD_LENGTH` | `512` | Longitud máxima de una contraseña |
+| `ACC_PING_TIMEOUT` | `30` | Timeout de `ansible -m ping` (s) |
+| `ACC_PLAYBOOK_TIMEOUT` | `300` | Timeout de playbook (s) |
+| `ACC_CONNECT_TIMEOUT` | `10` | Timeout de conexión SSH (s) |
+| `ACC_TIME_TOLERANCE` | `2` | Desviación máxima al verificar hora (s) |
+| `ACC_TIME_REQUIRE_NTP_OFF` | `1` | Rechaza `TIME` + NTP `keep` en ejecución (la vista previa solo avisa) |
+| `ACC_NTP_SETTLE_SECONDS` | `3` | Espera tras reactivar NTP antes de verificar (s) |
+| `ACC_MAX_PASSWORD_ATTEMPTS` | `3` | Candidatas máximas probadas por host |
+| `ACC_BATCH_TIME_BUDGET` | `3600` | Presupuesto de tiempo del lote (s) |
+| `ACC_DEFAULT_NTP_SERVERS` | `pool.ntp.org` | Servidores NTP por defecto |
+| `ACC_MAX_NTP_SERVERS` | `8` | Máximo de servidores NTP |
+| `ACC_JOB_WORKERS` | `2` | Trabajos concurrentes de la cola |
+| `ACC_JOB_QUEUE_SIZE` | `50` | Trabajos en espera antes de rechazar con error |
+| `ACC_JOB_SHUTDOWN_GRACE` | `10` | Espera de apagado ordenado (s) |
+| `ACC_MAX_MEMORY_TASKS` | `200` | Instantáneas de tarea en memoria |
+| `ACC_MAX_TASK_STATE_ROWS` | `500` | Filas máximas de `task_state` |
+| `ACC_HISTORY_DAYS` | `180` | Retención del historial de lotes (días) |
+| `ACC_AUTH_EVENT_DAYS` | `365` | Retención de eventos de autenticación (días) |
+| `ACC_LOGIN_LOCKOUT_THRESHOLD` | `5` | Fallos de login antes de bloquear la cuenta |
+| `ACC_LOGIN_LOCKOUT_MINUTES` | `15` | Duración del bloqueo (min) |
 
 ### Seguridad
 
 | Variable | Por defecto | Descripción |
 |---|---|---|
-| `HORA_ADMIN_DEBUG` | `0` | Depurador Flask (nunca en producción) |
-| `HORA_ADMIN_COOKIE_SECURE` | `0` | Cookies solo por HTTPS |
-| `HORA_ADMIN_PASSWORD_PEPPER` | generado | Pepper de los hashes de contraseñas (se persiste en `DATA_DIR`) |
-| `HORA_ADMIN_TRUST_PROXY` | `0` | Leer `X-Forwarded-For/Proto` tras proxy |
-| `HORA_ADMIN_HSTS` | según cookie | Cabecera HSTS |
-| `HORA_ADMIN_HSTS_MAX_AGE` | `31536000` | `max-age` de HSTS |
-| `HORA_ADMIN_SECURITY_HEADERS` | `1` | Cabeceras de seguridad |
-| `HORA_ADMIN_CSP_ENABLED` | `1` | Content-Security-Policy con nonce |
-| `HORA_ADMIN_CSRF_ENABLED` | `1` | Protección CSRF |
-| `HORA_ADMIN_CSRF_TIME_LIMIT` | `28800` | Caducidad del token CSRF (s) |
-| `HORA_ADMIN_RATE_LIMIT_ENABLED` | `1` | Rate limiting |
-| `HORA_ADMIN_LOGIN_RATE_LIMIT` | `10` | Intentos de login por ventana |
-| `HORA_ADMIN_LOGIN_RATE_WINDOW` | `300` | Ventana de login (s) |
-| `HORA_ADMIN_EXEC_RATE_LIMIT` | `10` | Ejecuciones por ventana |
-| `HORA_ADMIN_EXEC_RATE_WINDOW` | `60` | Ventana de ejecución (s) |
-| `HORA_ADMIN_VAULT_RATE_LIMIT` | `20` | Operaciones de vault por ventana |
-| `HORA_ADMIN_VAULT_RATE_WINDOW` | `60` | Ventana de vault (s) |
-| `HORA_ADMIN_ADMIN_PASSWORD_MIN_LENGTH` | `12` | Longitud mínima del admin |
-| `HORA_ADMIN_USERNAME` | `admin` | Usuario por defecto de `init-admin` |
+| `ACC_DEBUG` | `0` | Depurador Flask (nunca en producción) |
+| `ACC_COOKIE_SECURE` | `0` | Cookies solo por HTTPS |
+| `ACC_PASSWORD_PEPPER` | generado | Pepper de los hashes de contraseñas (se persiste en `DATA_DIR`) |
+| `ACC_TRUST_PROXY` | `0` | Leer `X-Forwarded-For/Proto` tras proxy |
+| `ACC_HSTS` | según cookie | Cabecera HSTS |
+| `ACC_HSTS_MAX_AGE` | `31536000` | `max-age` de HSTS |
+| `ACC_SECURITY_HEADERS` | `1` | Cabeceras de seguridad |
+| `ACC_CSP_ENABLED` | `1` | Content-Security-Policy con nonce |
+| `ACC_CSRF_ENABLED` | `1` | Protección CSRF |
+| `ACC_CSRF_TIME_LIMIT` | `28800` | Caducidad del token CSRF (s) |
+| `ACC_RATE_LIMIT_ENABLED` | `1` | Rate limiting |
+| `ACC_LOGIN_RATE_LIMIT` | `10` | Intentos de login por ventana |
+| `ACC_LOGIN_RATE_WINDOW` | `300` | Ventana de login (s) |
+| `ACC_EXEC_RATE_LIMIT` | `10` | Ejecuciones por ventana |
+| `ACC_EXEC_RATE_WINDOW` | `60` | Ventana de ejecución (s) |
+| `ACC_VAULT_RATE_LIMIT` | `20` | Operaciones de vault por ventana |
+| `ACC_VAULT_RATE_WINDOW` | `60` | Ventana de vault (s) |
+| `ACC_ADMIN_PASSWORD_MIN_LENGTH` | `12` | Longitud mínima del admin |
+| `ACC_USERNAME` | `admin` | Usuario por defecto de `init-admin` |
 
 ### Logging
 
 | Variable | Por defecto | Descripción |
 |---|---|---|
-| `HORA_ADMIN_LOG_LEVEL` | `INFO` | Nivel de log |
-| `HORA_ADMIN_LOG_TO_FILE` | `1` | Escribir en fichero rotativo |
-| `HORA_ADMIN_LOG_MAX_BYTES` | `5242880` | Tamaño máximo por fichero |
-| `HORA_ADMIN_LOG_BACKUPS` | `5` | Número de backups |
+| `ACC_LOG_LEVEL` | `INFO` | Nivel de log |
+| `ACC_LOG_TO_FILE` | `1` | Escribir en fichero rotativo |
+| `ACC_LOG_MAX_BYTES` | `5242880` | Tamaño máximo por fichero |
+| `ACC_LOG_BACKUPS` | `5` | Número de backups |
 
 ### Binarios de Ansible
 
 | Variable | Por defecto | Descripción |
 |---|---|---|
-| `HORA_ADMIN_ANSIBLE_BIN` | autodetectado | Ruta de `ansible` |
-| `HORA_ADMIN_ANSIBLE_PLAYBOOK_BIN` | autodetectado | Ruta de `ansible-playbook` |
-| `HORA_ADMIN_ANSIBLE_VAULT_BIN` | autodetectado | Ruta de `ansible-vault` |
-| `HORA_ADMIN_ANSIBLE_GALAXY_BIN` | autodetectado | Ruta de `ansible-galaxy` |
+| `ACC_ANSIBLE_BIN` | autodetectado | Ruta de `ansible` |
+| `ACC_ANSIBLE_PLAYBOOK_BIN` | autodetectado | Ruta de `ansible-playbook` |
+| `ACC_ANSIBLE_VAULT_BIN` | autodetectado | Ruta de `ansible-vault` |
+| `ACC_ANSIBLE_GALAXY_BIN` | autodetectado | Ruta de `ansible-galaxy` |
 
 ### Gunicorn
 
@@ -326,21 +328,21 @@ Estas variables las lee `gunicorn.conf.py`, no `config.py`:
 
 | Variable | Por defecto | Descripción |
 |---|---|---|
-| `HORA_ADMIN_BIND` | `127.0.0.1:5000` | Dirección de escucha |
-| `HORA_ADMIN_WORKERS` | `1` | Workers (el estado SSE es por proceso) |
-| `HORA_ADMIN_GUNICORN_WORKER_CLASS` | `gthread` | Clase de worker (`gthread` evita bloquear con SSE) |
-| `HORA_ADMIN_GUNICORN_THREADS` | `4` | Hilos por worker con `gthread` |
-| `HORA_ADMIN_GUNICORN_TIMEOUT` | `330` | Timeout del worker (s), mayor que el SSE |
-| `HORA_ADMIN_GUNICORN_GRACEFUL_TIMEOUT` | `30` | Espera de parada ordenada (s) |
+| `ACC_BIND` | `127.0.0.1:5000` | Dirección de escucha |
+| `ACC_WORKERS` | `1` | Workers (el estado SSE es por proceso) |
+| `ACC_GUNICORN_WORKER_CLASS` | `gthread` | Clase de worker (`gthread` evita bloquear con SSE) |
+| `ACC_GUNICORN_THREADS` | `4` | Hilos por worker con `gthread` |
+| `ACC_GUNICORN_TIMEOUT` | `330` | Timeout del worker (s), mayor que el SSE |
+| `ACC_GUNICORN_GRACEFUL_TIMEOUT` | `30` | Espera de parada ordenada (s) |
 
 ### Reservadas (definidas, aún no aplicadas)
 
 | Variable | Por defecto | Nota |
 |---|---|---|
-| `HORA_ADMIN_HISTORY_DAYS` | `180` | Retención de historial; pendiente de job de purga |
+| `ACC_HISTORY_DAYS` | `180` | Retención de historial; pendiente de job de purga |
 
 > Copia `.env.example` a `.env` y ajusta los valores. En producción usa HTTPS,
-> `HORA_ADMIN_COOKIE_SECURE=1`, `HORA_ADMIN_HSTS=1` y un usuario de servicio
+> `ACC_COOKIE_SECURE=1`, `ACC_HSTS=1` y un usuario de servicio
 > sin privilegios.
 
 ---
@@ -362,10 +364,11 @@ Estas variables las lee `gunicorn.conf.py`, no `config.py`:
    al terminar enlaza al detalle.
 7. **Historial**: `/history` muestra lotes, contadores, operador y duración.
 
-Con `HORA_ADMIN_DRY_RUN=1` el playbook de cambio no se ejecuta: se simula el
+Con `ACC_DRY_RUN=1` el playbook de cambio no se ejecuta: se simula el
 resultado y el lote queda marcado como simulación. La vista previa sí
-inspecciona los hosts de verdad (solo lectura). Para ejecutar de verdad, define
-`HORA_ADMIN_DRY_RUN=0` y reinicia el servicio.
+inspecciona los hosts de verdad (solo lectura). Para ejecutar de verdad, un
+administrador desactiva el interruptor **Simulación** de la barra superior
+(o define `ACC_DRY_RUN=0` y reinicia el servicio si aún no hay valor guardado).
 
 ### Acciones
 
@@ -502,8 +505,8 @@ Define `hora_estado` con: `timezone`, `ntp`, `ntp_synchronized`,
 - Roles `viewer` (solo lectura), `operator` (vista previa/ejecución/vault) y
   `admin` (todo, incluida la auditoría). Bloqueo progresivo de cuentas y
   registro de eventos de acceso en `auth_events`.
-- En producción: HTTPS, `HORA_ADMIN_COOKIE_SECURE=1`, `HORA_ADMIN_HSTS=1`,
-  `HORA_ADMIN_TRUST_PROXY=1` solo tras proxy de confianza y usuario de
+- En producción: HTTPS, `ACC_COOKIE_SECURE=1`, `ACC_HSTS=1`,
+  `ACC_TRUST_PROXY=1` solo tras proxy de confianza y usuario de
   servicio sin privilegios.
 
 ---
@@ -518,7 +521,7 @@ Define `hora_estado` con: `timezone`, `ntp`, `ntp_synchronized`,
   línea a 500 caracteres. El snapshot persistido puede perder la última fracción
   de segundo antes de un reinicio.
 - **Ejecución secuencial dentro de cada lote**: los hosts se procesan uno a
-  uno. La cola limita cuántos lotes corren a la vez (`HORA_ADMIN_JOB_WORKERS`)
+  uno. La cola limita cuántos lotes corren a la vez (`ACC_JOB_WORKERS`)
   y permite cancelar; no hay reintento selectivo de fallidos.
 - **Sin MFA**: hay roles y auditoría de acceso, pero la autenticación es solo
   usuario/contraseña. La allowlist de red es global.
@@ -527,10 +530,10 @@ Define `hora_estado` con: `timezone`, `ntp`, `ntp_synchronized`,
   red.
 - **Sin programación ni notificaciones**.
 - **Retención parcial**: las instantáneas de tareas se purgan según
-  `HORA_ADMIN_JOB_RETENTION_HOURS`, el historial de lotes según
-  `HORA_ADMIN_HISTORY_DAYS`, los eventos de acceso según
-  `HORA_ADMIN_AUTH_EVENT_DAYS` y `task_state` se recorta a
-  `HORA_ADMIN_MAX_TASK_STATE_ROWS`.
+  `ACC_JOB_RETENTION_HOURS`, el historial de lotes según
+  `ACC_HISTORY_DAYS`, los eventos de acceso según
+  `ACC_AUTH_EVENT_DAYS` y `task_state` se recorta a
+  `ACC_MAX_TASK_STATE_ROWS`.
 - **Sin API/CLI de ejecución**: solo endpoints internos de la interfaz.
 - **IPv6**: `ipaddress` lo acepta, pero el flujo con Ansible no está probado.
 
@@ -557,7 +560,7 @@ Módulos:
   cola acotada, roles/bloqueo/auditoría, CSP y assets locales, lock del vault,
   entorno mínimo de Ansible, estados de lote y guardia de esquema futuro.
 - `test_ssh_container.py`: integración opcional con un contenedor SSH; se
-  omite salvo `HORA_ADMIN_RUN_SSH_TESTS=1` y Docker disponible.
+  omite salvo `ACC_RUN_SSH_TESTS=1` y Docker disponible.
 
 ---
 

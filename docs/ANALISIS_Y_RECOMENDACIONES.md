@@ -1,4 +1,4 @@
-# Análisis profundo y recomendaciones — Hora Admin
+# Análisis profundo y recomendaciones — Ansible Control Center
 
 **Fecha:** 2026-11-03
 **Alcance:** revisión de código, seguridad, corrección temporal, datos,
@@ -60,7 +60,7 @@ grandes** sin resolver los puntos críticos de abajo.
 
 ### C1. `DRY_RUN` es invisible y no queda registrado — **Resuelto en P4.1/P4.2**
 
-`HORA_ADMIN_DRY_RUN=1` es el valor por defecto, pero **ninguna plantilla lo
+`ACC_DRY_RUN=1` es el valor por defecto, pero **ninguna plantilla lo
 muestra** y `execution_batches` no tiene columna `dry_run`. El playbook
 simulado devuelve `success=True`, `verified=True`
 (`services/ansible_runner.py:391-408`). Un operador puede ver “éxito” y creer
@@ -131,7 +131,7 @@ Cualquier usuario autenticado puede apuntar a cualquier IP/CIDR
 (`services/host_resolver.py:150-183`). En una herramienta que prueba
 credenciales y cambia la hora, esto es un riesgo de abuso interno.
 
-**Recomendación:** `HORA_ADMIN_ALLOWED_NETWORKS` (lista de CIDR); rechazar
+**Recomendación:** `ACC_ALLOWED_NETWORKS` (lista de CIDR); rechazar
 objetivos fuera de ella y registrar el intento.
 
 ### C8. Sin confirmación ni protección frente a doble envío — **Resuelto en P4.1**
@@ -244,7 +244,7 @@ añadir test que demuestre que `HORA_VERIFIED=false` no es éxito.
 - **Validación en el playbook:** añadir `assert` de formato para `valor` y para
   `ntp_servers` (defensa en profundidad si se invoca el playbook directamente).
 - **Limpieza de configuración NTP:** al pasar de `configure` a `keep`/`off`,
-  los ficheros `90-hora-admin.sources`/`.conf` permanecen. Eliminarlos o
+  los ficheros `90-ansible-control-center.sources`/`.conf` permanecen. Eliminarlos o
   documentarlo.
 - **Contenedores/VMs:** detectar `systemd-detect-virt --container` y evitar
   `hwclock`; hoy solo se avisa si falla.
@@ -271,7 +271,7 @@ añadir test que demuestre que `HORA_VERIFIED=false` no es éxito.
   los servidores configurados y `NTPSynchronized` tras un periodo de gracia.
 - **Verificación RTC:** no se verifica. Leer `hwclock --show` después de
   `--systohc` y comparar.
-- **Salto máximo:** añadir un guardrail (`HORA_ADMIN_MAX_TIME_JUMP`) que exija
+- **Salto máximo:** añadir un guardrail (`ACC_MAX_TIME_JUMP`) que exija
   `force` si el salto supera, por ejemplo, 24 h.
 - **DST:** en modo local, documentar el comportamiento en horas
   ambiguas/inexistentes.
@@ -321,8 +321,8 @@ una migración v4:
 - Cola persistente (RQ/Celery/arq) para trabajos largos; el proceso web no
   debería ser el dueño del trabajo.
 - Estado de tareas fuera de memoria (C3).
-- Añadir `HORA_ADMIN_MAX_PARALLEL_HOSTS` y
-  `HORA_ADMIN_MAX_CONCURRENT_BATCHES`.
+- Añadir `ACC_MAX_PARALLEL_HOSTS` y
+  `ACC_MAX_CONCURRENT_BATCHES`.
 - Limitar el tamaño de la salida y del log en memoria (`_append_log` ya limita
   a 200 líneas, bien).
 - Rate limiter compartido (Redis) si se escala a varios workers.
@@ -383,14 +383,14 @@ compilación, YAML y pytest). Faltan:
 
 - **Inconsistencia de usuario:** `install.sh` crea directorios y `.env` para el
   usuario que lo ejecuta (`install.sh:76-98`), pero el unit de systemd usa
-  `User=hora-admin` (`DEPLOYMENT.md:171`). El servicio no podrá leer `.env` ni
+  `User=ansible-control-center` (`DEPLOYMENT.md:171`). El servicio no podrá leer `.env` ni
   escribir la BD. **Recomendación:** crear el usuario de servicio en
   `install.sh` o documentar el `chown` explícito.
 - **Hardening systemd:** añadir `NoNewPrivileges`, `PrivateTmp`,
   `ProtectSystem=strict`, `ProtectHome`, `ReadWritePaths`, `UMask=0077`,
   `TimeoutStopSec`.
 - **Fail-closed en producción:** hoy, si no hay permisos, se cae
-  silenciosamente a `instance/`. Añadir `HORA_ADMIN_ENV=production` y abortar
+  silenciosamente a `instance/`. Añadir `ACC_ENV=production` y abortar
   si las rutas de producción no son escribibles.
 - **Lockfile:** `requirements.txt` con rangos amplios; usar `pip-tools`/`uv`
   con hashes para reproducibilidad.

@@ -1,8 +1,8 @@
-# Arquitectura y flujos — Hora Admin
+# Arquitectura y flujos — Ansible Control Center
 
 ## 1. Visión general
 
-Hora Admin es una aplicación Flask que orquesta Ansible para cambiar la hora,
+Ansible Control Center es una aplicación Flask que orquesta Ansible para cambiar la hora,
 la zona horaria, NTP y el RTC de equipos Ubuntu. El proceso web atiende la
 interfaz, valida formularios y lanza trabajos en hilos; Ansible se ejecuta como
 subproceso contra un host cada vez.

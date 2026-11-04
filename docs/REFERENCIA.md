@@ -1,4 +1,4 @@
-# Referencia técnica — Hora Admin
+# Referencia técnica — Ansible Control Center
 
 Referencia de rutas, servicios, modelos, esquema de datos, configuración y
 contrato de los playbooks.
@@ -307,29 +307,29 @@ FOREIGN KEY (batch_id)
 La tabla completa está en [README](../README.md#configuración). Resumen de
 grupos:
 
-- Rutas: `HORA_ADMIN_SECRETS_DIR`, `HORA_ADMIN_DATA_DIR`, `HORA_ADMIN_LOG_DIR`.
-- Sesión: `HORA_ADMIN_SECRET_KEY`, `HORA_ADMIN_SESSION_HOURS`,
-  `HORA_ADMIN_REMEMBER_DAYS`, `HORA_ADMIN_COOKIE_SECURE`,
-  `HORA_ADMIN_PASSWORD_PEPPER`.
-- Ejecución: `HORA_ADMIN_DRY_RUN`, `HORA_ADMIN_MAX_HOSTS`,
-  `HORA_ADMIN_MIN_CIDR_PREFIX`, `HORA_ADMIN_ALLOWED_NETWORKS`,
-  `HORA_ADMIN_MAX_PASSWORDS`, `HORA_ADMIN_MAX_PASSWORD_ATTEMPTS`,
-  `HORA_ADMIN_BATCH_TIME_BUDGET`, `HORA_ADMIN_TIME_TOLERANCE`,
-  `HORA_ADMIN_DEFAULT_NTP_SERVERS`.
-- Seguridad: `HORA_ADMIN_CSRF_ENABLED`, `HORA_ADMIN_*_RATE_LIMIT`,
-  `HORA_ADMIN_TRUST_PROXY`, `HORA_ADMIN_CSP_ENABLED`,
-  `HORA_ADMIN_HSTS`, `HORA_ADMIN_SECURITY_HEADERS`.
-- Ansible: `HORA_ADMIN_ANSIBLE_BIN`,
-  `HORA_ADMIN_ANSIBLE_PLAYBOOK_BIN`, `HORA_ADMIN_ANSIBLE_VAULT_BIN`,
-  `HORA_ADMIN_PING_TIMEOUT`, `HORA_ADMIN_PLAYBOOK_TIMEOUT`,
-  `HORA_ADMIN_CONNECT_TIMEOUT`.
-- Logging: `HORA_ADMIN_LOG_LEVEL`, `HORA_ADMIN_LOG_TO_FILE`,
-  `HORA_ADMIN_LOG_MAX_BYTES`, `HORA_ADMIN_LOG_BACKUPS`.
+- Rutas: `ACC_SECRETS_DIR`, `ACC_DATA_DIR`, `ACC_LOG_DIR`.
+- Sesión: `ACC_SECRET_KEY`, `ACC_SESSION_HOURS`,
+  `ACC_REMEMBER_DAYS`, `ACC_COOKIE_SECURE`,
+  `ACC_PASSWORD_PEPPER`.
+- Ejecución: `ACC_DRY_RUN`, `ACC_MAX_HOSTS`,
+  `ACC_MIN_CIDR_PREFIX`, `ACC_ALLOWED_NETWORKS`,
+  `ACC_MAX_PASSWORDS`, `ACC_MAX_PASSWORD_ATTEMPTS`,
+  `ACC_BATCH_TIME_BUDGET`, `ACC_TIME_TOLERANCE`,
+  `ACC_DEFAULT_NTP_SERVERS`.
+- Seguridad: `ACC_CSRF_ENABLED`, `ACC_*_RATE_LIMIT`,
+  `ACC_TRUST_PROXY`, `ACC_CSP_ENABLED`,
+  `ACC_HSTS`, `ACC_SECURITY_HEADERS`.
+- Ansible: `ACC_ANSIBLE_BIN`,
+  `ACC_ANSIBLE_PLAYBOOK_BIN`, `ACC_ANSIBLE_VAULT_BIN`,
+  `ACC_PING_TIMEOUT`, `ACC_PLAYBOOK_TIMEOUT`,
+  `ACC_CONNECT_TIMEOUT`.
+- Logging: `ACC_LOG_LEVEL`, `ACC_LOG_TO_FILE`,
+  `ACC_LOG_MAX_BYTES`, `ACC_LOG_BACKUPS`.
 
-`HORA_ADMIN_HISTORY_DAYS` purga el historial de lotes;
-`HORA_ADMIN_AUTH_EVENT_DAYS` purga la auditoría de acceso;
-`HORA_ADMIN_JOB_RETENTION_HOURS` purga instantáneas de tareas y
-`HORA_ADMIN_MAX_TASK_STATE_ROWS` recorta `task_state`.
+`ACC_HISTORY_DAYS` purga el historial de lotes;
+`ACC_AUTH_EVENT_DAYS` purga la auditoría de acceso;
+`ACC_JOB_RETENTION_HOURS` purga instantáneas de tareas y
+`ACC_MAX_TASK_STATE_ROWS` recorta `task_state`.
 
 ---
 
@@ -427,10 +427,10 @@ Estados terminales del stream: `completed`, `failed`, `error`, `found`,
 
 ## 9. Errores y logging
 
-- El logger principal es `hora_admin`; los servicios usan su propio logger.
+- El logger principal es `acc`; los servicios usan su propio logger.
 - No se registran contraseñas ni la contraseña maestra.
 - Los errores de Ansible se guardan en `execution_hosts.error`.
-- `HORA_ADMIN_LOG_TO_FILE=1` escribe en `LOG_DIR/hora-admin.log` con rotación.
+- `ACC_LOG_TO_FILE=1` escribe en `LOG_DIR/ansible-control-center.log` con rotación.
 - Los errores internos devuelven `500.html`; los AJAX reciben JSON en
   `400`/`429`.
 

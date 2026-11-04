@@ -1,39 +1,41 @@
-name: hora-admin
+name: ansible-control-center
 
 services:
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    image: hora-admin:latest
+    image: ansible-control-center:latest
     restart: unless-stopped
     environment:
-      HORA_ADMIN_DATA_DIR: /data
-      HORA_ADMIN_SECRETS_DIR: /secrets
-      HORA_ADMIN_LOG_DIR: /logs
+      ACC_DATA_DIR: /data
+      ACC_SECRETS_DIR: /secrets
+      ACC_LOG_DIR: /logs
+      # En producción exige allowlist, clave de sesión y verificación SSH.
+      ACC_ENV: "${ACC_ENV:-production}"
       # Detrás de Nginx: cookies Secure, IP real y proto HTTPS.
-      HORA_ADMIN_COOKIE_SECURE: "1"
-      HORA_ADMIN_TRUST_PROXY: "1"
+      ACC_COOKIE_SECURE: "1"
+      ACC_TRUST_PROXY: "1"
       # HSTS se deja desactivado mientras el certificado sea autofirmado.
-      HORA_ADMIN_HSTS: "${HORA_ADMIN_HSTS:-0}"
-      HORA_ADMIN_SECRET_KEY: "${HORA_ADMIN_SECRET_KEY:-}"
-      HORA_ADMIN_ADMIN_USERNAME: "${HORA_ADMIN_ADMIN_USERNAME:-admin}"
-      HORA_ADMIN_ADMIN_PASSWORD: "${HORA_ADMIN_ADMIN_PASSWORD:-}"
-      HORA_ADMIN_DRY_RUN: "${HORA_ADMIN_DRY_RUN:-1}"
-      HORA_ADMIN_HOST_KEY_CHECKING: "${HORA_ADMIN_HOST_KEY_CHECKING:-1}"
-      HORA_ADMIN_ALLOWED_NETWORKS: "${HORA_ADMIN_ALLOWED_NETWORKS:-}"
-      HORA_ADMIN_MAX_PASSWORD_ATTEMPTS: "${HORA_ADMIN_MAX_PASSWORD_ATTEMPTS:-3}"
-      HORA_ADMIN_BATCH_TIME_BUDGET: "${HORA_ADMIN_BATCH_TIME_BUDGET:-3600}"
-      HORA_ADMIN_BIND: 0.0.0.0:8000
-      HORA_ADMIN_WORKERS: "1"
-      HORA_ADMIN_GUNICORN_WORKER_CLASS: gthread
-      HORA_ADMIN_GUNICORN_THREADS: "4"
-      HORA_ADMIN_GUNICORN_TIMEOUT: "330"
+      ACC_HSTS: "${ACC_HSTS:-0}"
+      ACC_SECRET_KEY: "${ACC_SECRET_KEY:-}"
+      ACC_ADMIN_USERNAME: "${ACC_ADMIN_USERNAME:-admin}"
+      ACC_ADMIN_PASSWORD: "${ACC_ADMIN_PASSWORD:-}"
+      ACC_DRY_RUN: "${ACC_DRY_RUN:-1}"
+      ACC_HOST_KEY_CHECKING: "${ACC_HOST_KEY_CHECKING:-1}"
+      ACC_ALLOWED_NETWORKS: "${ACC_ALLOWED_NETWORKS:-}"
+      ACC_MAX_PASSWORD_ATTEMPTS: "${ACC_MAX_PASSWORD_ATTEMPTS:-3}"
+      ACC_BATCH_TIME_BUDGET: "${ACC_BATCH_TIME_BUDGET:-3600}"
+      ACC_BIND: 0.0.0.0:8000
+      ACC_WORKERS: "1"
+      ACC_GUNICORN_WORKER_CLASS: gthread
+      ACC_GUNICORN_THREADS: "4"
+      ACC_GUNICORN_TIMEOUT: "330"
     volumes:
-      - hora_data:/data
-      - hora_secrets:/secrets
-      - hora_logs:/logs
-      - hora_ssh:/home/hora/.ssh
+      - acc_data:/data
+      - acc_secrets:/secrets
+      - acc_logs:/logs
+      - acc_ssh:/home/acc/.ssh
     networks:
       - backend
     healthcheck:
@@ -51,14 +53,14 @@ services:
     build:
       context: ./docker/nginx
       dockerfile: Dockerfile
-    image: hora-admin-nginx:latest
+    image: ansible-control-center-nginx:latest
     restart: unless-stopped
     depends_on:
       app:
         condition: service_healthy
     ports:
-      - "${HORA_ADMIN_HTTP_PORT:-80}:80"
-      - "${HORA_ADMIN_HTTPS_PORT:-443}:443"
+      - "${ACC_HTTP_PORT:-80}:80"
+      - "${ACC_HTTPS_PORT:-443}:443"
     environment:
       TLS_CN: "${TLS_CN:-localhost}"
       TLS_SAN: "${TLS_SAN:-DNS:localhost,IP:127.0.0.1}"
@@ -79,7 +81,7 @@ networks:
     driver: bridge
 
 volumes:
-  hora_data:
-  hora_secrets:
-  hora_logs:
-  hora_ssh:
+  acc_data:
+  acc_secrets:
+  acc_logs:
+  acc_ssh:

@@ -1,9 +1,34 @@
-# Changelog — Hora Admin
+# Changelog — Ansible Control Center
 
 Historial de cambios por fase. El proyecto no usa versiones semánticas
 todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+## [Interruptor de simulación] — 2026-11-04
+
+### Añadido
+
+- **Interruptor DRY RUN en la interfaz:** un switch en la barra superior
+  permite a los administradores activar o desactivar la simulación sin tocar
+  variables de entorno ni reiniciar.
+- **Persistencia en SQLite:** el estado se guarda en la nueva tabla
+  `app_settings` (esquema v7) y se aplica al arrancar; `ACC_DRY_RUN` queda como
+  valor inicial si todavía no hay ninguno guardado.
+- **Confirmación explícita** al pasar a ejecución real y aviso si hay
+  operaciones en curso.
+- **Auditoría:** cada cambio se registra como evento `dry_run_on` /
+  `dry_run_off`.
+- **Permisos:** solo `admin` puede cambiar el modo; el resto de roles ve un
+  indicador de solo lectura.
+
+### Corregido
+
+- **Fallback sin JavaScript:** el formulario del interruptor envía también el
+  estado desmarcado, de modo que desactivar la simulación funciona aunque el
+  navegador no ejecute el script de la interfaz.
 
 ---
 
@@ -15,8 +40,8 @@ endurecimiento del empaquetado.
 
 ### Seguridad de red
 
-- **Allowlist obligatoria en producción:** `HORA_ADMIN_ALLOWED_NETWORKS` vacía
-  aborta el arranque con `HORA_ADMIN_ENV=production`.
+- **Allowlist obligatoria en producción:** `ACC_ALLOWED_NETWORKS` vacía
+  aborta el arranque con `ACC_ENV=production`.
 - **Bloqueo por defecto** de loopback, link-local (incluidos metadatos cloud
   `169.254.169.254`), multicast, reservadas y no especificadas, aunque la
   allowlist las incluya.
@@ -24,7 +49,7 @@ endurecimiento del empaquetado.
   **todas** sus direcciones y se guarda una IP literal para que Ansible no
   vuelva a consultar DNS (anti-rebinding).
 - **`TIME` + NTP `keep`:** se rechaza en ejecución con
-  `HORA_ADMIN_TIME_REQUIRE_NTP_OFF=1`; la vista previa solo avisa.
+  `ACC_TIME_REQUIRE_NTP_OFF=1`; la vista previa solo avisa.
 - **Tolerancia de hora:** valor por defecto reducido de 120 s a **2 s**.
 - **Lock del vault:** escritura serializada con `flock` entre procesos.
 - **Entorno mínimo de Ansible:** solo se heredan variables necesarias
@@ -55,10 +80,10 @@ endurecimiento del empaquetado.
 - **Instante único:** la app calcula `target_epoch` y lo comparte con el
   playbook, de modo que vista previa y ejecución coinciden.
 - **Verificación en dos fases** antes y después de reactivar NTP, con espera
-  de asentamiento (`HORA_ADMIN_NTP_SETTLE_SECONDS`).
+  de asentamiento (`ACC_NTP_SETTLE_SECONDS`).
 - **Inspección de servidores NTP** en la configuración estándar de chrony y
   systemd-timesyncd; corregida la ruta de chrony a
-  `/etc/chrony/conf.d/90-hora-admin.conf`.
+  `/etc/chrony/conf.d/90-ansible-control-center.conf`.
 
 ### Interfaz, assets y empaquetado
 
@@ -84,7 +109,7 @@ endurecimiento del empaquetado.
   CSP/assets, lock del vault, entorno de Ansible, estados de lote y esquema
   futuro.
 - `tests/test_ssh_container.py`: integración SSH opcional con Docker
-  (`HORA_ADMIN_RUN_SSH_TESTS=1`), omitida por defecto.
+  (`ACC_RUN_SSH_TESTS=1`), omitida por defecto.
 
 ---
 
@@ -98,10 +123,10 @@ honesta, ejecución acotada y contrato playbook→app más estricto.
   lectura aunque la simulación esté activa (`force_real=True` desde la vista
   previa). Así se detectan hosts caídos y credenciales inválidas en lugar de
   marcar todos como inspeccionados.
-- **Presupuesto de tiempo por lote:** `HORA_ADMIN_BATCH_TIME_BUDGET` (3600 s
+- **Presupuesto de tiempo por lote:** `ACC_BATCH_TIME_BUDGET` (3600 s
   por defecto). Al agotarse, los hosts pendientes se registran como `skipped`
   y el lote cierra.
-- **Tope de intentos por host:** `HORA_ADMIN_MAX_PASSWORD_ATTEMPTS` (3 por
+- **Tope de intentos por host:** `ACC_MAX_PASSWORD_ATTEMPTS` (3 por
   defecto), aplicado también a la vista previa.
 - **Hostnames en el formulario:** `validate_target` acepta un hostname
   resoluble y comprueba la allowlist contra la IP resuelta.
@@ -143,18 +168,18 @@ Docker Compose y HTTPS.
   `/healthz`.
 - **Entrypoint** (`docker/entrypoint.sh`): prepara directorios, aplica
   migraciones, crea el administrador inicial si se definió
-  `HORA_ADMIN_ADMIN_PASSWORD` y arranca Gunicorn.
+  `ACC_ADMIN_PASSWORD` y arranca Gunicorn.
 - **Nginx con TLS** (`docker/nginx/`): `nginx:1.27-alpine`, generación de
   certificado autofirmado en el primer arranque, redirección HTTP→HTTPS,
   proxy compatible con SSE (`proxy_buffering off`, timeouts de 360 s) y
   `HEALTHCHECK`.
 - **`docker-compose.yml`**: app y Nginx, red interna `backend`, volúmenes
-  `hora_data`, `hora_secrets`, `hora_logs` y `hora_ssh`; solo Nginx publica
+  `acc_data`, `acc_secrets`, `acc_logs` y `acc_ssh`; solo Nginx publica
   puertos.
 - **Configuración de ejemplo** (`.env.docker.example`) y `.dockerignore`.
 - **Empaquetado portable** (`docker/export-images.sh`): construye o reutiliza
-  las imágenes y genera la carpeta `dist/hora-admin-despliegue/` con las dos
-  imágenes en `imagenes/hora-admin-images.tar`, su ficha de arquitectura y
+  las imágenes y genera la carpeta `dist/ansible-control-center-despliegue/` con las dos
+  imágenes en `imagenes/ansible-control-center-images.tar`, su ficha de arquitectura y
   digests, `docker-compose.yml`, `Dockerfile`, `docker/`,
   `.env.docker.example`, un `certs/` vacío, `LEEME.txt`, la guía
   autocontenida `DESPLIEGUE.md` y `sha256sums.txt`. En la PC de destino basta
@@ -194,12 +219,12 @@ fiel de `restore` y avisos de riesgo.
   8 h por defecto, cookie “recordarme” limitada a 7 días y configuración
   `REMEMBER_COOKIE_SECURE`/`DURATION`.
 - **Pepper de hashes:** los hashes de contraseñas candidatas pasan a
-  HMAC-SHA256 con pepper persistido en `DATA_DIR` (`HORA_ADMIN_PASSWORD_PEPPER`
+  HMAC-SHA256 con pepper persistido en `DATA_DIR` (`ACC_PASSWORD_PEPPER`
   opcional). Se mantiene compatibilidad de lectura y borrado con hashes
   SHA-256 heredados.
 - **Reconciliación de lotes huérfanos:** los lotes `running` se marcan como
   `error` al arrancar y con el comando `reconcile-batches`.
-- **Allowlist de redes:** `HORA_ADMIN_ALLOWED_NETWORKS` restringe IPs y CIDR
+- **Allowlist de redes:** `ACC_ALLOWED_NETWORKS` restringe IPs y CIDR
   antes de enumerar o conectar; una entrada inválida impide arrancar.
 - **Gunicorn `gthread`:** 4 hilos por worker y `timeout` de 330 s para que el
   SSE no bloquee el resto de peticiones ni muera a los 300 s.
@@ -208,7 +233,7 @@ fiel de `restore` y avisos de riesgo.
   un doble envío redirija al progreso existente en vez de crear otro lote.
 - **Estado de tareas persistido:** esquema v5 con `task_state`; cada tarea
   guarda una instantánea JSON en SQLite y se recupera si la memoria se pierde.
-  Al arrancar se purgan las antiguas (`HORA_ADMIN_JOB_RETENTION_HOURS`) y se
+  Al arrancar se purgan las antiguas (`ACC_JOB_RETENTION_HOURS`) y se
   cierran como error las que quedaron incompletas.
 - **CI:** workflow de GitHub Actions con Python 3.11–3.13, compilación,
   validación YAML de Ansible y `pytest`.
@@ -274,8 +299,8 @@ fiel de `restore` y avisos de riesgo.
 - **Historial por lotes** con contadores, operador, duración y detalle por host.
 - **Esquema SQLite v3** con migración no destructiva, índices de lotes y
   `ON DELETE CASCADE` de hosts a lotes.
-- **Configuración P4:** `HORA_ADMIN_TIME_TOLERANCE`,
-  `HORA_ADMIN_DEFAULT_NTP_SERVERS` y `HORA_ADMIN_MAX_NTP_SERVERS`.
+- **Configuración P4:** `ACC_TIME_TOLERANCE`,
+  `ACC_DEFAULT_NTP_SERVERS` y `ACC_MAX_NTP_SERVERS`.
 - **Consola de Ansible en vivo:** `run_ansible_playbook`, `inspect_host` y
   `apply_host` aceptan un `line_callback` opcional; `_invoke_playbook` usa
   `Popen` con un hilo lector y entrega la salida línea a línea. Sin callback se
@@ -339,10 +364,10 @@ fiel de `restore` y avisos de riesgo.
   `X-Content-Type-Options: nosniff`, `Referrer-Policy`,
   `Permissions-Policy`, HSTS opcional y `Cache-Control: no-store`.
 - **Soporte de proxy inverso** con `ProxyFix` opcional.
-- **Configuración:** `HORA_ADMIN_CSRF_*`, `HORA_ADMIN_*_RATE_*`,
-  `HORA_ADMIN_MIN_CIDR_PREFIX`, `HORA_ADMIN_MAX_HOSTS`,
-  `HORA_ADMIN_TRUST_PROXY`, `HORA_ADMIN_CSP_ENABLED`,
-  `HORA_ADMIN_SECURITY_HEADERS`, `HORA_ADMIN_HSTS*`.
+- **Configuración:** `ACC_CSRF_*`, `ACC_*_RATE_*`,
+  `ACC_MIN_CIDR_PREFIX`, `ACC_MAX_HOSTS`,
+  `ACC_TRUST_PROXY`, `ACC_CSP_ENABLED`,
+  `ACC_SECURITY_HEADERS`, `ACC_HSTS*`.
 - Tests de seguridad (`tests/test_security.py`) y de cabeceras.
 
 ### Cambiado
@@ -416,7 +441,7 @@ fiel de `restore` y avisos de riesgo.
 - Bloqueo de `TIME` + `keep` (hoy solo se avisa).
 - Paralelismo, cola persistente, cancelación y reintento de hosts fallidos.
 - Parada ordenada con captura de `SIGTERM`.
-- Retención automática del historial (`HORA_ADMIN_HISTORY_DAYS`).
+- Retención automática del historial (`ACC_HISTORY_DAYS`).
 - RBAC, MFA, aprobaciones y auditoría de eventos independiente.
 - Rollback asistido y exportación de historial.
 - Inventarios, CSV, grupos y exclusiones.

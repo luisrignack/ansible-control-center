@@ -253,7 +253,7 @@
 
     downloadLog.addEventListener('click', () => {
         const lines = [
-            'Hora Admin — ejecución ' + taskId,
+            'Ansible Control Center — ejecución ' + taskId,
             'Generado: ' + new Date().toISOString(),
             '',
             '=== RESUMEN ==='
@@ -267,7 +267,7 @@
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
         anchor.href = url;
-        anchor.download = 'hora-admin-' + taskId + '.log';
+        anchor.download = 'ansible-control-center-' + taskId + '.log';
         document.body.appendChild(anchor);
         anchor.click();
         anchor.remove();

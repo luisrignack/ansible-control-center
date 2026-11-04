@@ -2,7 +2,7 @@
 # Prueba de integración opcional contra un contenedor SSH efímero.
 #
 # No se ejecuta por defecto: requiere Docker y la variable
-# HORA_ADMIN_RUN_SSH_TESTS=1, porque descarga/arranca una imagen y tarda
+# ACC_RUN_SSH_TESTS=1, porque descarga/arranca una imagen y tarda
 # varios segundos. En CI sin Docker simplemente se omite.
 from __future__ import annotations
 
@@ -17,14 +17,14 @@ import pytest
 
 from services import ansible_runner, password_tester
 
-RUN_SSH_TESTS = os.environ.get("HORA_ADMIN_RUN_SSH_TESTS") == "1"
+RUN_SSH_TESTS = os.environ.get("ACC_RUN_SSH_TESTS") == "1"
 HAS_DOCKER = shutil.which("docker") is not None
 
 pytestmark = pytest.mark.skipif(
     not (RUN_SSH_TESTS and HAS_DOCKER),
     reason=(
         "Prueba de integración SSH desactivada "
-        "(define HORA_ADMIN_RUN_SSH_TESTS=1 y ten Docker disponible)"
+        "(define ACC_RUN_SSH_TESTS=1 y ten Docker disponible)"
     ),
 )
 
@@ -53,10 +53,10 @@ def _wait_for_port(host: str, port: int, timeout: float = 30.0) -> None:
 @pytest.fixture()
 def ssh_container(monkeypatch):
     image = os.environ.get(
-        "HORA_ADMIN_SSH_TEST_IMAGE", "linuxserver/openssh-server:latest"
+        "ACC_SSH_TEST_IMAGE", "linuxserver/openssh-server:latest"
     )
-    password = "hora-admin-test-password"
-    name = f"hora-admin-ssh-{uuid.uuid4().hex[:8]}"
+    password = "ansible-control-center-test-password"
+    name = f"ansible-control-center-ssh-{uuid.uuid4().hex[:8]}"
 
     started = _docker(
         "run",

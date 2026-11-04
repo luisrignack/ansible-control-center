@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Propuesta 07 · Phosphor Terminal — Ansible Control Center</title>
+<meta name="description" content="Propuesta 07: consola de operaciones retro-futurista en verde fósforo para Ansible Control Center, con log en vivo, command palette y control de flota.">
+<style>
+/* ============================================================
+Propuesta 07 — Phosphor Terminal
+TUI de operaciones: fósforo verde, scanlines sutiles, mono.
+Autocontenida: fuentes del sistema, SVG inline, JS vanilla.
+============================================================ */
+:root { --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; --bg: #040806; --bg-deep: #020504; --panel: #07120c; --panel-2: #0a1a11; --line: #123d24; --line-2: #1d5c36; --text: #7dfba4; --text-2: #b9ffcd; --muted: #5d9b72; --dim: #3f7a55; --amber: #ffc857; --red: #ff5f56; --glow: rgba(125, 251, 164, .14); --r: 2px; }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.55 var(--mono); letter-spacing: .01em; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0; background: radial-gradient(900px 500px at 50% -10%, rgba(125,251,164,.07), transparent 65%), radial-gradient(500px 400px at 100% 100%, rgba(125,251,164,.035), transparent 70%); }
+body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 3; background: repeating-linear-gradient(180deg, rgba(0,0,0,.16) 0 1px, transparent 1px 3px); opacity: .5; }
+body.no-scan::after { display: none; }
+::selection { background: rgba(125,251,164,.28); color: #eafff0; }
+a { color: inherit; text-decoration: none; }
+button, input, select, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
+button { cursor: pointer; }
+h1, h2, h3, p, pre { margin: 0; }
+svg.i { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.skip { position: absolute; left: -999px; top: 6px; z-index: 200; background: var(--text); color: #04120a; padding: 8px 12px; font-weight: 700; }
+.skip:focus { left: 6px; }
+:focus-visible { outline: 2px solid var(--text-2); outline-offset: 2px; }
+.sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* Barra de estado ------------------------------------------ */
+.statusbar { position: sticky; top: 0; z-index: 40; display: flex; align-items: center; gap: 14px; height: 38px; padding: 0 14px; border-bottom: 1px solid var(--line-2); background: linear-gradient(180deg, #08160e, #050d08); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+.statusbar::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: linear-gradient(90deg, transparent, rgba(125,251,164,.45), transparent); }
+.sb-brand { font-weight: 700; color: var(--text-2); letter-spacing: .18em; }
+.sb-brand span { color: var(--dim); font-weight: 500; letter-spacing: .04em; margin-left: 5px; }
+.sb-path { color: var(--muted); white-space: nowrap; }
+.sb-path b { color: var(--text); font-weight: 500; }
+.sb-env { display: flex; align-items: center; gap: 6px; color: var(--text-2); margin-left: auto; white-space: nowrap; }
+.sb-env .dry { color: var(--amber); border: 1px solid rgba(255,200,87,.35); padding: 1px 5px; }
+.led { width: 6px; height: 6px; background: var(--text); box-shadow: 0 0 7px var(--text); display: inline-block; animation: breathe 2.6s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: .35; } }
+.sb-right { display: flex; align-items: center; gap: 10px; color: var(--muted); white-space: nowrap; }
+.sb-clock { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.sb-date { color: var(--dim); }
+.sb-btn { border: 1px solid var(--line); background: transparent; color: var(--muted); padding: 2px 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+.sb-btn:hover { color: var(--text); border-color: var(--line-2); background: rgba(125,251,164,.06); }
+.sb-btn[aria-pressed="true"] { color: var(--text); }
+.menu-btn { display: none; width: 28px; height: 24px; border: 1px solid var(--line); background: transparent; color: var(--text); font-size: 16px; line-height: 1; }
+/* Navegación ----------------------------------------------- */
+.nav { position: sticky; top: 38px; z-index: 39; display: flex; align-items: stretch; gap: 0; padding: 0 14px; border-bottom: 1px solid var(--line); background: rgba(4,8,6,.94); backdrop-filter: blur(6px); overflow-x: auto; scrollbar-width: none; }
+.nav::-webkit-scrollbar { display: none; }
+.nav a { display: flex; align-items: center; gap: 6px; padding: 9px 12px; border-right: 1px solid rgba(18,61,36,.6); color: var(--dim); font-size: 11px; white-space: nowrap; text-transform: uppercase; letter-spacing: .08em; }
+.nav a:first-child { border-left: 1px solid rgba(18,61,36,.6); }
+.nav a:hover { color: var(--text); background: rgba(125,251,164,.05); }
+.nav a[aria-current="page"] { color: var(--text-2); background: rgba(125,251,164,.08); box-shadow: inset 0 -2px 0 var(--text); }
+.nav a .idx { color: var(--dim); }
+.nav a[aria-current="page"] .idx { color: var(--text); }
+/* Estructura ----------------------------------------------- */
+.shell { position: relative; z-index: 1; }
+.hero { display: flex; align-items: center; gap: 22px; padding: 24px 22px 18px; flex-wrap: wrap; }
+.ascii-logo { color: var(--text); font: 600 15px/1.05 var(--mono); text-shadow: 0 0 12px rgba(125,251,164,.4); padding: 8px 14px; border: 1px solid var(--line); background: rgba(125,251,164,.03); white-space: pre; user-select: none; }
+.hero-copy { min-width: 0; }
+.eyebrow { color: var(--dim); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+.eyebrow::before { content: "//"; color: var(--text); }
+.hero h1 { font-size: 28px; line-height: 1.12; font-weight: 600; letter-spacing: -.02em; color: var(--text-2); }
+.hero h1 span { color: var(--text); }
+.hero-sub { color: var(--muted); font-size: 12px; margin-top: 5px; }
+.hero-sub b { color: var(--text); font-weight: 500; }
+.hero-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* Botones --------------------------------------------------- */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line-2); background: transparent; color: var(--text); padding: 8px 11px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .09em; transition: background .15s, color .15s, border-color .15s; }
+.btn:hover { background: rgba(125,251,164,.08); border-color: var(--text); }
+.btn-primary { background: var(--text); border-color: var(--text); color: #04120a; }
+.btn-primary:hover { background: #a9ffc2; border-color: #a9ffc2; }
+.btn-ghost { border-color: var(--line); color: var(--muted); }
+.btn-ghost:hover { color: var(--text); }
+.btn-sm { padding: 5px 8px; font-size: 9.5px; }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+.btn:disabled:hover { background: transparent; border-color: var(--line); }
+/* KPIs ------------------------------------------------------ */
+.kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; padding: 0 22px 16px; }
+.kpi { position: relative; border: 1px solid var(--line); background: rgba(7,18,12,.72); padding: 10px 12px 11px; min-width: 0; }
+.kpi::before { content: ""; position: absolute; left: -1px; top: 7px; bottom: 7px; width: 2px; background: var(--tone, var(--text)); opacity: .75; }
+.kpi-k { display: flex; align-items: center; gap: 5px; color: var(--dim); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; }
+.kpi-k span { color: var(--tone, var(--text)); }
+.kpi-v { display: flex; align-items: baseline; gap: 5px; margin-top: 4px; color: var(--text-2); font-size: 26px; font-weight: 600; line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.kpi-v small { color: var(--muted); font-size: 10px; font-weight: 400; letter-spacing: .04em; }
+.kpi-d { color: var(--muted); font-size: 9.5px; margin-top: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi-d b { color: var(--tone, var(--text)); font-weight: 500; }
+/* Paneles -------------------------------------------------- */
+.grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 10px; padding: 0 22px 18px; align-items: start; }
+.panel { position: relative; min-width: 0; border: 1px solid var(--line); background: rgba(7,18,12,.78); }
+.panel::after { content: ""; position: absolute; inset: 3px; pointer-events: none; border: 1px solid rgba(125,251,164,.035); }
+.panel-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 34px; padding: 7px 11px; border-bottom: 1px solid var(--line); background: linear-gradient(180deg, rgba(18,61,36,.32), rgba(7,18,12,.2)); }
+.panel-head h2 { font-size: 10.5px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .14em; display: flex; align-items: center; gap: 7px; }
+.panel-head h2::before { content: "▌"; color: var(--text); font-size: 11px; }
+.panel-head .tag { font-size: 9px; color: var(--dim); border: 1px solid var(--line); padding: 1px 5px; text-transform: uppercase; letter-spacing: .08em; }
+.panel-head .tag.live { color: var(--text); border-color: rgba(125,251,164,.35); }
+.panel-head .tag.warn { color: var(--amber); border-color: rgba(255,200,87,.35); }
+.panel-head .right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.panel-body { padding: 12px; }
+.span-5 { grid-column: span 5; }
+.span-7 { grid-column: span 7; }
+.span-12 { grid-column: span 12; }
+.stack { display: flex; flex-direction: column; gap: 10px; grid-column: span 5; }
+.stack .panel { width: 100%; }
+.hint { color: var(--dim); font-size: 9.5px; }
+.hint b { color: var(--muted); font-weight: 500; }
+/* Tabs internas -------------------------------------------- */
+.tabs { display: flex; border: 1px solid var(--line); }
+.tabs button { border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--dim); padding: 4px 8px; font-size: 9px; text-transform: uppercase; letter-spacing: .09em; }
+.tabs button:last-child { border-right: 0; }
+.tabs button[aria-selected="true"] { background: rgba(125,251,164,.12); color: var(--text-2); }
+.tabs button:hover { color: var(--text); }
+/* Formulario ----------------------------------------------- */
+.prompt { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; border: 1px solid var(--line); border-bottom: 0; background: var(--bg-deep); padding: 7px 10px; color: var(--muted); font-size: 10.5px; }
+.prompt .ps1 { color: var(--text); white-space: nowrap; }
+.prompt .cmd { color: var(--text-2); overflow-wrap: anywhere; }
+.prompt .cursor { margin-left: auto; }
+.cursor { display: inline-block; width: 7px; height: 12px; background: var(--text); vertical-align: -2px; animation: blink 1.1s step-end infinite; box-shadow: 0 0 8px rgba(125,251,164,.5); }
+@keyframes blink { 50% { opacity: 0; } }
+.form { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field.full { grid-column: 1 / -1; }
+.field label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 9.5px; text-transform: uppercase; letter-spacing: .1em; }
+.field label::before { content: ">"; color: var(--text); }
+.field label svg { display: none; }
+.input, .select { width: 100%; border: 1px solid var(--line-2); background: #030906; color: var(--text-2); padding: 8px 9px; font-size: 11.5px; outline: none; }
+.input:hover, .select:hover { border-color: var(--dim); }
+.input:focus, .select:focus { border-color: var(--text); box-shadow: 0 0 0 2px rgba(125,251,164,.12); }
+.input::placeholder { color: var(--dim); }
+.input:disabled { opacity: .45; cursor: not-allowed; }
+.select { appearance: none; padding-right: 24px; background-image: linear-gradient(45deg, transparent 50%, var(--text) 50%), linear-gradient(135deg, var(--text) 50%, transparent 50%); background-position: calc(100% - 13px) 52%, calc(100% - 9px) 52%; background-size: 4px 4px, 4px 4px; background-repeat: no-repeat; }
+.help { color: var(--dim); font-size: 9px; }
+.help b { color: var(--muted); font-weight: 500; }
+.chips { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 2px; }
+.chip { border: 1px solid var(--line); background: transparent; color: var(--dim); padding: 2px 6px; font-size: 9px; font-family: var(--mono); }
+.chip:hover { color: var(--text); border-color: var(--line-2); }
+.chip.is-on { color: var(--text); border-color: var(--text); background: rgba(125,251,164,.08); }
+/* Política NTP --------------------------------------------- */
+.policies { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.policy { position: relative; }
+.policy input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.policy label { display: block; border: 1px solid var(--line); padding: 7px 8px; color: var(--muted); font-size: 10px; cursor: pointer; transition: border-color .15s, background .15s; }
+.policy label b { color: var(--text-2); font-weight: 600; display: flex; justify-content: space-between; }
+.policy label b span { color: var(--dim); font-weight: 400; font-size: 8.5px; }
+.policy label small { display: block; color: var(--dim); font-size: 8.5px; margin-top: 1px; }
+.policy input:checked + label { border-color: var(--text); background: rgba(125,251,164,.09); color: var(--text); }
+.policy input:checked + label b span { color: var(--text); }
+.policy input:focus-visible + label { outline: 2px solid var(--text-2); outline-offset: 2px; }
+.policy label:hover { border-color: var(--line-2); }
+/* Interruptores -------------------------------------------- */
+.switches { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.switch { display: flex; align-items: center; gap: 8px; text-align: left; border: 1px solid var(--line); background: #040b07; color: var(--muted); padding: 7px 8px; width: 100%; }
+.switch .sw-txt { min-width: 0; }
+.switch .sw-txt b { display: block; color: var(--text-2); font-size: 10px; font-weight: 500; }
+.switch .sw-txt small { display: block; color: var(--dim); font-size: 8.5px; }
+.switch .sw-state { margin-left: auto; color: var(--dim); font-size: 10px; white-space: nowrap; }
+.switch[aria-checked="true"] { border-color: var(--line-2); }
+.switch[aria-checked="true"] .sw-state { color: var(--text); text-shadow: 0 0 8px rgba(125,251,164,.4); }
+.form-foot { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.form-foot .note { color: var(--dim); font-size: 9px; margin-right: auto; }
+.form-foot .note b { color: var(--amber); font-weight: 500; }
+/* Vista previa --------------------------------------------- */
+.summary { border: 1px solid var(--line); background: var(--bg-deep); }
+.summary div { display: grid; grid-template-columns: 132px 1fr; gap: 10px; padding: 7px 9px; border-bottom: 1px dashed rgba(18,61,36,.8); font-size: 10.5px; }
+.summary div:last-child { border-bottom: 0; }
+.summary span { color: var(--dim); text-transform: uppercase; letter-spacing: .06em; font-size: 9px; }
+.summary b { color: var(--text-2); font-weight: 500; overflow-wrap: anywhere; }
+.summary b.amber { color: var(--amber); }
+.summary b.red { color: var(--red); }
+.summary b.green { color: var(--text); }
+.cmd-block { margin-top: 8px; border: 1px solid var(--line); background: #020604; color: var(--muted); padding: 8px 9px; font-size: 9.5px; line-height: 1.7; overflow-x: auto; white-space: pre; }
+.cmd-block b { color: var(--text); font-weight: 500; }
+.cmd-block .cm { color: var(--dim); }
+.note-box { display: flex; gap: 7px; margin-top: 8px; padding: 7px 8px; border: 1px solid rgba(255,200,87,.28); background: rgba(255,200,87,.05); color: #ffdf9a; font-size: 9.5px; line-height: 1.55; }
+.note-box svg { color: var(--amber); margin-top: 1px; }
+/* Lote / progreso ------------------------------------------ */
+.run-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.run-pct { color: var(--text-2); font-size: 40px; line-height: .95; font-weight: 600; letter-spacing: -.05em; font-variant-numeric: tabular-nums; }
+.run-pct small { font-size: 14px; color: var(--muted); letter-spacing: 0; }
+.run-count { color: var(--muted); font-size: 10px; text-align: right; }
+.run-count b { display: block; color: var(--text); font-size: 13px; font-weight: 500; }
+.pbar { height: 13px; border: 1px solid var(--line-2); padding: 2px; margin: 9px 0 6px; background: repeating-linear-gradient(90deg, rgba(63,122,85,.3) 0 7px, transparent 7px 9px); }
+.pbar-fill { display: block; height: 100%; width: 72%; background: repeating-linear-gradient(90deg, var(--text) 0 7px, transparent 7px 9px); box-shadow: 0 0 10px rgba(125,251,164,.18); transition: width .4s ease; }
+.pbar-meta { display: flex; justify-content: space-between; gap: 8px; color: var(--dim); font-size: 9px; flex-wrap: wrap; }
+.pbar-meta b { color: var(--muted); font-weight: 500; }
+.steps { display: flex; flex-direction: column; margin-top: 11px; border-top: 1px dashed var(--line); }
+.step { display: grid; grid-template-columns: 34px 1fr auto; gap: 8px; align-items: center; padding: 7px 2px; border-bottom: 1px dashed rgba(18,61,36,.7); }
+.step:last-child { border-bottom: 0; }
+.step .st { color: var(--dim); font-size: 9px; }
+.step .nm { color: var(--muted); font-size: 10.5px; }
+.step .nm small { display: block; color: var(--dim); font-size: 8.5px; }
+.step .tm { color: var(--dim); font-size: 9px; text-align: right; white-space: nowrap; }
+.step.done .st, .step.done .nm small { color: var(--dim); }
+.step.done .nm { color: var(--text-2); }
+.step.active { background: rgba(125,251,164,.045); }
+.step.active .st { color: var(--text); text-shadow: 0 0 8px rgba(125,251,164,.5); }
+.step.active .nm { color: var(--text-2); }
+.step.active .tm { color: var(--text); }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 9px; }
+.stat { border: 1px solid var(--line); padding: 5px 7px; background: rgba(2,6,4,.4); }
+.stat span { display: block; color: var(--dim); font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
+.stat b { display: block; color: var(--text-2); font-size: 13px; font-weight: 500; margin-top: 1px; font-variant-numeric: tabular-nums; }
+.stat b.amber { color: var(--amber); }
+.stat b.red { color: var(--red); }
+.stat b.green { color: var(--text); }
+.run-foot { display: flex; gap: 6px; margin-top: 9px; }
+.run-foot .btn { flex: 1; }
+/* Tabla de hosts ------------------------------------------- */
+.table-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.seg { display: flex; border: 1px solid var(--line); }
+.seg button { border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--dim); padding: 4px 7px; font-size: 9px; text-transform: uppercase; letter-spacing: .05em; }
+.seg button:last-child { border-right: 0; }
+.seg button:hover { color: var(--text); }
+.seg button[aria-pressed="true"] { background: rgba(125,251,164,.12); color: var(--text-2); }
+.seg button .n { color: var(--dim); margin-left: 3px; }
+.table-search { display: flex; align-items: center; gap: 5px; border: 1px solid var(--line); background: var(--bg-deep); padding: 3px 7px; }
+.table-search svg { color: var(--dim); width: 11px; height: 11px; }
+.table-search input { border: 0; outline: none; background: transparent; color: var(--text-2); font-size: 9.5px; width: 118px; padding: 1px 0; }
+.table-search input::placeholder { color: var(--dim); }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+th { text-align: left; padding: 6px 9px; border-bottom: 1px solid var(--line); background: rgba(10,26,17,.7); color: var(--dim); font-size: 8.5px; font-weight: 500; text-transform: uppercase; letter-spacing: .11em; white-space: nowrap; }
+td { padding: 6px 9px; border-bottom: 1px dashed rgba(18,61,36,.55); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+tbody tr:hover { background: rgba(125,251,164,.045); }
+tbody tr:last-child td { border-bottom: 0; }
+.host { display: flex; align-items: center; gap: 7px; }
+.host .hico { color: var(--dim); font-size: 10px; }
+.host b { display: block; color: var(--text-2); font-weight: 500; font-size: 10.5px; }
+.host span { display: block; color: var(--dim); font-size: 8.5px; }
+.st { display: inline-block; border: 1px solid var(--line); padding: 1px 4px; font-size: 8.5px; font-weight: 600; letter-spacing: .05em; }
+.st.ok { color: var(--text); border-color: rgba(125,251,164,.4); background: rgba(125,251,164,.08); }
+.st.chg { color: var(--amber); border-color: rgba(255,200,87,.4); background: rgba(255,200,87,.07); }
+.st.bad { color: var(--red); border-color: rgba(255,95,86,.4); background: rgba(255,95,86,.07); }
+.mono { color: var(--muted); font-size: 9.5px; }
+.mono.dim { color: var(--dim); }
+.mono.amber { color: var(--amber); }
+.mono.red { color: var(--red); }
+.table-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 7px 10px; border-top: 1px solid var(--line); color: var(--dim); font-size: 9px; }
+.table-foot .right { margin-left: auto; display: flex; gap: 4px; }
+.empty { padding: 18px; text-align: center; color: var(--dim); font-size: 10px; }
+/* Consola -------------------------------------------------- */
+.console { border: 1px solid var(--line); background: #020604; position: relative; overflow: hidden; }
+.console::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(125,251,164,.03), transparent 22%); }
+.con-head { display: flex; align-items: center; gap: 7px; padding: 5px 9px; border-bottom: 1px solid var(--line); background: #07120c; font-size: 8.5px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; }
+.con-head .dot { width: 5px; height: 5px; background: var(--text); border-radius: 50%; box-shadow: 0 0 6px var(--text); animation: breathe 2.6s infinite; }
+.con-head .right { margin-left: auto; display: flex; gap: 4px; }
+.con-head button { border: 1px solid var(--line); background: transparent; color: var(--dim); padding: 1px 5px; font-size: 8px; text-transform: uppercase; }
+.con-head button:hover { color: var(--text); border-color: var(--line-2); }
+.con-head button[aria-pressed="true"] { color: var(--text); border-color: var(--line-2); }
+.log { margin: 0; padding: 9px 10px; max-height: 268px; overflow: auto; font: 10px/1.72 var(--mono); color: var(--muted); scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.log .ln { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
+.log .dim { color: var(--dim); }
+.log .cy { color: var(--text); }
+.log .ok { color: var(--text-2); }
+.log .warn { color: var(--amber); }
+.log .bad { color: var(--red); }
+.log .b { color: var(--text-2); font-weight: 600; }
+.log .hidden-line { display: none; }
+.log .cursor { margin-left: 2px; }
+.log-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 9px; border-top: 1px solid var(--line); color: var(--dim); font-size: 9px; }
+.log-foot .ps1 { color: var(--text); }
+/* Actividad y roadmap -------------------------------------- */
+.feed { display: flex; flex-direction: column; }
+.feed-item { display: grid; grid-template-columns: 62px 1fr; gap: 8px; padding: 7px 0; border-bottom: 1px dashed rgba(18,61,36,.6); font-size: 10px; align-items: start; }
+.feed-item:last-child { border-bottom: 0; padding-bottom: 0; }
+.feed-item time { color: var(--dim); font-size: 8.5px; }
+.feed-item b { display: block; color: var(--text-2); font-weight: 500; }
+.feed-item p { color: var(--dim); font-size: 9px; margin-top: 1px; }
+.feed-item .pre { color: var(--text); margin-right: 4px; }
+.feed-item .pre.warn { color: var(--amber); }
+.feed-item .pre.bad { color: var(--red); }
+.modules { display: flex; flex-direction: column; gap: 5px; }
+.module { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: 1px solid var(--line); background: rgba(2,6,4,.35); padding: 7px 8px; }
+.module:hover { border-color: var(--line-2); background: rgba(125,251,164,.05); }
+.module .mod-ico { width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid var(--line); color: var(--text); flex: none; }
+.module .mod-txt { min-width: 0; }
+.module .mod-txt b { display: block; color: var(--text-2); font-size: 10px; font-weight: 500; }
+.module .mod-txt small { display: block; color: var(--dim); font-size: 8.5px; }
+.module .mod-tag { margin-left: auto; color: var(--dim); border: 1px solid var(--line); padding: 1px 4px; font-size: 7.5px; letter-spacing: .06em; }
+.module .mod-tag.beta { color: var(--amber); border-color: rgba(255,200,87,.35); }
+.module .mod-tag.soon { color: var(--muted); border-color: var(--line-2); }
+/* Pie ------------------------------------------------------ */
+.statusline { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; border-top: 1px solid var(--line); padding: 9px 22px 14px; color: var(--dim); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+.statusline .keys { display: flex; gap: 10px; flex-wrap: wrap; margin-left: auto; }
+.statusline kbd { font: inherit; color: var(--muted); border: 1px solid var(--line); padding: 0 3px; margin-right: 3px; }
+/* Overlays / diálogos -------------------------------------- */
+.overlay { position: fixed; inset: 0; z-index: 100; display: none; place-items: center; padding: 14px; background: rgba(2,5,4,.82); backdrop-filter: blur(3px); }
+.overlay.open { display: grid; }
+.dialog { width: min(540px, 100%); max-height: calc(100vh - 28px); overflow: auto; border: 1px solid var(--line-2); background: #061009; box-shadow: 0 0 0 1px #020504, 0 24px 80px rgba(0,0,0,.8), 0 0 60px rgba(125,251,164,.06); }
+.dialog-head { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-bottom: 1px solid var(--line-2); background: rgba(125,251,164,.06); }
+.dialog-head .dh-ico { color: var(--amber); display: grid; place-items: center; }
+.dialog-head h2 { color: var(--text-2); font-size: 10.5px; text-transform: uppercase; letter-spacing: .13em; font-weight: 600; }
+.dialog-head p { color: var(--dim); font-size: 8.5px; margin-top: 1px; }
+.dialog-head .x { margin-left: auto; border: 1px solid var(--line); background: transparent; color: var(--muted); width: 24px; height: 24px; display: grid; place-items: center; }
+.dialog-head .x:hover { color: var(--red); border-color: rgba(255,95,86,.4); }
+.dialog-body { padding: 12px; }
+.dialog-foot { display: flex; gap: 7px; justify-content: flex-end; flex-wrap: wrap; padding: 10px 12px; border-top: 1px solid var(--line); }
+.dialog .summary { margin-bottom: 8px; }
+.dialog .note-box { margin-top: 0; }
+.confirm-meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 8px; color: var(--dim); font-size: 9px; }
+.confirm-meta b { color: var(--text); font-weight: 500; }
+/* Command palette ------------------------------------------ */
+.palette { width: min(600px, 100%); border-color: var(--text); box-shadow: 0 0 0 1px #020504, 0 0 50px rgba(125,251,164,.16); }
+.palette-input { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line-2); color: var(--text); }
+.palette-input .ps1 { font-size: 12px; white-space: nowrap; }
+.palette-input input { flex: 1; border: 0; outline: none; background: transparent; color: var(--text-2); font-size: 12px; min-width: 0; }
+.palette-input input::placeholder { color: var(--dim); }
+.palette-input kbd { border: 1px solid var(--line); color: var(--dim); font: 8.5px var(--mono); padding: 1px 4px; text-transform: uppercase; }
+.palette-list { list-style: none; margin: 0; padding: 5px; max-height: 320px; overflow: auto; }
+.palette-list li { margin: 0; }
+.palette-list button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: 0; background: transparent; color: var(--muted); padding: 8px 8px; font-size: 10.5px; }
+.palette-list button:hover, .palette-list button:focus-visible { background: rgba(125,251,164,.09); color: var(--text-2); outline: none; }
+.palette-list button .cmd-ico { color: var(--text); width: 15px; display: grid; place-items: center; }
+.palette-list button .cmd-name { flex: 1; min-width: 0; }
+.palette-list button .cmd-name small { display: block; color: var(--dim); font-size: 8.5px; }
+.palette-list button kbd { border: 1px solid var(--line); color: var(--dim); font: 8px var(--mono); padding: 1px 4px; }
+.palette-list .no-results { padding: 16px 8px; color: var(--dim); text-align: center; font-size: 9.5px; }
+.palette-foot { display: flex; gap: 10px; flex-wrap: wrap; padding: 6px 10px; border-top: 1px solid var(--line); color: var(--dim); font-size: 8px; text-transform: uppercase; letter-spacing: .06em; }
+.palette-foot kbd { border: 1px solid var(--line); padding: 0 3px; margin-right: 3px; }
+/* Toast ---------------------------------------------------- */
+.toast { position: fixed; left: 50%; bottom: 18px; z-index: 120; transform: translate(-50%, 18px); opacity: 0; pointer-events: none; display: flex; align-items: center; gap: 9px; min-width: 280px; max-width: min(440px, calc(100vw - 28px)); border: 1px solid var(--text); background: #061009; color: var(--text-2); padding: 9px 11px; font-size: 10px; box-shadow: 0 0 30px rgba(125,251,164,.12), 0 20px 50px rgba(0,0,0,.7); transition: transform .2s ease, opacity .2s ease; }
+.toast.show { transform: translate(-50%, 0); opacity: 1; }
+.toast svg { color: var(--text); flex: none; }
+.toast b { display: block; font-weight: 600; }
+.toast span { display: block; color: var(--muted); font-size: 9px; }
+/* Responsive ----------------------------------------------- */
+@media (max-width: 1080px) {
+  .span-7, .span-5, .stack { grid-column: span 12; }
+  .kpis { grid-template-columns: repeat(3, 1fr); }
+  .kpi:nth-child(4), .kpi:nth-child(5) { grid-column: auto; }
+}
+@media (max-width: 820px) {
+  .statusbar { gap: 8px; padding: 0 10px; }
+  .sb-path, .sb-date, .sb-tz { display: none; }
+  .menu-btn { display: block; }
+  .nav { display: none; position: fixed; top: 38px; left: 0; right: 0; z-index: 45; flex-direction: column; background: #040806; border-bottom: 1px solid var(--line-2); box-shadow: 0 20px 40px rgba(0,0,0,.6); padding: 6px; }
+  .nav.open { display: flex; }
+  .nav a { border: 1px solid transparent; border-bottom: 1px dashed var(--line); padding: 11px 12px; }
+  .nav a:first-child { border-left: 1px solid transparent; }
+  .hero { padding: 18px 14px 14px; gap: 14px; }
+  .hero h1 { font-size: 23px; }
+  .hero-actions { margin-left: 0; width: 100%; }
+  .hero-actions .btn { flex: 1; }
+  .grid { padding: 0 14px 16px; }
+  .kpis { padding: 0 14px 14px; }
+  .statusline { padding: 10px 14px 16px; }
+  .statusline .keys { margin-left: 0; }
+  .ascii-logo { font-size: 12px; }
+}
+@media (max-width: 620px) {
+  .sb-env .dry { display: none; }
+  .sb-env { margin-left: 0; font-size: 9px; }
+  .sb-right { gap: 6px; margin-left: auto; }
+  .sb-clock { font-size: 10px; }
+  .kpis { grid-template-columns: 1fr 1fr; }
+  .kpi:nth-child(5) { grid-column: span 2; }
+  .kpi-v { font-size: 23px; }
+  .form { grid-template-columns: 1fr; }
+  .field.full { grid-column: auto; }
+  .policies, .switches { grid-template-columns: 1fr; }
+  .summary div { grid-template-columns: 108px 1fr; }
+  .table-search input { width: 86px; }
+  .stats { grid-template-columns: 1fr 1fr; }
+  .run-pct { font-size: 33px; }
+  .hero-copy { flex: 1 1 100%; }
+  .dialog-foot .btn { flex: 1; }
+}
+@media (max-width: 400px) {
+  .sb-brand span { display: none; }
+  .ascii-logo { display: none; }
+  .hero h1 { font-size: 21px; }
+  .seg button { padding: 4px 5px; font-size: 8px; }
+  .table-tools { width: 100%; margin-left: 0; }
+  .kpis { gap: 6px; }
+}
+/* Movimiento reducido -------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+  body::after { display: none; }
+  .cursor { animation: none; opacity: 1; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Saltar al contenido</a>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6"/><rect x="3" y="14" width="18" height="6"/><path d="M7 7h.01M7 17h.01"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 016.5 3H20v16H6.5A2.5 2.5 0 004 21.5z"/><path d="M4 19V5.5M8 7h8M8 11h6"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4l12 8-12 8z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8m-3 0h3v3"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16"/><path d="M7 9l3 3-3 3M13 15h4"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3l9 16H3z"/><path d="M12 9v4m0 3h.01"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m0 0l-6-6m6 6l-6 6"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16"/><path d="M8 3v4M16 3v4M3 10h18"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0l4-4m-4 4l-4-4M4 21h16"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11"/><path d="M5 15V5h10"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11"/><path d="M8 10V7a4 4 0 018 0v3"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.5-6 8-6s8 2 8 6"/></symbol>
+</defs></svg>
+<div class="shell">
+  <!-- Barra de estado superior -->
+  <div class="statusbar">
+    <button class="menu-btn" id="menuBtn" aria-label="Abrir navegación" aria-expanded="false" aria-controls="nav">≡</button>
+    <div class="sb-brand">ACC <span>v0.9.4</span></div>
+    <div class="sb-path">operator@acc:<b>~/panel</b></div>
+    <div class="sb-env"><span class="led"></span> Producción <span class="dry">[DRY RUN]</span></div>
+    <div class="sb-right">
+      <span class="sb-date" id="date">--/--/----</span>
+      <span class="sb-clock" id="clock">--:--:--</span>
+      <span class="sb-tz">CET</span>
+      <button class="sb-btn" id="scanBtn" aria-pressed="true" aria-label="Alternar efecto de scanlines">[scan:on]</button>
+      <button class="sb-btn" id="paletteBtn" aria-haspopup="dialog" aria-label="Abrir command palette">[⌘K]</button>
+    </div>
+  </div>
+
+  <!-- Navegación de producto -->
+  <nav class="nav" id="nav" aria-label="Navegación principal">
+    <a href="#main" aria-current="page"><span class="idx">01</span> Panel</a>
+    <a href="#hosts"><span class="idx">02</span> Inventario</a>
+    <a href="#future"><span class="idx">03</span> Playbooks</a>
+    <a href="#run"><span class="idx">04</span> Ejecuciones</a>
+    <a href="#future"><span class="idx">05</span> Programaciones</a>
+    <a href="#form"><span class="idx">06</span> Credenciales</a>
+    <a href="#activity"><span class="idx">07</span> Auditoría</a>
+  </nav>
+
+  <main id="main">
+    <!-- Cabecera / marca -->
+    <section class="hero" aria-labelledby="pageTitle">
+      <pre class="ascii-logo" aria-hidden="true"> ▄▀█ █▀▀ █▀▀
+ █▀█ █▄▄ █▄▄</pre>
+      <div class="hero-copy">
+        <div class="eyebrow">panel 01 · operación de reloj</div>
+        <h1 id="pageTitle">Ansible Control Center</h1>
+        <p class="hero-sub">Consola de automatización · <b>flota Ubuntu</b> · zona, hora y NTP</p>
+      </div>
+      <div class="hero-actions">
+        <button class="btn btn-ghost" data-goto="#form"><svg class="i"><use href="#i-layers"/></svg> Nueva operación</button>
+        <button class="btn btn-primary" data-exec><svg class="i"><use href="#i-play"/></svg> Ejecutar lote</button>
+      </div>
+    </section>
+
+    <!-- Indicadores de flota -->
+    <section class="kpis" aria-label="Indicadores de la flota">
+      <div class="kpi" style="--tone:var(--text)">
+        <div class="kpi-k"><span>[#]</span> Hosts objetivo</div>
+        <div class="kpi-v">254 <small>hosts</small></div>
+        <div class="kpi-d">192.168.1.0/24 · enumerado</div>
+      </div>
+      <div class="kpi" style="--tone:var(--text-2)">
+        <div class="kpi-k"><span>[✓]</span> Correctos</div>
+        <div class="kpi-v">247 <small>97,2 %</small></div>
+        <div class="kpi-d">235 sin cambios + 12 ajustados</div>
+      </div>
+      <div class="kpi" style="--tone:var(--amber)">
+        <div class="kpi-k"><span>[~]</span> Con cambios</div>
+        <div class="kpi-v">12</div>
+        <div class="kpi-d">Zona horaria o NTP ajustado</div>
+      </div>
+      <div class="kpi" style="--tone:var(--red)">
+        <div class="kpi-k"><span>[x]</span> Fallos</div>
+        <div class="kpi-v">7</div>
+        <div class="kpi-d">3 auth · 4 timeout</div>
+      </div>
+      <div class="kpi" style="--tone:var(--amber)">
+        <div class="kpi-k"><span>[t]</span> Duración</div>
+        <div class="kpi-v">4<small>m</small> 12<small>s</small></div>
+        <div class="kpi-d">Lote <b>#A7F3C9E2</b></div>
+      </div>
+    </section>
+
+    <div class="grid">
+      <!-- Formulario de operación -->
+      <section class="panel span-7" id="form" aria-labelledby="formTitle">
+        <div class="panel-head">
+          <h2 id="formTitle">Nueva operación</h2>
+          <span class="tag">TZ / NTP</span>
+          <div class="right">
+            <div class="tabs" role="tablist" aria-label="Vista del formulario">
+              <button id="tabConfig" role="tab" aria-selected="true" aria-controls="panelConfig" data-tab="config">config</button>
+              <button id="tabPreview" role="tab" aria-selected="false" aria-controls="panelPreview" data-tab="preview">preview</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-body" id="panelConfig" role="tabpanel" aria-labelledby="tabConfig">
+          <div class="prompt">
+            <span class="ps1">operator@acc:~$</span>
+            <span class="cmd">acc run --target 192.168.1.0/24 --check --vault prod</span>
+            <span class="cursor" aria-hidden="true"></span>
+          </div>
+
+          <form class="form" id="opForm" novalidate>
+            <div class="field full">
+              <label for="targetInput">IP, hostname o rango CIDR</label>
+              <input class="input" id="targetInput" name="target" value="192.168.1.0/24" spellcheck="false" autocomplete="off">
+              <div class="chips" aria-label="Objetivos frecuentes">
+                <button type="button" class="chip is-on" data-target="192.168.1.0/24">192.168.1.0/24</button>
+                <button type="button" class="chip" data-target="10.20.0.0/24">10.20.0.0/24</button>
+                <button type="button" class="chip" data-target="web-01.empresa.local">web-01</button>
+                <button type="button" class="chip" data-target="192.168.1.10">host único</button>
+              </div>
+              <span class="help">Se procesan todos los hosts del rango, best-effort. <b>254 detectados</b>.</span>
+            </div>
+
+            <div class="field">
+              <label for="userInput">Usuario administrador</label>
+              <input class="input" id="userInput" name="user" value="ubuntu-admin" spellcheck="false" autocomplete="username">
+            </div>
+            <div class="field">
+              <label for="vaultSelect">Credenciales · vault</label>
+              <select class="select" id="vaultSelect" name="vault">
+                <option value="vault-prod">Vault cifrado · 4 candidatas</option>
+                <option value="vault-dr">Vault DR · 2 candidatas</option>
+                <option value="temp-file">Archivo temporal .txt</option>
+              </select>
+            </div>
+
+            <div class="field full">
+              <label for="vaultPass">Contraseña maestra del vault</label>
+              <input class="input" id="vaultPass" name="vaultPass" type="password" value="simulacion-local" placeholder="••••••••••••" autocomplete="current-password">
+              <span class="help">Se usa en memoria; nunca se persiste ni aparece en el log.</span>
+            </div>
+
+            <div class="field">
+              <label for="actionSelect">Acción</label>
+              <select class="select" id="actionSelect" name="action">
+                <option value="tz">Zona horaria (TZ)</option>
+                <option value="time">Hora exacta (TIME)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="tzInput">Zona horaria</label>
+              <input class="input" id="tzInput" name="tz" value="Europe/Madrid" list="tzList" spellcheck="false" autocomplete="off">
+              <datalist id="tzList">
+                <option>Europe/Madrid</option>
+                <option>UTC</option>
+                <option>America/Bogota</option>
+                <option>America/Mexico_City</option>
+                <option>Europe/Lisbon</option>
+              </datalist>
+            </div>
+
+            <div class="field full">
+              <label id="ntpLabel">Política NTP</label>
+              <div class="policies" role="radiogroup" aria-labelledby="ntpLabel">
+                <div class="policy">
+                  <input type="radio" id="ntpRestore" name="ntpPolicy" value="restore" checked>
+                  <label for="ntpRestore"><b>restore <span>[REC]</span></b><small>Devolver al estado previo</small></label>
+                </div>
+                <div class="policy">
+                  <input type="radio" id="ntpKeep" name="ntpPolicy" value="keep">
+                  <label for="ntpKeep"><b>keep <span>[SAFE]</span></b><small>No tocar la configuración</small></label>
+                </div>
+                <div class="policy">
+                  <input type="radio" id="ntpOff" name="ntpPolicy" value="off">
+                  <label for="ntpOff"><b>off <span>[OFF]</span></b><small>Desactivar sincronización</small></label>
+                </div>
+                <div class="policy">
+                  <input type="radio" id="ntpConfigure" name="ntpPolicy" value="configure">
+                  <label for="ntpConfigure"><b>configure <span>[SET]</span></b><small>Definir servidores NTP</small></label>
+                </div>
+              </div>
+            </div>
+
+            <div class="field full">
+              <label for="serversInput">Servidores NTP</label>
+              <input class="input" id="serversInput" name="ntpServers" value="ntp.ubuntu.com, time.cloudflare.com" spellcheck="false" autocomplete="off">
+              <span class="help">Separados por coma · se validan contra el inventario antes de aplicar.</span>
+            </div>
+
+            <div class="field full">
+              <div class="switches">
+                <button type="button" class="switch" id="rtcToggle" role="switch" aria-checked="true">
+                  <span class="sw-txt"><b>Sincronizar RTC</b><small>hwclock --systohc</small></span>
+                  <span class="sw-state">[ON]</span>
+                </button>
+                <button type="button" class="switch" id="forceToggle" role="switch" aria-checked="false">
+                  <span class="sw-txt"><b>Forzar cambio</b><small>omite idempotencia</small></span>
+                  <span class="sw-state">[OFF]</span>
+                </button>
+              </div>
+            </div>
+          </form>
+
+          <div class="form-foot">
+            <span class="note"><b>[!]</b> Simulación activa: no se toca ningún host.</span>
+            <button type="button" class="btn btn-sm" id="previewBtn"><svg class="i"><use href="#i-search"/></svg> Vista previa</button>
+            <button type="button" class="btn btn-primary btn-sm" data-exec><svg class="i"><use href="#i-play"/></svg> Ejecutar operación</button>
+          </div>
+        </div>
+
+        <div class="panel-body" id="panelPreview" role="tabpanel" aria-labelledby="tabPreview" hidden>
+          <div class="summary" aria-label="Resumen de la operación">
+            <div><span>objetivo</span><b id="pvTarget">192.168.1.0/24 · 254 hosts</b></div>
+            <div><span>usuario</span><b id="pvUser">ubuntu-admin</b></div>
+            <div><span>credencial</span><b id="pvVault">Vault cifrado · 4 candidatas</b></div>
+            <div><span>acción</span><b id="pvAction">Zona horaria (TZ)</b></div>
+            <div><span>zona horaria</span><b id="pvTz">Europe/Madrid</b></div>
+            <div><span>política NTP</span><b id="pvNtp">restore — estado previo</b></div>
+            <div><span>servidores NTP</span><b id="pvServers">ntp.ubuntu.com, time.cloudflare.com</b></div>
+            <div><span>RTC / forzar</span><b id="pvFlags" class="green">sincronizar · idempotente</b></div>
+            <div><span>impacto estimado</span><b class="amber">12 hosts cambiarían · 7 no accesibles</b></div>
+          </div>
+          <div class="cmd-block" id="pvCommand" aria-label="Comando equivalente"><span class="cm"># comando equivalente (no se ejecuta)</span>
+ansible-playbook <b>site.yml</b> --limit <b>192.168.1.0/24</b> --check \
+  -e <b>tz=Europe/Madrid</b> -e <b>ntp=restore</b> -e <b>rtc=true</b></div>
+          <div class="note-box"><svg class="i"><use href="#i-alert"/></svg><span>La vista previa es una estimación con los datos del último inventario. Confirma el resumen antes de encolar el lote.</span></div>
+          <div class="form-foot">
+            <span class="note">Lote estimado <b>#A7F3C9E2</b></span>
+            <button type="button" class="btn btn-sm" data-tab-jump="config">Volver a configurar</button>
+            <button type="button" class="btn btn-primary btn-sm" data-exec><svg class="i"><use href="#i-play"/></svg> Confirmar y ejecutar</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Lote en curso -->
+      <section class="panel span-5" id="run" aria-labelledby="runTitle">
+        <div class="panel-head">
+          <h2 id="runTitle">Lote en curso</h2>
+          <span class="tag live" id="runState">[ LIVE ]</span>
+          <span class="right hint">PID <b>4812</b></span>
+        </div>
+        <div class="panel-body">
+          <div class="run-top">
+            <div class="run-pct"><span id="runPct">72</span><small>%</small></div>
+            <div class="run-count"><b>183 / 254</b> hosts procesados</div>
+          </div>
+          <div class="pbar" id="runBar" role="progressbar" aria-label="Progreso del lote" aria-valuemin="0" aria-valuemax="100" aria-valuenow="72">
+            <span class="pbar-fill" id="runFill"></span>
+          </div>
+          <div class="pbar-meta">
+            <span>lote <b>#A7F3C9E2</b> · operador</span>
+            <span>inicio <b>22:14:08</b> · ETA <b>~1m 18s</b></span>
+          </div>
+
+          <div class="steps" aria-label="Fases de la ejecución">
+            <div class="step done">
+              <span class="st">[✓] 01</span>
+              <span class="nm">Enumerar rango<small>254 hosts válidos</small></span>
+              <span class="tm">00:04</span>
+            </div>
+            <div class="step done">
+              <span class="st">[✓] 02</span>
+              <span class="nm">Inspeccionar estado<small>247 accesibles · 7 sin respuesta</small></span>
+              <span class="tm">01:12</span>
+            </div>
+            <div class="step active">
+              <span class="st">[&gt;] 03</span>
+              <span class="nm">Aplicar configuración<small>183 / 254 hosts procesados</small></span>
+              <span class="tm">en curso</span>
+            </div>
+            <div class="step">
+              <span class="st">[ ] 04</span>
+              <span class="nm">Verificar estado final<small>timedatectl · date · hwclock</small></span>
+              <span class="tm">—</span>
+            </div>
+          </div>
+
+          <div class="stats">
+            <div class="stat"><span>cambios</span><b class="amber">9</b></div>
+            <div class="stat"><span>sin cambios</span><b>171</b></div>
+            <div class="stat"><span>fallos</span><b class="red">3</b></div>
+            <div class="stat"><span>omitidos</span><b>0</b></div>
+          </div>
+
+          <div class="run-foot">
+            <button type="button" class="btn btn-sm" id="pauseBtn" aria-pressed="false"><svg class="i"><use href="#i-pause"/></svg> <span>Pausar</span></button>
+            <button type="button" class="btn btn-sm btn-ghost" data-goto="#console"><svg class="i"><use href="#i-terminal"/></svg> Ver log</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tabla de hosts -->
+      <section class="panel span-12" id="hosts" aria-labelledby="hostsTitle">
+        <div class="panel-head">
+          <h2 id="hostsTitle">Hosts del lote</h2>
+          <span class="tag" id="hostCount">254 registros</span>
+          <div class="table-tools">
+            <div class="seg" role="group" aria-label="Filtrar hosts por estado">
+              <button type="button" data-filter="all" aria-pressed="true">Todos <span class="n">254</span></button>
+              <button type="button" data-filter="ok" aria-pressed="false">OK <span class="n">235</span></button>
+              <button type="button" data-filter="chg" aria-pressed="false">Cambios <span class="n">12</span></button>
+              <button type="button" data-filter="bad" aria-pressed="false">Fallos <span class="n">7</span></button>
+            </div>
+            <label class="table-search" for="hostSearch">
+              <svg class="i"><use href="#i-search"/></svg>
+              <input id="hostSearch" type="search" placeholder="filtrar host / IP" autocomplete="off">
+            </label>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <caption class="sr">Hosts del lote #A7F3C9E2 con estado, zona horaria y desviación</caption>
+            <thead>
+              <tr><th scope="col">Host</th><th scope="col">Estado</th><th scope="col">Zona actual</th><th scope="col">Objetivo</th><th scope="col">NTP</th><th scope="col">Desviación</th><th scope="col">Tiempo</th></tr>
+            </thead>
+            <tbody id="hostRows">
+              <tr data-state="ok" data-search="web-01 192.168.1.10">
+                <td><div class="host"><span class="hico">▣</span><span><b>web-01</b><span>192.168.1.10</span></span></div></td>
+                <td><span class="st ok">[OK]</span></td><td class="mono">Europe/Madrid</td><td class="mono">Europe/Madrid</td><td class="mono">activo</td><td class="mono">0,0 s</td><td class="mono dim">1,8 s</td>
+              </tr>
+              <tr data-state="ok" data-search="web-02 192.168.1.11">
+                <td><div class="host"><span class="hico">▣</span><span><b>web-02</b><span>192.168.1.11</span></span></div></td>
+                <td><span class="st ok">[OK]</span></td><td class="mono">Europe/Madrid</td><td class="mono">Europe/Madrid</td><td class="mono">activo</td><td class="mono">0,1 s</td><td class="mono dim">2,1 s</td>
+              </tr>
+              <tr data-state="bad" data-search="db-01 192.168.1.12">
+                <td><div class="host"><span class="hico">▣</span><span><b>db-01</b><span>192.168.1.12</span></span></div></td>
+                <td><span class="st bad">[FAIL]</span></td><td class="mono">—</td><td class="mono">Europe/Madrid</td><td class="mono dim">—</td><td class="mono red">—</td><td class="mono dim">3,4 s</td>
+              </tr>
+              <tr data-state="chg" data-search="cache-03 192.168.1.23">
+                <td><div class="host"><span class="hico">▣</span><span><b>cache-03</b><span>192.168.1.23</span></span></div></td>
+                <td><span class="st chg">[CHG]</span></td><td class="mono amber">UTC</td><td class="mono">Europe/Madrid</td><td class="mono">keep</td><td class="mono amber">+1 h 00 m</td><td class="mono dim">2,6 s</td>
+              </tr>
+              <tr data-state="bad" data-search="worker-04 192.168.1.31">
+                <td><div class="host"><span class="hico">▣</span><span><b>worker-04</b><span>192.168.1.31</span></span></div></td>
+                <td><span class="st bad">[FAIL]</span></td><td class="mono">—</td><td class="mono">Europe/Madrid</td><td class="mono dim">—</td><td class="mono red">—</td><td class="mono dim">30,0 s</td>
+              </tr>
+              <tr data-state="ok" data-search="api-02 192.168.1.18">
+                <td><div class="host"><span class="hico">▣</span><span><b>api-02</b><span>192.168.1.18</span></span></div></td>
+                <td><span class="st ok">[OK]</span></td><td class="mono">Europe/Madrid</td><td class="mono">Europe/Madrid</td><td class="mono">activo</td><td class="mono">0,0 s</td><td class="mono dim">2,0 s</td>
+              </tr>
+              <tr data-state="chg" data-search="lb-01 192.168.1.5">
+                <td><div class="host"><span class="hico">▣</span><span><b>lb-01</b><span>192.168.1.5</span></span></div></td>
+                <td><span class="st chg">[CHG]</span></td><td class="mono amber">Europe/Lisbon</td><td class="mono">Europe/Madrid</td><td class="mono">configure</td><td class="mono amber">+0 h 37 m</td><td class="mono dim">2,2 s</td>
+              </tr>
+              <tr data-state="bad" data-search="batch-07 192.168.1.77">
+                <td><div class="host"><span class="hico">▣</span><span><b>batch-07</b><span>192.168.1.77</span></span></div></td>
+                <td><span class="st bad">[FAIL]</span></td><td class="mono">—</td><td class="mono">Europe/Madrid</td><td class="mono dim">—</td><td class="mono red">—</td><td class="mono dim">10,0 s</td>
+              </tr>
+              <tr data-state="chg" data-search="edge-05 192.168.1.44">
+                <td><div class="host"><span class="hico">▣</span><span><b>edge-05</b><span>192.168.1.44</span></span></div></td>
+                <td><span class="st chg">[CHG]</span></td><td class="mono amber">UTC</td><td class="mono">Europe/Madrid</td><td class="mono">off</td><td class="mono amber">+1 h 00 m</td><td class="mono dim">2,9 s</td>
+              </tr>
+              <tr id="noHosts" hidden><td colspan="7"><div class="empty">[ sin coincidencias ] · ajusta el filtro o la búsqueda</div></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-foot">
+          <span id="hostSummary">Mostrando 9 de 254 hosts · ordenado por estado</span>
+          <span class="right">
+            <button class="btn btn-sm btn-ghost" disabled>Anterior</button>
+            <button class="btn btn-sm btn-ghost" id="nextPage">Siguiente <svg class="i"><use href="#i-arrow"/></svg></button>
+          </span>
+        </div>
+      </section>
+
+      <!-- Consola de Ansible -->
+      <section class="panel span-7" id="console" aria-labelledby="consoleTitle">
+        <div class="panel-head">
+          <h2 id="consoleTitle">Salida de Ansible</h2>
+          <span class="tag">site.yml</span>
+          <div class="right">
+            <span class="hint">secretos redactados</span>
+          </div>
+        </div>
+        <div class="panel-body" style="padding:9px">
+          <div class="console">
+            <div class="con-head">
+              <span class="dot" aria-hidden="true"></span>
+              <span>tail -f /var/log/acc/A7F3C9E2.log</span>
+              <div class="right" role="group" aria-label="Filtrar líneas del log">
+                <button type="button" data-level="all" aria-pressed="true">todo</button>
+                <button type="button" data-level="warn" aria-pressed="false">avisos</button>
+                <button type="button" data-level="bad" aria-pressed="false">errores</button>
+                <button type="button" id="clearLog">limpiar</button>
+              </div>
+            </div>
+            <pre class="log" id="log" role="log" aria-label="Salida de Ansible" aria-live="off"><span class="ln dim">PLAY [Configurar hora, zona horaria y NTP] ************************************</span><span class="ln"></span><span class="ln cy">TASK [Gathering Facts] *********************************************************</span><span class="ln ok" data-level="ok">ok: [web-01]</span><span class="ln ok" data-level="ok">ok: [web-02]</span><span class="ln ok" data-level="ok">ok: [cache-03]</span><span class="ln ok" data-level="ok">ok: [api-02]</span><span class="ln bad" data-level="bad">fatal: [db-01]: UNREACHABLE! =&gt; {"msg": "Authentication failed."}</span><span class="ln"></span><span class="ln cy">TASK [Inspeccionar timedatectl] ************************************************</span><span class="ln ok" data-level="ok">ok: [web-01] tz=Europe/Madrid ntp=synchronized</span><span class="ln warn" data-level="warn">changed: [cache-03] tz=UTC drift=+3600s</span><span class="ln warn" data-level="warn">changed: [lb-01] tz=Europe/Lisbon drift=+2220s</span><span class="ln"></span><span class="ln cy">TASK [Aplicar zona horaria] ****************************************************</span><span class="ln ok" data-level="ok">ok: [web-01]  ok: [web-02]  ok: [api-02]</span><span class="ln warn" data-level="warn">changed: [cache-03] UTC → Europe/Madrid</span><span class="ln warn" data-level="warn">changed: [lb-01] Europe/Lisbon → Europe/Madrid</span><span class="ln"></span><span class="ln cy">TASK [Configurar NTP] **********************************************************</span><span class="ln warn" data-level="warn">changed: [lb-01] chrony.conf · servers=ntp.ubuntu.com,time.cloudflare.com</span><span class="ln ok" data-level="ok">ok: [edge-05] política off · sin cambios</span><span class="ln"></span><span class="ln bad" data-level="bad">fatal: [worker-04]: TIMEOUT (30s) — host inalcanzable</span><span class="ln bad" data-level="bad">fatal: [batch-07]: UNREACHABLE — connection reset by peer</span><span class="ln"></span><span class="ln cy">TASK [Verificar estado final] **************************************************</span><span class="ln ok" data-level="ok">ok: [web-01] verified=true offset=0.0s rtc=synced</span><span class="ln warn" data-level="warn">warn: [cache-03] NTP sigue activo (política keep)</span><span class="ln dim">PLAY RECAP **********************************************************************</span><span class="ln">web-01&nbsp;&nbsp;&nbsp; : ok=5 changed=0 unreachable=0 failed=0</span><span class="ln">cache-03&nbsp; : ok=5 <span class="warn">changed=1</span> unreachable=0 failed=0</span><span class="ln">db-01&nbsp;&nbsp;&nbsp;&nbsp; : ok=0 changed=0 <span class="bad">unreachable=1</span> failed=0</span><span class="ln dim">[RUNNING] aplicando en 71 hosts restantes · 183/254 · <span class="cursor" aria-hidden="true"></span></span></pre>
+            <div class="log-foot">
+              <span class="ps1">operator@acc:~$</span>
+              <span>ansible-playbook site.yml --limit 192.168.1.0/24 --check</span>
+              <span class="cursor" aria-hidden="true"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Actividad + roadmap -->
+      <div class="stack">
+        <section class="panel" id="activity" aria-labelledby="activityTitle">
+          <div class="panel-head">
+            <h2 id="activityTitle">Actividad reciente</h2>
+            <span class="tag">auditoría</span>
+            <span class="right hint">hoy</span>
+          </div>
+          <div class="panel-body">
+            <div class="feed">
+              <div class="feed-item"><time datetime="2026-11-03T22:18">22:18</time><div><b><span class="pre">[&gt;]</span>Lote #A7F3C9E2 en curso</b><p>operador · TZ Europe/Madrid · 183/254</p></div></div>
+              <div class="feed-item"><time datetime="2026-11-03T22:14">22:14</time><div><b><span class="pre">[✓]</span>Vault desbloqueado</b><p>4 credenciales candidatas · sesión 40 min</p></div></div>
+              <div class="feed-item"><time datetime="2026-11-03T22:13">22:13</time><div><b><span class="pre bad">[x]</span>3 fallos de autenticación</b><p>db-01 · worker-04 · batch-07</p></div></div>
+              <div class="feed-item"><time datetime="2026-11-03T22:09">22:09</time><div><b><span class="pre warn">[!]</span>NTP activo con TIME</b><p>cache-03 · revisar política keep</p></div></div>
+              <div class="feed-item"><time datetime="2026-11-03T22:05">22:05</time><div><b><span class="pre">[✓]</span>Inventario sincronizado</b><p>192.168.1.0/24 · 254 hosts</p></div></div>
+              <div class="feed-item"><time datetime="2026-11-03T21:58">21:58</time><div><b><span class="pre">[✓]</span>Verificación completada</b><p>247 hosts coinciden con el objetivo</p></div></div>
+            </div>
+          </div>
+        </section>
+        <section class="panel" id="future" aria-labelledby="futureTitle">
+          <div class="panel-head">
+            <h2 id="futureTitle">Módulos futuros</h2>
+            <span class="tag warn">roadmap</span>
+          </div>
+          <div class="panel-body">
+            <div class="modules">
+              <button type="button" class="module" data-module="Playbooks">
+                <span class="mod-ico"><svg class="i"><use href="#i-book"/></svg></span>
+                <span class="mod-txt"><b>Playbooks</b><small>12 plantillas · editor YAML</small></span>
+                <span class="mod-tag beta">[BETA]</span>
+              </button>
+              <button type="button" class="module" data-module="Programaciones">
+                <span class="mod-ico"><svg class="i"><use href="#i-calendar"/></svg></span>
+                <span class="mod-txt"><b>Programaciones</b><small>3 ventanas activas · cron</small></span>
+                <span class="mod-tag soon">[SOON]</span>
+              </button>
+              <button type="button" class="module" data-module="Credenciales">
+                <span class="mod-ico"><svg class="i"><use href="#i-key"/></svg></span>
+                <span class="mod-txt"><b>Credenciales</b><small>vault · 4 candidatas</small></span>
+                <span class="mod-tag">[OPEN]</span>
+              </button>
+            </div>
+            <div class="hint" style="margin-top:8px">Los módulos comparten inventario, RBAC y auditoría.</div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <!-- Pie de estado -->
+  <footer class="statusline">
+    <span>ACC v0.9.4 · sesión operador · <b style="color:var(--text)">conectado</b></span>
+    <span class="keys">
+      <span><kbd>?</kbd> ayuda</span>
+      <span><kbd>g h</kbd> hosts</span>
+      <span><kbd>⌘K</kbd> paleta</span>
+      <span><kbd>esc</kbd> cerrar</span>
+    </span>
+  </footer>
+</div>
+<!-- Confirmación antes de ejecutar -->
+<div class="overlay" id="confirmOverlay" aria-hidden="true">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmDesc">
+    <div class="dialog-head">
+      <span class="dh-ico"><svg class="i" style="width:18px;height:18px"><use href="#i-alert"/></svg></span>
+      <div>
+        <h2 id="confirmTitle">Confirmar ejecución</h2>
+        <p id="confirmDesc">Revisa el resumen antes de encolar el lote.</p>
+      </div>
+      <button type="button" class="x" id="confirmClose" aria-label="Cerrar confirmación"><svg class="i"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="dialog-body">
+      <div class="summary">
+        <div><span>objetivo</span><b id="mTarget">192.168.1.0/24</b></div>
+        <div><span>acción</span><b id="mAction">Zona horaria → Europe/Madrid</b></div>
+        <div><span>política NTP</span><b id="mNtp">restore</b></div>
+        <div><span>servidores</span><b id="mServers">ntp.ubuntu.com, time.cloudflare.com</b></div>
+        <div><span>hosts estimados</span><b id="mHosts">254 · 12 cambios · 7 fallos</b></div>
+        <div><span>modo</span><b class="amber" id="mMode">DRY RUN · simulación</b></div>
+      </div>
+      <div class="note-box"><svg class="i"><use href="#i-alert"/></svg><span>No se aplicarán cambios reales. El resultado se registrará como simulado y quedará asociado al operador en auditoría.</span></div>
+      <div class="confirm-meta"><span class="led" aria-hidden="true"></span> Lote <b>#A7F3C9E2</b> · credencial <b id="mVault">vault-prod</b> · ventana <b>60 min</b></div>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" class="btn btn-ghost" id="confirmCancel">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="confirmRun"><svg class="i"><use href="#i-play"/></svg> Confirmar y ejecutar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Command palette -->
+<div class="overlay" id="paletteOverlay" aria-hidden="true">
+  <div class="dialog palette" role="dialog" aria-modal="true" aria-labelledby="paletteTitle">
+    <h2 id="paletteTitle" class="sr">Command palette</h2>
+    <div class="palette-input">
+      <span class="ps1" aria-hidden="true">$</span>
+      <label class="sr" for="paletteInput">Buscar comando</label>
+      <input id="paletteInput" type="text" placeholder="ejecutar, hosts, consola, scanlines…" autocomplete="off" spellcheck="false">
+      <kbd>esc</kbd>
+    </div>
+    <ul class="palette-list" id="paletteList">
+      <li><button type="button" data-command="run"><span class="cmd-ico"><svg class="i"><use href="#i-play"/></svg></span><span class="cmd-name">Ejecutar operación<small>abre la confirmación del lote</small></span><kbd>↵</kbd></button></li>
+      <li><button type="button" data-command="hosts"><span class="cmd-ico"><svg class="i"><use href="#i-server"/></svg></span><span class="cmd-name">Ir a hosts<small>tabla del lote #A7F3C9E2</small></span><kbd>g h</kbd></button></li>
+      <li><button type="button" data-command="console"><span class="cmd-ico"><svg class="i"><use href="#i-terminal"/></svg></span><span class="cmd-name">Ir a la consola<small>salida de Ansible en vivo</small></span><kbd>g l</kbd></button></li>
+      <li><button type="button" data-command="preview"><span class="cmd-ico"><svg class="i"><use href="#i-search"/></svg></span><span class="cmd-name">Vista previa del cambio<small>resumen de la operación</small></span><kbd>v p</kbd></button></li>
+      <li><button type="button" data-command="scan"><span class="cmd-ico"><svg class="i"><use href="#i-layers"/></svg></span><span class="cmd-name">Alternar scanlines<small>efecto CRT on / off</small></span><kbd>t s</kbd></button></li>
+      <li><button type="button" data-command="export"><span class="cmd-ico"><svg class="i"><use href="#i-download"/></svg></span><span class="cmd-name">Exportar resultados<small>CSV del lote actual</small></span><kbd>e x</kbd></button></li>
+      <li><button type="button" data-command="future"><span class="cmd-ico"><svg class="i"><use href="#i-calendar"/></svg></span><span class="cmd-name">Abrir programaciones<small>módulo en preparación</small></span><kbd>g p</kbd></button></li>
+      <li><button type="button" data-command="clear"><span class="cmd-ico"><svg class="i"><use href="#i-x"/></svg></span><span class="cmd-name">Limpiar consola<small>conserva el log completo en disco</small></span><kbd>c l</kbd></button></li>
+    </ul>
+    <div class="palette-foot"><span><kbd>↑↓</kbd> mover</span><span><kbd>↵</kbd> ejecutar</span><span><kbd>esc</kbd> cerrar</span><span style="margin-left:auto">ACC · v0.9.4</span></div>
+  </div>
+</div>
+
+<!-- Aviso flotante -->
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <svg class="i" style="width:18px;height:18px"><use href="#i-check"/></svg>
+  <div><b id="toastTitle">Lote encolado</b><span id="toastMsg">#A7F3C9E2 · simulación · 254 hosts</span></div>
+</div>
+<script>
+(function () {
+  'use strict';
+  var $ = function (sel, root) { return (root || document).querySelector(sel); };
+  var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+
+  /* Reloj de Madrid */
+  var clockEl = $('#clock'), dateEl = $('#date');
+  function tick() {
+    var now = new Date();
+    clockEl.textContent = now.toLocaleTimeString('es-ES', { timeZone: 'Europe/Madrid', hour12: false });
+    dateEl.textContent = now.toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', year: 'numeric' });
+  }
+  tick(); window.setInterval(tick, 1000);
+
+  /* Navegación móvil */
+  var nav = $('#nav'), menuBtn = $('#menuBtn');
+  function closeNav() { nav.classList.remove('open'); menuBtn.setAttribute('aria-expanded', 'false'); }
+  menuBtn.addEventListener('click', function () { menuBtn.setAttribute('aria-expanded', String(nav.classList.toggle('open'))); });
+  $$('#nav a').forEach(function (link) { link.addEventListener('click', closeNav); });
+  document.addEventListener('click', function (e) {
+    if (nav.classList.contains('open') && !nav.contains(e.target) && !menuBtn.contains(e.target)) closeNav();
+  });
+
+  /* Pestañas config / preview */
+  var tabButtons = $$('[data-tab]');
+  function setTab(name) {
+    tabButtons.forEach(function (btn) { btn.setAttribute('aria-selected', String(btn.dataset.tab === name)); });
+    $('#panelConfig').hidden = name !== 'config';
+    $('#panelPreview').hidden = name !== 'preview';
+  }
+  tabButtons.forEach(function (btn, index) {
+    btn.addEventListener('click', function () { setTab(btn.dataset.tab); });
+    btn.addEventListener('keydown', function (e) {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      e.preventDefault();
+      var next = tabButtons[(index + (e.key === 'ArrowRight' ? 1 : tabButtons.length - 1)) % tabButtons.length];
+      next.focus(); setTab(next.dataset.tab);
+    });
+  });
+  $$('[data-tab-jump]').forEach(function (btn) { btn.addEventListener('click', function () { setTab(btn.dataset.tabJump); }); });
+  $('#previewBtn').addEventListener('click', function () { setTab('preview'); $('#form').scrollIntoView({ behavior: 'smooth' }); });
+  $$('[data-goto]').forEach(function (btn) {
+    btn.addEventListener('click', function () { var t = $(btn.dataset.goto); if (t) t.scrollIntoView({ behavior: 'smooth' }); });
+  });
+
+  /* Resumen sincronizado */
+  var targetInput = $('#targetInput'), userInput = $('#userInput'), vaultSelect = $('#vaultSelect');
+  var actionSelect = $('#actionSelect'), tzInput = $('#tzInput'), serversInput = $('#serversInput');
+  var rtcToggle = $('#rtcToggle'), forceToggle = $('#forceToggle');
+  var policyNames = { restore: 'restore — estado previo', keep: 'keep — no tocar', off: 'off — desactivar', configure: 'configure — definir servidores' };
+  function selectedPolicy() { var c = $('input[name="ntpPolicy"]:checked'); return c ? c.value : 'restore'; }
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+  function isTimeAction() { return actionSelect.value === 'time'; }
+  function syncPreview() {
+    var target = targetInput.value.trim() || '—';
+    var tz = isTimeAction() ? '— (no aplica)' : (tzInput.value.trim() || '—');
+    var servers = serversInput.value.trim() || '—', policy = selectedPolicy();
+    var rtc = rtcToggle.getAttribute('aria-checked') === 'true';
+    var force = forceToggle.getAttribute('aria-checked') === 'true';
+    var hosts = /\/24$/.test(target) ? '254 hosts' : (/\//.test(target) ? 'rango corto' : '1 host');
+    $('#pvTarget').textContent = target + ' · ' + hosts;
+    $('#pvUser').textContent = userInput.value.trim() || '—';
+    $('#pvVault').textContent = vaultSelect.options[vaultSelect.selectedIndex].textContent;
+    $('#pvAction').textContent = isTimeAction() ? 'Hora exacta (TIME)' : 'Zona horaria (TZ)';
+    $('#pvTz').textContent = tz;
+    $('#pvNtp').textContent = policyNames[policy];
+    $('#pvServers').textContent = policy === 'off' ? '— (NTP desactivado)' : servers;
+    $('#pvFlags').textContent = (rtc ? 'sincronizar RTC' : 'no sincronizar RTC') + ' · ' + (force ? 'forzado' : 'idempotente');
+    $('#pvCommand').innerHTML = '<span class="cm"># comando equivalente (no se ejecuta)</span>\n' +
+      'ansible-playbook <b>site.yml</b> --limit <b>' + escapeHtml(target) + '</b> --check \\\n' +
+      '  -e <b>tz=' + escapeHtml(tz) + '</b> -e <b>ntp=' + escapeHtml(policy) + '</b> -e <b>rtc=' + String(rtc) + '</b>';
+    $('#mTarget').textContent = target;
+    $('#mAction').textContent = isTimeAction() ? 'Hora exacta (TIME)' : 'Zona horaria → ' + tz;
+    $('#mNtp').textContent = policyNames[policy];
+    $('#mServers').textContent = policy === 'off' ? '—' : servers;
+    $('#mHosts').textContent = '254 · 12 cambios · 7 fallos';
+    $('#mVault').textContent = vaultSelect.value;
+  }
+  [targetInput, userInput, vaultSelect, actionSelect, tzInput, serversInput].forEach(function (f) {
+    f.addEventListener('input', syncPreview); f.addEventListener('change', syncPreview);
+  });
+  $$('input[name="ntpPolicy"]').forEach(function (r) { r.addEventListener('change', syncPreview); });
+  actionSelect.addEventListener('change', function () { tzInput.disabled = isTimeAction(); syncPreview(); });
+
+  /* Presets e interruptores */
+  $$('.chip[data-target]').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      $$('.chip[data-target]').forEach(function (c) { c.classList.remove('is-on'); });
+      chip.classList.add('is-on'); targetInput.value = chip.dataset.target; syncPreview();
+    });
+  });
+  function bindSwitch(button) {
+    button.addEventListener('click', function () {
+      var on = button.getAttribute('aria-checked') !== 'true';
+      button.setAttribute('aria-checked', String(on));
+      $('.sw-state', button).textContent = on ? '[ON]' : '[OFF]';
+      syncPreview();
+    });
+  }
+  bindSwitch(rtcToggle); bindSwitch(forceToggle);
+
+  /* Toast */
+  var toast = $('#toast'), toastTimer = null;
+  function showToast(title, message) {
+    $('#toastTitle').textContent = title; $('#toastMsg').textContent = message;
+    toast.classList.add('show'); window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(function () { toast.classList.remove('show'); }, 4200);
+  }
+
+  /* Lote: pausa */
+  var paused = false, pauseBtn = $('#pauseBtn');
+  pauseBtn.addEventListener('click', function () {
+    paused = !paused;
+    pauseBtn.setAttribute('aria-pressed', String(paused));
+    $('span', pauseBtn).textContent = paused ? 'Reanudar' : 'Pausar';
+    $('#runState').textContent = paused ? '[ PAUSED ]' : '[ LIVE ]';
+    $('#runState').classList.toggle('live', !paused);
+    showToast(paused ? 'Lote pausado' : 'Lote reanudado', paused ? '#A7F3C9E2 · 183/254 hosts en espera' : '#A7F3C9E2 · reanudando desde cache-03');
+  });
+
+  /* Filtros + búsqueda de hosts */
+  var stateFilter = 'all', searchTerm = '', rows = $$('#hostRows tr[data-state]');
+  function applyHostFilter() {
+    var visible = 0;
+    rows.forEach(function (row) {
+      var show = (stateFilter === 'all' || row.dataset.state === stateFilter) && (!searchTerm || row.dataset.search.indexOf(searchTerm) !== -1);
+      row.hidden = !show; if (show) visible += 1;
+    });
+    $('#noHosts').hidden = visible !== 0;
+    var label = stateFilter === 'all' ? 'Todos' : (stateFilter === 'ok' ? 'OK' : (stateFilter === 'chg' ? 'Cambios' : 'Fallos'));
+    $('#hostSummary').textContent = 'Mostrando ' + visible + ' de 254 hosts · filtro ' + label + (searchTerm ? ' · “' + searchTerm + '”' : '');
+  }
+  $$('[data-filter]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      stateFilter = btn.dataset.filter;
+      $$('[data-filter]').forEach(function (b) { b.setAttribute('aria-pressed', String(b === btn)); });
+      applyHostFilter();
+    });
+  });
+  $('#hostSearch').addEventListener('input', function (e) { searchTerm = e.target.value.trim().toLowerCase(); applyHostFilter(); });
+  $('#nextPage').addEventListener('click', function () { showToast('Paginación simulada', 'El lote completo se exporta desde el menú de acciones.'); });
+
+  /* Consola */
+  var log = $('#log');
+  function clearLog() {
+    log.innerHTML = '<span class="ln dim">[consola limpia] la salida completa permanece en /var/log/acc/A7F3C9E2.log</span><span class="ln"></span><span class="ln cy">operator@acc:~$ <span class="cursor" aria-hidden="true"></span></span>';
+    showToast('Consola limpia', 'El log del lote sigue disponible para auditoría.');
+  }
+  $('#clearLog').addEventListener('click', clearLog);
+  $$('[data-level]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var level = btn.dataset.level;
+      $$('[data-level]').forEach(function (b) { b.setAttribute('aria-pressed', String(b === btn)); });
+      $$('.ln', log).forEach(function (line) {
+        line.classList.toggle('hidden-line', level !== 'all' && line.dataset.level !== level);
+      });
+    });
+  });
+
+  /* Confirmación */
+  var confirmOverlay = $('#confirmOverlay'), lastFocus = null;
+  function openConfirm() {
+    syncPreview(); lastFocus = document.activeElement;
+    confirmOverlay.classList.add('open'); confirmOverlay.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    window.setTimeout(function () { $('#confirmRun').focus(); }, 30);
+  }
+  function closeConfirm() {
+    if (!confirmOverlay.classList.contains('open')) return;
+    confirmOverlay.classList.remove('open'); confirmOverlay.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+    if (lastFocus && lastFocus.focus) lastFocus.focus();
+  }
+  $$('[data-exec]').forEach(function (btn) { btn.addEventListener('click', openConfirm); });
+  $('#confirmClose').addEventListener('click', closeConfirm);
+  $('#confirmCancel').addEventListener('click', closeConfirm);
+  confirmOverlay.addEventListener('click', function (e) { if (e.target === confirmOverlay) closeConfirm(); });
+  $('#confirmRun').addEventListener('click', function () {
+    closeConfirm();
+    var line = document.createElement('span');
+    line.className = 'ln ok'; line.dataset.level = 'ok';
+    line.textContent = '[QUEUE] #A7F3C9E2 aceptado · 254 hosts · dry-run · operador';
+    log.appendChild(line); log.scrollTop = log.scrollHeight;
+    showToast('Lote encolado correctamente', '#A7F3C9E2 · simulación · 254 hosts · 12 cambios previstos');
+  });
+
+  /* Command palette */
+  var paletteOverlay = $('#paletteOverlay'), paletteInput = $('#paletteInput');
+  function paletteButtons() { return $$('#paletteList button').filter(function (b) { return !b.closest('li').hidden; }); }
+  function filterPalette() {
+    var term = paletteInput.value.trim().toLowerCase();
+    $$('#paletteList li').forEach(function (li) {
+      var btn = $('button', li); if (!btn) return;
+      li.hidden = term !== '' && btn.textContent.toLowerCase().indexOf(term) === -1;
+    });
+    var empty = $('#paletteEmpty');
+    if (!paletteButtons().length) {
+      if (!empty) {
+        empty = document.createElement('li'); empty.id = 'paletteEmpty'; empty.className = 'no-results';
+        empty.textContent = '[ sin comandos coincidentes ]'; $('#paletteList').appendChild(empty);
+      }
+    } else if (empty) { empty.remove(); }
+  }
+  function openPalette() {
+    paletteInput.value = ''; filterPalette();
+    paletteOverlay.classList.add('open'); paletteOverlay.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    window.setTimeout(function () { paletteInput.focus(); }, 30);
+  }
+  function closePalette() {
+    if (!paletteOverlay.classList.contains('open')) return;
+    paletteOverlay.classList.remove('open'); paletteOverlay.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = ''; $('#paletteBtn').focus();
+  }
+  $('#paletteBtn').addEventListener('click', openPalette);
+  paletteOverlay.addEventListener('click', function (e) { if (e.target === paletteOverlay) closePalette(); });
+  paletteInput.addEventListener('input', filterPalette);
+  paletteInput.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); var first = paletteButtons()[0]; if (first) first.focus(); }
+    if (e.key === 'Enter') { var first = paletteButtons()[0]; if (first) { e.preventDefault(); first.click(); } }
+  });
+  $('#paletteList').addEventListener('keydown', function (e) {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    var buttons = paletteButtons(); if (!buttons.length) return;
+    e.preventDefault();
+    var index = buttons.indexOf(document.activeElement);
+    var next = e.key === 'ArrowDown' ? (index + 1) % buttons.length : (index - 1 + buttons.length) % buttons.length;
+    buttons[next].focus();
+  });
+  var scanBtn = $('#scanBtn');
+  function toggleScan() {
+    var on = document.body.classList.toggle('no-scan') === false;
+    scanBtn.setAttribute('aria-pressed', String(on));
+    scanBtn.textContent = on ? '[scan:on]' : '[scan:off]';
+    showToast(on ? 'Scanlines activadas' : 'Scanlines desactivadas', 'El efecto CRT solo afecta a la presentación.');
+  }
+  scanBtn.addEventListener('click', toggleScan);
+  function runCommand(command) {
+    closePalette();
+    if (command === 'run') openConfirm();
+    if (command === 'hosts') $('#hosts').scrollIntoView({ behavior: 'smooth' });
+    if (command === 'console') $('#console').scrollIntoView({ behavior: 'smooth' });
+    if (command === 'preview') { setTab('preview'); $('#form').scrollIntoView({ behavior: 'smooth' }); }
+    if (command === 'scan') toggleScan();
+    if (command === 'export') showToast('Exportación preparada', 'CSV de 254 hosts · lote #A7F3C9E2 · simulación.');
+    if (command === 'future') { $('#future').scrollIntoView({ behavior: 'smooth' }); showToast('Programaciones', 'Módulo en preparación · 3 ventanas previstas.'); }
+    if (command === 'clear') clearLog();
+  }
+  $$('#paletteList [data-command]').forEach(function (btn) { btn.addEventListener('click', function () { runCommand(btn.dataset.command); }); });
+
+  /* Teclado global */
+  document.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      if (paletteOverlay.classList.contains('open')) closePalette(); else openPalette();
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (paletteOverlay.classList.contains('open')) { closePalette(); return; }
+      if (confirmOverlay.classList.contains('open')) { closeConfirm(); return; }
+    }
+    if (e.key === 'Tab') {
+      var open = paletteOverlay.classList.contains('open') ? paletteOverlay : (confirmOverlay.classList.contains('open') ? confirmOverlay : null);
+      if (!open) return;
+      var focusables = $$('button, [href], input, select, [tabindex]:not([tabindex="-1"])', open).filter(function (el) { return !el.disabled && el.offsetParent !== null; });
+      if (!focusables.length) return;
+      var first = focusables[0], last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
+
+  /* Módulos futuros */
+  $$('[data-module]').forEach(function (btn) {
+    btn.addEventListener('click', function () { showToast(btn.dataset.module, 'Módulo en preparación · comparte inventario, RBAC y auditoría.'); });
+  });
+
+  syncPreview(); applyHostFilter();
+})();
+</script>
+</body>
+</html>

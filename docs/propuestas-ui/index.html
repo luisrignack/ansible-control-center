@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Propuestas de interfaz — Ansible Control Center</title>
+<meta name="description" content="Galería con diez propuestas de interfaz para Ansible Control Center: estilos modernos, funcionales y sin dependencias.">
+<style>
+/* ============================================================
+   Galería de propuestas — Ansible Control Center
+   Diez direcciones visuales, previsualizadas en vivo con iframes.
+   Sin dependencias externas.
+   ============================================================ */
+:root {
+  --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --bg: #080a0f;
+  --bg-2: #0b0e15;
+  --panel: #11151f;
+  --panel-2: #151a26;
+  --line: #1e2533;
+  --line-2: #171d29;
+  --text: #e9eef8;
+  --text-2: #b8c3d6;
+  --muted: #8693a8;
+  --accent: #5eead4;
+  --accent-2: #8b7cff;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --bad: #fb7185;
+  --r: 14px;
+  --r-lg: 20px;
+  --shadow: 0 24px 60px -34px rgba(0, 0, 0, .95);
+}
+html[data-theme="light"] {
+  --bg: #f4f5f8;
+  --bg-2: #eef0f5;
+  --panel: #ffffff;
+  --panel-2: #f7f8fb;
+  --line: #e1e5ee;
+  --line-2: #eaedf4;
+  --text: #10141c;
+  --text-2: #3d4658;
+  --muted: #66718a;
+  --accent: #0f9e8a;
+  --accent-2: #6552e0;
+  --shadow: 0 24px 50px -38px rgba(22, 30, 55, .55);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.55 var(--font); -webkit-font-smoothing: antialiased;
+}
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(760px 420px at 12% -8%, rgba(94, 234, 212, .09), transparent 62%),
+    radial-gradient(820px 460px at 92% 0%, rgba(139, 124, 255, .1), transparent 62%),
+    linear-gradient(rgba(139, 124, 255, .03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(139, 124, 255, .03) 1px, transparent 1px);
+  background-size: auto, auto, 48px 48px, 48px 48px;
+}
+a { color: inherit; text-decoration: none; }
+button { font: inherit; color: inherit; cursor: pointer; }
+h1, h2, h3, p { margin: 0; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.skip {
+  position: absolute; left: -999px; top: 10px; z-index: 99;
+  background: var(--accent); color: #04231f; padding: 9px 14px; border-radius: 8px; font-weight: 700;
+}
+.skip:focus { left: 12px; }
+.wrap { position: relative; z-index: 1; width: min(1320px, 100% - 48px); margin: 0 auto; }
+
+/* Header --------------------------------------------------- */
+.top {
+  position: sticky; top: 0; z-index: 40;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  backdrop-filter: blur(16px);
+}
+.top .wrap { height: 66px; display: flex; align-items: center; gap: 16px; }
+.brand { display: flex; align-items: center; gap: 11px; }
+.brand-mark {
+  width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center;
+  background: linear-gradient(145deg, rgba(94, 234, 212, .22), rgba(139, 124, 255, .2));
+  border: 1px solid rgba(94, 234, 212, .34); color: var(--accent);
+}
+.brand-mark svg { width: 19px; height: 19px; }
+.brand b { display: block; font-size: 14.5px; letter-spacing: .1px; }
+.brand span { display: block; font-size: 9.5px; letter-spacing: .17em; text-transform: uppercase; color: var(--muted); }
+.top-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.doc-link { font-size: 12px; color: var(--muted); padding: 7px 10px; border-radius: 8px; }
+.doc-link:hover { color: var(--text); background: var(--panel); }
+.icon-btn {
+  width: 36px; height: 36px; display: grid; place-items: center;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text-2); border-radius: 9px;
+}
+.icon-btn:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+
+/* Hero ----------------------------------------------------- */
+.hero { padding: 64px 0 30px; }
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 9px; margin-bottom: 18px;
+  font: 700 10px/1 var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--accent);
+}
+.eyebrow::before { content: ""; width: 26px; height: 1px; background: var(--accent); }
+h1 { font-size: clamp(34px, 5.2vw, 60px); line-height: 1.02; letter-spacing: -1.8px; font-weight: 650; max-width: 900px; }
+h1 em {
+  font-style: normal;
+  background: linear-gradient(100deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.lead { margin-top: 18px; max-width: 690px; color: var(--muted); font-size: 15px; line-height: 1.7; }
+.lead b { color: var(--text-2); font-weight: 600; }
+.stats { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
+.stat {
+  display: flex; align-items: baseline; gap: 8px; padding: 9px 13px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 12px; color: var(--muted);
+}
+.stat b { color: var(--text); font-size: 15px; }
+.stat i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+/* Filters -------------------------------------------------- */
+.toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 22px 0 18px; }
+.filters { display: flex; gap: 7px; flex-wrap: wrap; }
+.filter {
+  border: 1px solid var(--line); background: var(--panel); color: var(--muted);
+  padding: 7px 13px; border-radius: 999px; font-size: 12px; transition: .16s;
+}
+.filter:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.filter[aria-pressed="true"] {
+  color: #04231f; background: var(--accent); border-color: var(--accent); font-weight: 700;
+}
+.toolbar .count { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
+.toolbar .count b { color: var(--text); }
+
+/* Grid ----------------------------------------------------- */
+.grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr));
+  gap: 22px; padding-bottom: 20px;
+}
+.card {
+  border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel);
+  overflow: hidden; box-shadow: var(--shadow); display: flex; flex-direction: column;
+  transition: transform .2s ease, border-color .2s ease;
+}
+.card:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--accent) 36%, var(--line)); }
+.card[hidden] { display: none; }
+.shot {
+  position: relative; overflow: hidden; background: #0a0d13;
+  border-bottom: 1px solid var(--line); height: 270px;
+}
+.shot iframe {
+  position: absolute; top: 0; left: 0; width: 1440px; height: 900px;
+  border: 0; transform-origin: top left; pointer-events: none; background: #0a0d13;
+}
+.shot .open {
+  position: absolute; inset: 0; z-index: 2; display: flex; align-items: flex-end; justify-content: flex-end;
+  padding: 12px; opacity: 0; transition: opacity .18s ease;
+  background: linear-gradient(to top, rgba(4, 8, 15, .55), transparent 45%);
+}
+.card:hover .shot .open, .shot .open:focus-visible { opacity: 1; }
+.shot .open span {
+  display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px; border-radius: 8px;
+  background: var(--accent); color: #04231f; font-size: 12px; font-weight: 700;
+}
+.shot .num {
+  position: absolute; top: 12px; left: 12px; z-index: 2;
+  font: 700 10px var(--mono); letter-spacing: .08em; color: #d9fff8;
+  background: rgba(4, 8, 15, .62); border: 1px solid rgba(94, 234, 212, .3);
+  border-radius: 6px; padding: 4px 7px; backdrop-filter: blur(6px);
+}
+.card-body { padding: 17px 18px 18px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.card-head { display: flex; align-items: center; gap: 10px; }
+.card-head h2 { font-size: 17px; letter-spacing: -.3px; font-weight: 650; }
+.card-head .tag {
+  margin-left: auto; font: 600 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+  padding: 4px 7px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted);
+}
+.card p { color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.card-foot { margin-top: auto; display: flex; align-items: center; gap: 12px; padding-top: 4px; }
+.palette { display: flex; gap: 4px; }
+.palette i { width: 13px; height: 13px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .18); }
+.tags { margin-left: auto; display: flex; gap: 5px; flex-wrap: wrap; }
+.tags span { font-size: 9.5px; color: var(--muted); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 4px; padding: 2px 6px; }
+.card-link { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--accent); }
+.card-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* Comparison ----------------------------------------------- */
+.compare { padding: 46px 0 60px; }
+.compare h2 { font-size: 24px; letter-spacing: -.6px; margin-bottom: 6px; }
+.compare > p { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 720px; }
+th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line-2); vertical-align: middle; }
+th { font: 600 9.5px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); background: var(--panel-2); }
+tr:last-child td { border-bottom: 0; }
+td.n { font: 700 11px var(--mono); color: var(--accent); }
+td a { font-weight: 600; }
+td a:hover { color: var(--accent); }
+.dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+.dot.dark { background: #64748b; }
+.dot.light { background: #fbbf24; }
+.dot.mixed { background: linear-gradient(90deg, #64748b 50%, #fbbf24 50%); }
+
+/* Footer --------------------------------------------------- */
+footer { border-top: 1px solid var(--line); padding: 22px 0 34px; }
+footer .wrap { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 11.5px; }
+footer b { color: var(--text-2); }
+footer .sep { color: var(--line); }
+footer .right { margin-left: auto; }
+
+/* Responsive ----------------------------------------------- */
+@media (max-width: 980px) {
+  .grid { grid-template-columns: 1fr; }
+  .hero { padding-top: 46px; }
+}
+@media (max-width: 620px) {
+  .wrap { width: min(1320px, 100% - 28px); }
+  .top .wrap { height: 60px; }
+  .brand > span > span { display: none; }
+  .brand b { font-size: 12.5px; }
+  .doc-link { display: none; }
+  .shot { height: 210px; }
+  .stats .stat { width: 100%; }
+  .toolbar .count { width: 100%; margin-left: 0; }
+  .card-head .tag { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Saltar al contenido</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#main" aria-label="Ansible Control Center, inicio">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/>
+        </svg>
+      </span>
+      <span><b>Ansible Control Center</b><span class="sub">Propuestas de interfaz</span></span>
+    </a>
+    <div class="top-actions">
+      <a class="doc-link" href="README.md">README</a>
+      <button class="icon-btn" id="themeBtn" type="button" aria-label="Cambiar tema" title="Cambiar tema">
+        <svg id="themeIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+          <path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <div class="wrap">
+    <section class="hero">
+      <div class="eyebrow">Ansible Control Center · diseño de producto</div>
+      <h1>Diez formas de operar<br><em>una flota con calma.</em></h1>
+      <p class="lead">
+        Una galería de <b>10 propuestas de interfaz</b> para la consola de automatización.
+        Todas son funcionales, responsive y autocontenidas: abren sin red, sin CDN y sin build.
+        Explora la que mejor encaje con tu equipo y úsala como punto de partida.
+      </p>
+      <div class="stats">
+        <span class="stat"><i></i><b>10</b> direcciones visuales</span>
+        <span class="stat"><i></i><b>0</b> dependencias externas</span>
+        <span class="stat"><i></i><b>100 %</b> offline</span>
+        <span class="stat"><i></i><b>360 px</b> responsive mínimo</span>
+      </div>
+    </section>
+
+    <div class="toolbar">
+      <div class="filters" role="group" aria-label="Filtrar propuestas">
+        <button class="filter" type="button" data-filter="all" aria-pressed="true">Todas</button>
+        <button class="filter" type="button" data-filter="light" aria-pressed="false">Claras</button>
+        <button class="filter" type="button" data-filter="dark" aria-pressed="false">Oscuras</button>
+        <button class="filter" type="button" data-filter="mixed" aria-pressed="false">Mixtas</button>
+        <button class="filter" type="button" data-filter="dense" aria-pressed="false">Alta densidad</button>
+      </div>
+      <span class="count"><b id="visibleCount">10</b> propuestas visibles</span>
+    </div>
+
+    <section class="grid" id="grid" aria-label="Propuestas de interfaz">
+
+      <!-- 01 -->
+      <article class="card" data-tone="dark" data-density="alta">
+        <div class="shot">
+          <span class="num">01</span>
+          <iframe src="01-command-center.html" title="Vista previa de Command Center" loading="lazy" tabindex="-1"></iframe>
+          <a class="open" href="01-command-center.html"><span>Abrir propuesta ↗</span></a>
+        </div>
+        <div class="card-body">
+          <div class="card-head"><h2>Command Center</h2><span class="tag">Oscuro · denso</span></div>
+          <p>Centro de operaciones oscuro con telemetría, KPIs, lote en curso y tabla de hosts. Pensado para monitorización continua.</p>
+          <div class="card-foot">
+            <span class="palette" aria-label="Paleta"><i style="background:#060a12"></i><i style="background:#5eead4"></i><i style="background:#7c9cff"></i><i style="background:#fb7185"></i></span>
+            <span class="tags"><span>telemetría</span><span>consola</span></span>
+            <a class="card-link" href="01-command-center.html">Abrir</a>
+          </div>
+        </div>
+      </article>
+
+      <!-- 02 -->
+      <article class="card" data-tone="light" data-density="media">
+        <div class="shot">
+          <span class="num">02</span>
+          <iframe src="02-editorial-claro.html" title="Vista previa de Editorial claro" loading="lazy" tabindex="-1"></iframe>
+          <a class="open" href="02-editorial-claro.html"><span>Abrir propuesta ↗</span></a>
+        </div>
+        <div class="card-body">
+          <div class="card-head"><h2>Editorial claro</h2><span class="tag">Claro · sereno</span></div>
+          <p>Papel cálido, titular serif y ritmo de documento operativo. Prioriza legibilidad y lectura pausada de cada paso.</p>
+          <div class="card-foot">
+            <span class="palette" aria-label="Paleta"><i style="background:#f7f4ee"></i><i style="background:#1e5c46"></i><i style="background:#b65f3b"></i><i style="background:#17211c"></i></span>
+            <span class="tags"><span>editorial</span><span>legible</span></span>
+            <a class="card-link" href="02-editorial-claro.html">Abrir</a>
+          </div>
+        </div>
+      </article>
+
+      <!-- 03 -->
+      <article class="card" data-tone="dark" data-density="media">
+        <div class="shot">
+          <span class="num">03</span>
+          <iframe src="03-aurora-glass.html" title="Vista previa de Aurora Glass" loading="lazy" tabindex="-1"></iframe>
+          <a class="open" href="03-aurora-glass.html"><span>Abrir propuesta ↗</span></a>
+        </div>
+        <div class="card-body">
+          <div class="card-head"><h2>Aurora Glass</h2><span class="tag">Oscuro · premium</span></div>
+          <p>Cristal esmerilado, auroras violeta y cian, y paneles flotantes. Una lectura premium de la consola sin perder densidad.</p>
+          <div class="card-foot">
+            <span class="palette" aria-label="Paleta"><i style="background:#06080f"></i><i style="background:#8b5cf6"></i><i style="background:#22d3ee"></i><i style="background:#f472b6"></i></span>
+            <span class="tags"><span>glass</span><span>gradientes</span></span>
+            <a class="card-link" href="03-aurora-glass.html">Abrir</a>
+          </div>
+        </div>
+      </article>
+
+      <!-- 04 -->
+      <article class="card" data-tone="light" data-density="media">
+        <div class="shot">
+          <span class="num">04</span>
+          <iframe src="04-soft-clay.html" title="Vista previa de Soft Clay" loading="lazy" tabindex="-1"></iframe>
+          <a class="open" href="04-soft-clay.html"><span>Abrir propuesta ↗</span></a>
+        </div>
+        <div class="card-body">
+          <div class="card-head"><h2>Soft Clay</h2><span class="tag">Claro · amable</span></div>
+          <p>Neumorfismo suave en lavanda, melocotón y menta. La consola se siente cercana sin renunciar a datos y control.</p>
+          <div class="card-foot">
+            <span class="palette" aria-label="Paleta"><i style="background:#eef2f7"></i><i style="background:#7c6cf6"></i><i style="background:#ff9f7a"></i><i style="background:#3ec9a7"></i></span>
+            <span class="tags"><span>clay</span><span>accesible</span></span>
+            <a class="card-link" href="04-soft-clay.html">Abrir</a>
+          </div>
+        </div>
+      </article>
+
+      <!-- 05 -->
+      <article class="card" data-tone="light" data-density="alta">
+        <div class="shot">
+          <span class="num">05</span>
+          <iframe src="05-swiss-brutal.html" title="Vista previa de Swiss Brutal" loading="lazy" tabindex="-1"></iframe>
+          <a class="open" href="05-swiss-brutal.html"><span>Abrir propuesta ↗</span></a>
+        </div>
+        <div class="card-body">
+          <div class="card-head"><h2>Swiss Brutal</h2><span class="tag">Claro · contundente</span></div>
+          <p>Retícula suiza, bordes duros y tipografía enorme. Jerarquía sin adornos para equipos que prefieren claridad radical.</p>
+          <div class="card-foot">
+            <span class="palette" aria-label="Paleta"><i style="background:#f2f0e9"></i><i style="background:#0b0b0b"></i><i style="background:#ff3b30"></i><i style="background:#ffd400"></i></span>
+            <span class="tags"><span>brutalismo</span><span>tipografía</span></span>
+            <a class="card-link" href="05-swiss-brutal.html">Abrir</a>
+          </div>
+        </div>
+      </article>
+
+      <!-- 06 -->
+      <article class="card" data-tone="light" data-density="media">
+        <div class="shot">
+          <span class="num">06</span>
+          <iframe src="06-bento-pop.html" title="Vista previa de Bento Pop" loading="lazy" tabindex="-1"></iframe>
+          <a class="open" href="06-bento-pop.html"><span>Abrir propuesta ↗</span></a>
+        </div>
+        <div class="card-body">
+          <div class="card-head"><h2>Bento Pop</h2><span class="tag">Claro · colorido</span></div>
+          <p>Bento grid de tiles saturados y formas amables. Un dashboard con energía que hace visible lo importante de un vistazo.</p>
+          <div class="card-foot">
+            <span class="palette" aria-label="Paleta"><i style="background:#fbf7ef"></i><i style="background:#d8f34a"></i><i style="background:#ff6b57"></i><i style="background:#5fb8ff"></i></span>
+            <span class="tags"><span>bento</span><span>onboarding</span></span>
+            <a class="card-link" href="06-bento-pop.html">Abrir</a>
+          </div>
+        </div>
+      </article>
+
+      <!-- 07 -->
+      <article class="card" data-tone="dark" data-density="alta">
+        <div class="shot">
+          <span class="num">07</span>
+          <iframe src="07-phosphor-terminal.html" title="Vista previa de Phosphor Terminal" loading="lazy" tabindex="-1"></iframe>
+          <a class="open" href="07-phosphor-terminal.html"><span>Abrir propuesta ↗</span></a>
+        </div>
+        <div class="card-body">
+          <div class="card-head"><h2>Phosphor Terminal</h2><span class="tag">Oscuro · consola</span></div>
+          <p>Verde fósforo, monoespaciada y log de Ansible como protagonista. Para perfiles técnicos que viven en la terminal.</p>
+          <div class="card-foot">
+            <span class="palette" aria-label="Paleta"><i style="background:#040806"></i><i style="background:#7dfba4"></i><i style="background:#ffc857"></i><i style="background:#ff5f56"></i></span>
+            <span class="tags"><span>terminal</span><span>técnico</span></span>
+            <a class="card-link" href="07-phosphor-terminal.html">Abrir</a>
+          </div>
+        </div>
+      </article>
+
+      <!-- 08 -->
+      <article class="card" data-tone="light" data-density="baja">
+        <div class="shot">
+          <span class="num">08</span>
+          <iframe src="08-nordic-minimal.html" title="Vista previa de Nordic Minimal" loading="lazy" tabindex="-1"></iframe>
+          <a class="open" href="08-nordic-minimal.html"><span>Abrir propuesta ↗</span></a>
+        </div>
+        <div class="card-body">
+          <div class="card-head"><h2>Nordic Minimal</h2><span class="tag">Claro · sereno</span></div>
+          <p>Blanco cálido, líneas hairline y mucho aire. Un producto escandinavo que respira y mantiene la información esencial.</p>
+          <div class="card-foot">
+            <span class="palette" aria-label="Paleta"><i style="background:#fbfbfa"></i><i style="background:#16181d"></i><i style="background:#2563eb"></i><i style="background:#4f7a68"></i></span>
+            <span class="tags"><span>minimal</span><span>nórdico</span></span>
+            <a class="card-link" href="08-nordic-minimal.html">Abrir</a>
+          </div>
+        </div>
+      </article>
+
+      <!-- 09 -->
+      <article class="card" data-tone="mixed" data-density="media">
+        <div class="shot">
+          <span class="num">09</span>
+          <iframe src="09-saas-indigo.html" title="Vista previa de SaaS Indigo" loading="lazy" tabindex="-1"></iframe>
+          <a class="open" href="09-saas-indigo.html"><span>Abrir propuesta ↗</span></a>
+        </div>
+        <div class="card-body">
+          <div class="card-head"><h2>SaaS Indigo</h2><span class="tag">Mixto · producto</span></div>
+          <p>Gradiente índigo, tarjetas blancas y acabado de producto SaaS. Equilibra presentación comercial y consola real.</p>
+          <div class="card-foot">
+            <span class="palette" aria-label="Paleta"><i style="background:#ffffff"></i><i style="background:#4f46e5"></i><i style="background:#7c3aed"></i><i style="background:#06b6d4"></i></span>
+            <span class="tags"><span>SaaS</span><span>gradiente</span></span>
+            <a class="card-link" href="09-saas-indigo.html">Abrir</a>
+          </div>
+        </div>
+      </article>
+
+      <!-- 10 -->
+      <article class="card" data-tone="light" data-density="muy-alta">
+        <div class="shot">
+          <span class="num">10</span>
+          <iframe src="10-ops-data.html" title="Vista previa de Ops Data" loading="lazy" tabindex="-1"></iframe>
+          <a class="open" href="10-ops-data.html"><span>Abrir propuesta ↗</span></a>
+        </div>
+        <div class="card-body">
+          <div class="card-head"><h2>Ops Data</h2><span class="tag">Claro · table-first</span></div>
+          <p>Tabla dominante, panel de detalle y atajos de teclado. Herramienta de operaciones densa inspirada en Linear y Retool.</p>
+          <div class="card-foot">
+            <span class="palette" aria-label="Paleta"><i style="background:#f6f7f9"></i><i style="background:#111827"></i><i style="background:#1d4ed8"></i><i style="background:#0f766e"></i></span>
+            <span class="tags"><span>datos</span><span>teclado</span></span>
+            <a class="card-link" href="10-ops-data.html">Abrir</a>
+          </div>
+        </div>
+      </article>
+
+    </section>
+
+    <section class="compare" aria-labelledby="compareTitle">
+      <h2 id="compareTitle">Comparativa rápida</h2>
+      <p>Elige por tono, densidad y contexto de uso. Todas comparten el mismo modelo funcional y la marca nueva.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Propuesta</th><th>Tono</th><th>Densidad</th><th>Ideal para</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="n">01</td><td><a href="01-command-center.html">Command Center</a></td><td><span class="dot dark"></span>Oscuro</td><td>Alta</td><td>Operación continua y telemetría</td></tr>
+            <tr><td class="n">02</td><td><a href="02-editorial-claro.html">Editorial claro</a></td><td><span class="dot light"></span>Claro</td><td>Media</td><td>Lectura pausada y documentación operativa</td></tr>
+            <tr><td class="n">03</td><td><a href="03-aurora-glass.html">Aurora Glass</a></td><td><span class="dot dark"></span>Oscuro</td><td>Media</td><td>Producto premium con glassmorphism</td></tr>
+            <tr><td class="n">04</td><td><a href="04-soft-clay.html">Soft Clay</a></td><td><span class="dot light"></span>Claro</td><td>Media</td><td>Equipos mixtos y uso diario amable</td></tr>
+            <tr><td class="n">05</td><td><a href="05-swiss-brutal.html">Swiss Brutal</a></td><td><span class="dot light"></span>Claro</td><td>Alta</td><td>Alto contraste y jerarquía contundente</td></tr>
+            <tr><td class="n">06</td><td><a href="06-bento-pop.html">Bento Pop</a></td><td><span class="dot light"></span>Claro</td><td>Media</td><td>Onboarding y dashboards vistosos</td></tr>
+            <tr><td class="n">07</td><td><a href="07-phosphor-terminal.html">Phosphor Terminal</a></td><td><span class="dot dark"></span>Oscuro</td><td>Alta</td><td>Perfiles técnicos y consola primero</td></tr>
+            <tr><td class="n">08</td><td><a href="08-nordic-minimal.html">Nordic Minimal</a></td><td><span class="dot light"></span>Claro</td><td>Baja</td><td>Producto sereno y legible</td></tr>
+            <tr><td class="n">09</td><td><a href="09-saas-indigo.html">SaaS Indigo</a></td><td><span class="dot mixed"></span>Mixto</td><td>Media</td><td>Presentación comercial + consola</td></tr>
+            <tr><td class="n">10</td><td><a href="10-ops-data.html">Ops Data</a></td><td><span class="dot light"></span>Claro</td><td>Muy alta</td><td>Tablas, filtros y trabajo por teclado</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span><b>Ansible Control Center</b> · propuestas de interfaz</span>
+    <span class="sep">|</span>
+    <span>HTML autocontenido · sin CDN · sin build</span>
+    <span class="right">10 propuestas · noviembre 2026</span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  /* Tema de la galería ------------------------------------- */
+  var root = document.documentElement;
+  var themeBtn = document.getElementById("themeBtn");
+  var themeIcon = document.getElementById("themeIcon");
+  var moon = '<path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/>';
+  var sun = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4l1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+
+  function applyTheme(theme) {
+    root.setAttribute("data-theme", theme);
+    if (themeIcon) themeIcon.innerHTML = theme === "dark" ? moon : sun;
+    if (themeBtn) {
+      themeBtn.setAttribute("aria-label", theme === "dark" ? "Usar tema claro" : "Usar tema oscuro");
+      themeBtn.setAttribute("title", theme === "dark" ? "Usar tema claro" : "Usar tema oscuro");
+    }
+  }
+
+  var saved = null;
+  try { saved = localStorage.getItem("acc-propuestas-theme"); } catch (e) { saved = null; }
+  applyTheme(saved === "light" ? "light" : "dark");
+
+  if (themeBtn) {
+    themeBtn.addEventListener("click", function () {
+      var next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+      applyTheme(next);
+      try { localStorage.setItem("acc-propuestas-theme", next); } catch (e) {}
+    });
+  }
+
+  /* Escalado de las vistas previas ------------------------- */
+  function fitPreviews() {
+    document.querySelectorAll(".shot").forEach(function (shot) {
+      var frame = shot.querySelector("iframe");
+      if (!frame) return;
+      var scale = shot.clientWidth / 1440;
+      frame.style.transform = "scale(" + scale + ")";
+      shot.style.height = Math.round(shot.clientWidth * 0.625) + "px";
+    });
+  }
+  fitPreviews();
+  window.addEventListener("resize", fitPreviews, { passive: true });
+  window.addEventListener("load", fitPreviews);
+
+  /* Filtros ------------------------------------------------ */
+  var cards = Array.prototype.slice.call(document.querySelectorAll(".card"));
+  var filters = Array.prototype.slice.call(document.querySelectorAll(".filter"));
+  var visible = document.getElementById("visibleCount");
+
+  function matches(card, filter) {
+    if (filter === "all") return true;
+    if (filter === "dense") return card.getAttribute("data-density") === "alta" || card.getAttribute("data-density") === "muy-alta";
+    return card.getAttribute("data-tone") === filter;
+  }
+
+  function applyFilter(filter) {
+    var shown = 0;
+    cards.forEach(function (card) {
+      var ok = matches(card, filter);
+      card.hidden = !ok;
+      if (ok) shown += 1;
+    });
+    filters.forEach(function (button) {
+      button.setAttribute("aria-pressed", button.getAttribute("data-filter") === filter ? "true" : "false");
+    });
+    if (visible) visible.textContent = String(shown);
+  }
+
+  filters.forEach(function (button) {
+    button.addEventListener("click", function () {
+      applyFilter(button.getAttribute("data-filter"));
+    });
+  });
+
+  /* Atajo: escribir 1-0 no aplica; "/" enfoca el primer filtro */
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "/" && !/input|textarea|select/i.test(document.activeElement.tagName)) {
+      event.preventDefault();
+      if (filters[0]) filters[0].focus();
+    }
+  });
+})();
+</script>
+</body>
+</html>

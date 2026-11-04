@@ -509,8 +509,8 @@ def test_vault_lock_serializes_writers(tmp_path):
 
 
 def test_ansible_environment_does_not_leak_app_secrets(monkeypatch):
-    monkeypatch.setenv("HORA_ADMIN_SECRET_KEY", "no-debe-filtrarse")
-    monkeypatch.setenv("HORA_ADMIN_PASSWORD_PEPPER", "tampoco")
+    monkeypatch.setenv("ACC_SECRET_KEY", "no-debe-filtrarse")
+    monkeypatch.setenv("ACC_PASSWORD_PEPPER", "tampoco")
     monkeypatch.setenv("SECRETO_EXTERNO", "tampoco")
     monkeypatch.setenv("ANSIBLE_TEST_VAR", "permitida")
     monkeypatch.setenv("PATH", os.environ.get("PATH", "/usr/bin"))
@@ -520,8 +520,8 @@ def test_ansible_environment_does_not_leak_app_secrets(monkeypatch):
     assert env["ANSIBLE_TEST_VAR"] == "permitida"
     assert env["ANSIBLE_NOCOLOR"] == "1"
     assert env["ANSIBLE_CONFIG"]
-    assert "HORA_ADMIN_SECRET_KEY" not in env
-    assert "HORA_ADMIN_PASSWORD_PEPPER" not in env
+    assert "ACC_SECRET_KEY" not in env
+    assert "ACC_PASSWORD_PEPPER" not in env
     assert "SECRETO_EXTERNO" not in env
 
 

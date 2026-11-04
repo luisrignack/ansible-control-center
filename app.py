@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hora Admin — configuración de hora/zona horaria en Ubuntu vía Ansible.
+"""Ansible Control Center — configuración de hora/zona horaria en Ubuntu vía Ansible.
 
 Incluye autenticación, validación de formularios, progreso SSE, historial en
 SQLite, vault real con ansible-vault, ejecución de Ansible con inyección
@@ -113,10 +113,12 @@ from models.batch import (
     STATUS_LABELS,
     ExecutionBatch,
 )
-from models.db import get_connection, init_schema
+from models.db import get_connection, get_setting, init_schema, set_setting
 from models.execution import ExecutionRecord
 from models.password import PasswordRecord
 from models.user import AuthEvent, User
+import services.ansible_runner as ansible_runner_module
+import services.password_tester as password_tester_module
 from services.ansible_runner import apply_host, inspect_host
 from services.csrf import csrf_protect, generate_csrf_token, rotate_csrf_token
 from services.host_resolver import pin_target, resolve_target
@@ -134,7 +136,7 @@ from services.time_utils import (
 )
 from services.vault_manager import VaultManager
 
-logger = logging.getLogger("hora_admin")
+logger = logging.getLogger("acc")
 
 # ---------------------------------------------------------------------------
 # Estado en memoria de las tareas (progreso SSE)
@@ -142,6 +144,18 @@ logger = logging.getLogger("hora_admin")
 _tasks: Dict[str, Dict[str, Any]] = {}
 _tasks_lock = threading.Lock()
 _db_path_cache: Optional[str] = None
+
+
+def _active_task_count() -> int:
+    """Número de tareas pendientes o en ejecución en este proceso."""
+    with _tasks_lock:
+        return sum(
+            1
+            for task in _tasks.values()
+            if not task.get("completed")
+            and task.get("status") in {"pending", "running"}
+        )
+
 
 # Idempotencia de envío: una operación solo se procesa una vez. El formulario
 # incluye un UUID oculto y aquí se recuerda el task_id asociado durante una
@@ -214,6 +228,51 @@ def get_db_path() -> str:
     if _db_path_cache is None:
         _db_path_cache = str(resolve_db_path())
     return _db_path_cache
+
+
+# ---------------------------------------------------------------------------
+# Modo simulación (DRY RUN) editable desde la interfaz
+# ---------------------------------------------------------------------------
+DRY_RUN_SETTING_KEY = "dry_run"
+_dry_run_lock = threading.Lock()
+
+
+def is_dry_run() -> bool:
+    """Estado actual del modo simulación en este proceso."""
+    return bool(DRY_RUN)
+
+
+def apply_dry_run(enabled: bool) -> None:
+    """Propaga el modo simulación a todos los módulos que lo consultan.
+
+    ``app``, ``services.ansible_runner`` y ``services.password_tester``
+    importan la constante en su propio espacio de nombres; hay que actualizar
+    las tres copias. Gunicorn se ejecuta con un único worker y varios hilos,
+    así que el estado compartido en proceso es consistente.
+    """
+    global DRY_RUN
+    value = bool(enabled)
+    with _dry_run_lock:
+        DRY_RUN = value
+        ansible_runner_module.DRY_RUN = value
+        password_tester_module.DRY_RUN = value
+        app.config["DRY_RUN"] = value
+
+
+def load_dry_run_setting() -> bool:
+    """Recupera el modo simulación persistido o mantiene el valor de entorno."""
+    stored = get_setting(DRY_RUN_SETTING_KEY, db_path=get_db_path())
+    if stored is None:
+        return DRY_RUN
+    return str(stored).strip().lower() in {"1", "true", "yes", "on", "si", "sí"}
+
+
+def persist_dry_run(enabled: bool) -> None:
+    set_setting(
+        DRY_RUN_SETTING_KEY,
+        "1" if enabled else "0",
+        db_path=get_db_path(),
+    )
 
 
 def _wants_json() -> bool:
@@ -843,7 +902,7 @@ def create_task() -> str:
         "password_hash": "",
         "overall_result": "unknown",
         "completed": False,
-        "dry_run": DRY_RUN,
+        "dry_run": is_dry_run(),
         "created_at": _utc_now_iso(),
         "updated_at": _utc_now_iso(),
     }
@@ -973,7 +1032,7 @@ def _security_context():
     return {
         "csrf_token": generate_csrf_token,
         "csp_nonce": getattr(g, "csp_nonce", ""),
-        "dry_run": DRY_RUN,
+        "dry_run": is_dry_run(),
         "is_production": IS_PRODUCTION,
         "status_labels": STATUS_LABELS,
         "host_result_labels": HOST_RESULT_LABELS,
@@ -1641,7 +1700,7 @@ def _run_apply_batch(
     """Aplica el cambio en todos los hosts (best-effort) y registra cada uno.
 
     Si una contraseña autentica pero el playbook falla, se prueban las
-    siguientes candidatas hasta ``HORA_ADMIN_MAX_PASSWORD_ATTEMPTS``. Un fallo
+    siguientes candidatas hasta ``ACC_MAX_PASSWORD_ATTEMPTS``. Un fallo
     de un host nunca detiene el lote. Al agotarse el presupuesto de tiempo del
     lote, los hosts pendientes quedan como ``skipped``.
 
@@ -1957,7 +2016,7 @@ def execute_with_progress(
                 "log": ["Iniciando"],
                 "mode": mode,
                 "completed": False,
-                "dry_run": DRY_RUN,
+                "dry_run": is_dry_run(),
             },
         )
         hosts = resolve_target(ti)
@@ -2050,7 +2109,7 @@ def execute_with_progress(
             status="preview" if mode == "preview" else "running",
             # La vista previa nunca aplica cambios: no es una ejecución
             # simulada, sino una inspección real de solo lectura.
-            dry_run=DRY_RUN and mode != "preview",
+            dry_run=is_dry_run() and mode != "preview",
             admin_user=au,
             password_origin=po,
             ntp_servers=list(ntp_servers or []),
@@ -2075,7 +2134,7 @@ def execute_with_progress(
                 "operator": operator,
                 "time_mode": time_mode,
                 "ntp_policy": ntp_policy,
-                "dry_run": DRY_RUN,
+                "dry_run": is_dry_run(),
             },
         )
 
@@ -2499,6 +2558,89 @@ def audit():
     )
 
 
+@app.route("/settings/dry-run", methods=["POST"])
+@roles_required("admin")
+def update_dry_run():
+    """Activa o desactiva el modo simulación desde la interfaz."""
+    payload = request.get_json(silent=True)
+    if request.is_json:
+        raw = (payload or {}).get("enabled")
+    elif request.form.get("dry_run_form") == "1":
+        # Formulario sin JavaScript: una casilla desmarcada no envía
+        # ``enabled``, así que su ausencia significa "desactivado".
+        raw = request.form.get("enabled", "0")
+    else:
+        raw = None
+
+    if isinstance(raw, bool):
+        enabled = raw
+    else:
+        normalized = str(raw).strip().lower() if raw is not None else ""
+        if normalized in {"1", "true", "yes", "on", "si", "sí"}:
+            enabled = True
+        elif normalized in {"0", "false", "no", "off"}:
+            enabled = False
+        else:
+            message = "Valor de simulación no válido."
+            if _wants_json():
+                return jsonify({"success": False, "message": message}), 400
+            flash(message, "danger")
+            return redirect(url_for("index"))
+
+    if _active_task_count():
+        message = (
+            "No se puede cambiar el modo mientras hay operaciones en curso. "
+            "Espera a que terminen e inténtalo de nuevo."
+        )
+        if _wants_json():
+            return jsonify({"success": False, "message": message}), 409
+        flash(message, "warning")
+        return redirect(url_for("index"))
+
+    try:
+        persist_dry_run(enabled)
+        apply_dry_run(enabled)
+    except Exception:
+        logger.exception("No se pudo actualizar el modo simulación")
+        message = "No se pudo guardar el cambio de modo."
+        if _wants_json():
+            return jsonify({"success": False, "message": message}), 500
+        flash(message, "danger")
+        return redirect(url_for("index"))
+
+    message = (
+        "Modo simulación activado: no se aplicarán cambios en los equipos."
+        if enabled
+        else "Ejecución real activada: las operaciones modificarán los equipos."
+    )
+    logger.info(
+        "Modo simulación %s por %s desde %s",
+        "activado" if enabled else "desactivado",
+        current_user.username,
+        _client_ip(),
+    )
+    AuthEvent.record(
+        username=current_user.username,
+        ip=_client_ip(),
+        event="dry_run_on" if enabled else "dry_run_off",
+        detail="Cambio desde la interfaz web",
+        db_path=get_db_path(),
+    )
+
+    if _wants_json():
+        return jsonify(
+            {
+                "success": True,
+                "dry_run": enabled,
+                "message": message,
+            }
+        )
+
+    flash(message, "info")
+    target = request.form.get("next", "")
+    return redirect(target if _is_safe_redirect(target) else url_for("index"))
+
+
 # ---------------------------------------------------------------------------
 # Errores
 # ---------------------------------------------------------------------------
@@ -2633,6 +2775,11 @@ def configure_app(flask_app: Flask) -> Flask:
     login_manager.init_app(flask_app)
     init_db()
     try:
+        # El modo simulación elegido en la interfaz sobrevive a los reinicios.
+        apply_dry_run(load_dry_run_setting())
+    except Exception:  # pragma: no cover - no impedir el arranque
+        logger.exception("No se pudo cargar el modo simulación persistido")
+    try:
         _purge_retention()
     except Exception:  # pragma: no cover - no impedir el arranque
         logger.exception("No se pudo aplicar la retención al arrancar")
@@ -2662,6 +2809,6 @@ configure_app(app)
 
 
 if __name__ == "__main__":
-    host = os.environ.get("HORA_ADMIN_HOST", "127.0.0.1")
-    port = int(os.environ.get("HORA_ADMIN_PORT", "5000"))
+    host = os.environ.get("ACC_HOST", "127.0.0.1")
+    port = int(os.environ.get("ACC_PORT", "5000"))
     app.run(host=host, port=port, debug=DEBUG)

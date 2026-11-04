@@ -193,7 +193,7 @@ def resolve_cidr_range(
 
     if not _network_allowed(network):
         logger.warning(
-            "Rango rechazado %s: fuera de HORA_ADMIN_ALLOWED_NETWORKS",
+            "Rango rechazado %s: fuera de ACC_ALLOWED_NETWORKS",
             cidr_str,
         )
         return []
@@ -247,7 +247,7 @@ def resolve_target(
     if ip:
         if not _ip_allowed(ip):
             logger.warning(
-                "Host rechazado %s: fuera de HORA_ADMIN_ALLOWED_NETWORKS", ip
+                "Host rechazado %s: fuera de ACC_ALLOWED_NETWORKS", ip
             )
             return []
         return [ip]

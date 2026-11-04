@@ -1,4 +1,4 @@
-# Documentación — Hora Admin
+# Documentación — Ansible Control Center
 
 Índice de la documentación del proyecto.
 
@@ -13,6 +13,7 @@
 | [ANALISIS_Y_RECOMENDACIONES](ANALISIS_Y_RECOMENDACIONES.md) | Análisis profundo por aspecto, riesgos y roadmap |
 | [ANALISIS](../ANALISIS.md) | Análisis funcional y espacio de opciones |
 | [CHANGELOG](../CHANGELOG.md) | Historial de cambios P0–P4 |
+| [Propuestas de interfaz](propuestas-ui/index.html) | Galería con 10 propuestas de UI para Ansible Control Center |
 
 ## Lectura recomendada
 

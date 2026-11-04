@@ -18,7 +18,7 @@ fi
 TLS_CN="${TLS_CN:-localhost}"
 TLS_SAN="${TLS_SAN:-DNS:localhost,IP:127.0.0.1}"
 TLS_DAYS="${TLS_DAYS:-825}"
-TLS_ORG="${TLS_ORG:-Hora Admin}"
+TLS_ORG="${TLS_ORG:-Ansible Control Center}"
 
 echo "[nginx] Generando certificado autofirmado CN=$TLS_CN SAN=$TLS_SAN"
 openssl req -x509 -nodes -newkey rsa:4096 -sha256 \

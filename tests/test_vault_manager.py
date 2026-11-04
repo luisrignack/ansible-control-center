@@ -22,7 +22,7 @@ requires_vault = pytest.mark.skipif(
 
 @pytest.fixture()
 def vault_env(tmp_path):
-    db_path = str(tmp_path / "hora_admin.db")
+    db_path = str(tmp_path / "acc.db")
     init_schema(db_path)
     return {
         "vault": str(tmp_path / "passwords_vault.yml"),

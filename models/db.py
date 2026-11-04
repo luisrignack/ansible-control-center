@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Optional
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 def connect(db_path: str) -> sqlite3.Connection:
@@ -41,6 +42,47 @@ def get_connection(db_path: str) -> Iterator[sqlite3.Connection]:
         raise
     finally:
         conn.close()
+
+
+def _default_db_path() -> str:
+    """Ruta de SQLite resuelta en tiempo de ejecución (producción o instance/)."""
+    from config import resolve_db_path
+
+    return str(resolve_db_path())
+
+
+def get_setting(key: str, default: Optional[str] = None, db_path: Optional[str] = None) -> Optional[str]:
+    """Lee un parámetro persistente de ``app_settings``.
+
+    Devuelve ``default`` si la clave no existe o si la tabla todavía no se ha
+    creado (por ejemplo, durante una actualización a medio aplicar).
+    """
+    try:
+        with get_connection(db_path or _default_db_path()) as conn:
+            row = conn.execute(
+                "SELECT value FROM app_settings WHERE key = ?", (key,)
+            ).fetchone()
+    except sqlite3.OperationalError:
+        return default
+    if row is None:
+        return default
+    return row["value"]
+
+
+def set_setting(key: str, value: str, db_path: Optional[str] = None) -> None:
+    """Crea o actualiza un parámetro persistente de ``app_settings``."""
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with get_connection(db_path or _default_db_path()) as conn:
+        conn.execute(
+            """
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+            """,
+            (key, str(value), now),
+        )
 
 
 def _ensure_column(
@@ -264,6 +306,19 @@ def _migrate_v6(conn: sqlite3.Connection) -> None:
         _ensure_column(conn, "execution_batches", column, ddl)
 
 
+def _migrate_v7(conn: sqlite3.Connection) -> None:
+    """Parámetros de ejecución persistentes (por ejemplo, el modo simulación)."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        """
+    )
+
+
 def init_schema(db_path: str) -> None:
     """Crea o migra el esquema de forma idempotente y no destructiva.
 
@@ -279,7 +334,7 @@ def init_schema(db_path: str) -> None:
             raise RuntimeError(
                 f"La base de datos {db_path} usa el esquema v{version}, "
                 f"más nuevo que el soportado por esta aplicación "
-                f"(v{SCHEMA_VERSION}). Actualiza Hora Admin o restaura una "
+                f"(v{SCHEMA_VERSION}). Actualiza Ansible Control Center o restaura una "
                 "copia de seguridad compatible."
             )
         _migrate_v1(conn)
@@ -289,6 +344,7 @@ def init_schema(db_path: str) -> None:
         _migrate_v4(conn)
         _migrate_v5(conn)
         _migrate_v6(conn)
+        _migrate_v7(conn)
         # No se rebaja la versión de una base creada por una versión más nueva.
         if version < SCHEMA_VERSION:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

@@ -1,4 +1,4 @@
-# Análisis funcional — Hora Admin
+# Análisis funcional — Ansible Control Center
 
 **Objetivo del sistema:** cambiar la hora y/o la zona horaria a un grupo de
 equipos de una red local, pudiendo elegir entre una hora exacta o una zona
@@ -66,7 +66,7 @@ por defecto operativo y qué combinaciones bloquear.
 4. Opcionalmente, `app.py` ejecuta una **vista previa**: inspecciona todos los
    hosts sin cambiar nada y guarda un lote en estado `preview`.
 5. `app.py` recorre **todos** los hosts y hasta
-   `HORA_ADMIN_MAX_PASSWORD_ATTEMPTS` contraseñas candidatas por host:
+   `ACC_MAX_PASSWORD_ATTEMPTS` contraseñas candidatas por host:
    - ejecuta `ansible -m ping`;
    - si el ping funciona, ejecuta `ansible/cambiar_hora.yml` con la semántica
      de hora y la política NTP elegidas;
@@ -168,8 +168,8 @@ Leyenda: ✅ implementado · ⚠️ parcial o con matices · ❌ no existe.
 
 Valores por defecto:
 
-- `HORA_ADMIN_MIN_CIDR_PREFIX=22`
-- `HORA_ADMIN_MAX_HOSTS=256`
+- `ACC_MIN_CIDR_PREFIX=22`
+- `ACC_MAX_HOSTS=256`
 
 Un `/22` tiene 1022 direcciones y sería rechazado por `MAX_HOSTS`; un `/23`
 tiene 510 y también. **En la práctica, el rango máximo aceptado por defecto es

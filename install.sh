@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# install.sh - Prepara el entorno de Hora Admin.
+# install.sh - Prepara el entorno de Ansible Control Center.
 #
 #   * Comprueba Python >= 3.11.
 #   * Crea el virtualenv .venv e instala requirements.txt.
 #   * Comprueba sshpass (necesario para SSH con contraseña).
-#   * Crea /etc/hora-admin/secrets (0700), /var/lib/hora-admin y
-#     /var/log/hora-admin con permisos correctos.
+#   * Crea /etc/ansible-control-center/secrets (0700), /var/lib/ansible-control-center y
+#     /var/log/ansible-control-center con permisos correctos.
 #   * Genera .env con una clave de sesión aleatoria (modo 0600).
 #
 # Uso:
@@ -20,13 +20,13 @@ cd "$SCRIPT_DIR"
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 VENV_DIR="${VENV_DIR:-$SCRIPT_DIR/.venv}"
-SECRETS_DIR="${HORA_ADMIN_SECRETS_DIR:-/etc/hora-admin/secrets}"
-DATA_DIR="${HORA_ADMIN_DATA_DIR:-/var/lib/hora-admin}"
-LOG_DIR="${HORA_ADMIN_LOG_DIR:-/var/log/hora-admin}"
+SECRETS_DIR="${ACC_SECRETS_DIR:-/etc/ansible-control-center/secrets}"
+DATA_DIR="${ACC_DATA_DIR:-/var/lib/ansible-control-center}"
+LOG_DIR="${ACC_LOG_DIR:-/var/log/ansible-control-center}"
 
-log()  { printf '\033[1;36m[hora-admin]\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33m[hora-admin]\033[0m %s\n' "$*" >&2; }
-die()  { printf '\033[1;31m[hora-admin]\033[0m %s\n' "$*" >&2; exit 1; }
+log()  { printf '\033[1;36m[ansible-control-center]\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m[ansible-control-center]\033[0m %s\n' "$*" >&2; }
+die()  { printf '\033[1;31m[ansible-control-center]\033[0m %s\n' "$*" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
 # 1. Requisitos del sistema
@@ -91,7 +91,7 @@ if [ ! -f "$SCRIPT_DIR/.env" ]; then
   cp "$SCRIPT_DIR/.env.example" "$SCRIPT_DIR/.env"
   SESSION_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
   # sed portable (Linux): reemplaza la línea de la clave.
-  sed -i "s|^HORA_ADMIN_SECRET_KEY=.*|HORA_ADMIN_SECRET_KEY=${SESSION_KEY}|" "$SCRIPT_DIR/.env"
+  sed -i "s|^ACC_SECRET_KEY=.*|ACC_SECRET_KEY=${SESSION_KEY}|" "$SCRIPT_DIR/.env"
   chmod 600 "$SCRIPT_DIR/.env"
 else
   log "Conservando .env existente (no se sobrescribe)."
@@ -118,8 +118,8 @@ cat <<EOF
   Secretos   : $SECRETS_DIR  (0700)
   Datos      : $DATA_DIR
   Logs       : $LOG_DIR
-  DRY RUN    : activado por defecto (HORA_ADMIN_DRY_RUN=1)
-  Ejecución  : pon HORA_ADMIN_DRY_RUN=0 para tocar equipos reales
+  DRY RUN    : activado por defecto (ACC_DRY_RUN=1)
+  Ejecución  : pon ACC_DRY_RUN=0 para tocar equipos reales
 
   Siguientes pasos:
     source .venv/bin/activate

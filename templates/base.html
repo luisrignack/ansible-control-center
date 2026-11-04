@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Automatización de Hora y Zona Horaria{% endblock %} · Hora Admin</title>
+    <title>{% block title %}Consola de automatización Ansible{% endblock %} · Ansible Control Center</title>
 
     <!-- Assets empaquetados: funcionan en redes aisladas y sin CDN. -->
     <link href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
@@ -18,10 +18,10 @@
 <div class="app-shell">
     <aside class="sidebar" id="sidebar" aria-label="Navegación principal">
         <a class="brand" href="{{ url_for('index') }}">
-            <span class="brand-mark" aria-hidden="true"><i class="bi bi-clock-history icon"></i></span>
+            <span class="brand-mark" aria-hidden="true"><i class="bi bi-diagram-3 icon"></i></span>
             <span>
-                <span class="brand-name">Hora Admin</span>
-                <span class="brand-sub">Consola de tiempo</span>
+                <span class="brand-name">Ansible Control Center</span>
+                <span class="brand-sub">Consola de automatización</span>
             </span>
         </a>
 
@@ -104,18 +104,42 @@
                 <i class="bi bi-list" aria-hidden="true"></i>
             </button>
             <div class="crumbs" aria-label="Ruta de navegación">
-                <span>Hora Admin</span>
+                <span>Ansible Control Center</span>
                 <span class="sep" aria-hidden="true">/</span>
                 <strong>{% block breadcrumb %}{{ self.title() }}{% endblock %}</strong>
             </div>
             <div class="topbar-actions">
-                {% if dry_run %}
-                <span class="badge bg-warning" title="Las operaciones no se aplican a los hosts">
-                    <i class="bi bi-exclamation-triangle" aria-hidden="true"></i> Simulación
-                </span>
+                {% if current_user.has_role('admin') %}
+                <form class="mode-switch-form{% if not dry_run %} is-live{% endif %}" id="dryRunForm" method="post"
+                      action="{{ url_for('update_dry_run') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <input type="hidden" name="dry_run_form" value="1">
+                    <label class="mode-switch" for="dryRunToggle"
+                           title="Activa o desactiva la simulación de Ansible">
+                        <span class="mode-switch-label">Simulación</span>
+                        <input class="mode-switch-input" id="dryRunToggle"
+                               name="enabled" type="checkbox" role="switch"
+                               value="1" data-csrf="{{ csrf_token() }}"
+                               aria-checked="{{ 'true' if dry_run else 'false' }}"
+                               aria-describedby="dryRunState"
+                               {% if dry_run %}checked{% endif %}>
+                        <span class="mode-switch-track" aria-hidden="true">
+                            <span class="mode-switch-thumb"></span>
+                        </span>
+                        <span class="mode-switch-state" id="dryRunState" aria-live="polite">
+                            {{ 'Activada' if dry_run else 'Desactivada' }}
+                        </span>
+                    </label>
+                </form>
                 {% else %}
-                <span class="badge bg-success" title="Las operaciones se aplican a los hosts">
+                <span class="badge {{ 'bg-warning' if dry_run else 'bg-success' }}"
+                      title="Solo un administrador puede cambiar este modo">
+                    {% if dry_run %}
+                    <i class="bi bi-exclamation-triangle" aria-hidden="true"></i> Simulación
+                    {% else %}
                     <i class="bi bi-check-circle" aria-hidden="true"></i> Ejecución real
+                    {% endif %}
                 </span>
                 {% endif %}
                 <div class="topbar-divider hide-sm" aria-hidden="true"></div>
@@ -155,7 +179,7 @@
 
 {% if current_user.is_authenticated %}
             <footer class="app-footer">
-                <span><i class="bi bi-shield-shaded" aria-hidden="true"></i> Hora Admin · configuración de hora, zona horaria y NTP</span>
+                <span><i class="bi bi-shield-shaded" aria-hidden="true"></i> Ansible Control Center · automatización con Ansible</span>
                 <span>{{ 'Modo simulación' if dry_run else 'Ejecución real' }} · acceso {{ current_user.role }}</span>
             </footer>
         </main>
@@ -191,7 +215,7 @@
 
     let savedTheme = null;
     try {
-        savedTheme = localStorage.getItem('hora-admin-theme');
+        savedTheme = localStorage.getItem('ansible-control-center-theme');
     } catch (_error) {
         savedTheme = null;
     }
@@ -202,7 +226,7 @@
             const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
             applyTheme(next);
             try {
-                localStorage.setItem('hora-admin-theme', next);
+                localStorage.setItem('ansible-control-center-theme', next);
             } catch (_error) {
                 /* El tema sigue activo en esta página. */
             }
@@ -230,6 +254,70 @@
         });
         sidebar.querySelectorAll('a').forEach(function (link) {
             link.addEventListener('click', function () { setMenu(false); });
+        });
+    }
+
+    // Interruptor de simulación: solo se envía al servidor al cambiarlo.
+    const dryRunForm = document.getElementById('dryRunForm');
+    const dryRunToggle = document.getElementById('dryRunToggle');
+    const dryRunState = document.getElementById('dryRunState');
+
+    if (dryRunForm && dryRunToggle) {
+        let previous = dryRunToggle.checked;
+
+        function setState(enabled) {
+            dryRunToggle.setAttribute('aria-checked', enabled ? 'true' : 'false');
+            if (dryRunState) {
+                dryRunState.textContent = enabled ? 'Activada' : 'Desactivada';
+            }
+            dryRunForm.classList.toggle('is-live', !enabled);
+        }
+
+        dryRunToggle.addEventListener('change', function () {
+            if (dryRunToggle.checked === previous) return;
+            if (!dryRunToggle.checked && !window.confirm(
+                'Vas a desactivar la simulación. Las próximas operaciones se ' +
+                'aplicarán realmente sobre los equipos. ¿Continuar?'
+            )) {
+                dryRunToggle.checked = previous;
+                setState(previous);
+                return;
+            }
+            setState(dryRunToggle.checked);
+            dryRunForm.requestSubmit();
+        });
+
+        dryRunForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            const enabled = dryRunToggle.checked;
+            dryRunToggle.disabled = true;
+            fetch(dryRunForm.action, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': dryRunToggle.dataset.csrf || ''
+                },
+                body: JSON.stringify({ enabled: enabled })
+            }).then(function (response) {
+                return response.json().catch(function () { return {}; })
+                    .then(function (data) {
+                        if (!response.ok) {
+                            throw new Error(data.message ||
+                                'No se pudo cambiar el modo.');
+                        }
+                        return data;
+                    });
+            }).then(function () {
+                window.location.reload();
+            }).catch(function (error) {
+                dryRunToggle.checked = previous;
+                dryRunToggle.disabled = false;
+                setState(previous);
+                window.alert(error.message || 'No se pudo cambiar el modo.');
+            });
         });
     }
 })();

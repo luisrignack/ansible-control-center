@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Propuesta 10 · Ops Data — Ansible Control Center</title>
+<meta name="description" content="Propuesta de interfaz 10: herramienta de operaciones densa, tabla dominante y panel de detalle para Ansible Control Center.">
+<style>
+/* ============================================================
+   Propuesta 10 — Ops Data
+   Herramienta densa: tabla dominante, panel de detalle y teclado.
+   Estética Linear/Retool. Sin dependencias externas.
+   ============================================================ */
+:root {
+  --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --bg: #f4f5f7; --surface: #ffffff; --surface-2: #f8f9fb; --surface-3: #eef1f5;
+  --ink: #111827; --ink-2: #374151; --muted: #64748b; --faint: #94a3b8;
+  --line: #e5e7eb; --line-2: #d1d5db;
+  --blue: #1d4ed8; --blue-soft: #e8effd; --teal: #0f766e; --teal-soft: #e6f5f2;
+  --amber: #b45309; --amber-soft: #fdf3e3; --red: #b91c1c; --red-soft: #fdeaea;
+  --r: 8px; --r-sm: 5px;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 12.5px/1.5 var(--font); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+a { color: inherit; text-decoration: none; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+h1, h2, h3, p { margin: 0; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+svg.i { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.skip { position: absolute; left: -999px; top: 8px; z-index: 200; background: var(--ink); color: #fff; padding: 8px 12px; border-radius: var(--r-sm); }
+.skip:focus { left: 8px; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+::selection { background: var(--blue-soft); }
+
+/* Shell ---------------------------------------------------- */
+.app { display: flex; min-height: 100vh; }
+.sidebar {
+  position: sticky; top: 0; flex: none; width: 224px; height: 100vh; display: flex; flex-direction: column;
+  background: #0f172a; color: #cbd5e1; border-right: 1px solid #1e293b; padding: 0 10px 12px;
+}
+.brand { display: flex; align-items: center; gap: 9px; height: 54px; padding: 0 8px; border-bottom: 1px solid #1e293b; margin-bottom: 10px; flex: none; }
+.brand-mark { width: 28px; height: 28px; flex: none; display: grid; place-items: center; border-radius: 7px; background: linear-gradient(145deg, #2563eb, #0f766e); color: #fff; }
+.brand-mark svg { width: 15px; height: 15px; }
+.brand b { display: block; color: #f8fafc; font-size: 11.5px; font-weight: 650; line-height: 1.15; letter-spacing: -.01em; }
+.brand span { display: block; margin-top: 2px; color: #64748b; font: 8px var(--mono); text-transform: uppercase; letter-spacing: .12em; }
+.nav { display: flex; flex-direction: column; gap: 1px; }
+.nav-label { padding: 10px 9px 4px; color: #475569; font: 700 7.5px var(--mono); text-transform: uppercase; letter-spacing: .14em; }
+.nav a { display: flex; align-items: center; gap: 9px; height: 31px; padding: 0 9px; border-radius: var(--r-sm); color: #94a3b8; font-size: 11.5px; font-weight: 500; }
+.nav a:hover { background: #1e293b; color: #e2e8f0; }
+.nav a[aria-current="page"] { background: #1e293b; color: #fff; box-shadow: inset 2px 0 0 #38bdf8; }
+.nav a svg { width: 14px; height: 14px; }
+.nav .count { margin-left: auto; font: 600 8.5px var(--mono); color: #94a3b8; background: #1e293b; border-radius: 3px; padding: 1px 5px; }
+.side-bottom { margin-top: auto; border-top: 1px solid #1e293b; padding-top: 10px; }
+.side-env { display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-radius: var(--r-sm); background: #111f38; color: #93c5fd; font: 600 9.5px var(--mono); }
+.side-env .dot { width: 5px; height: 5px; border-radius: 50%; background: #34d399; box-shadow: 0 0 0 3px rgba(52, 211, 153, .15); }
+.side-env b { margin-left: auto; color: #fbbf24; font-size: 8px; }
+.side-user { display: flex; align-items: center; gap: 8px; padding: 10px 8px 0; }
+.side-user .av { width: 26px; height: 26px; flex: none; display: grid; place-items: center; border-radius: 50%; background: #1e293b; color: #7dd3fc; font: 700 8.5px var(--mono); }
+.side-user b { display: block; color: #e2e8f0; font-size: 10.5px; }
+.side-user span { display: block; color: #64748b; font-size: 8.5px; }
+.side-user button { margin-left: auto; width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: 4px; background: transparent; color: #64748b; }
+.side-user button:hover { color: #f87171; background: #1e293b; }
+
+/* Main ----------------------------------------------------- */
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.topbar {
+  position: sticky; top: 0; z-index: 40; height: 54px; flex: none; display: flex; align-items: center; gap: 12px;
+  padding: 0 16px; background: rgba(255, 255, 255, .92); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line);
+}
+.menu-btn { display: none; }
+.crumbs { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.crumbs b { color: var(--ink); font-weight: 650; }
+.crumbs .sep { color: var(--line-2); }
+.search { margin-left: auto; display: flex; align-items: center; gap: 7px; width: min(300px, 28vw); height: 30px; padding: 0 9px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); color: var(--faint); font-size: 11px; }
+.search:focus-within { border-color: var(--blue); background: #fff; box-shadow: 0 0 0 3px var(--blue-soft); }
+.search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 11px; }
+.search kbd, kbd { font: 600 8.5px var(--mono); color: var(--muted); background: #fff; border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 3px; padding: 1px 4px; }
+.top-status { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); font: 600 9.5px var(--mono); white-space: nowrap; }
+.top-status .dot { width: 5px; height: 5px; border-radius: 50%; background: #16a34a; }
+.top-status b { color: var(--amber); }
+.icon-btn { width: 30px; height: 30px; display: grid; place-items: center; flex: none; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); color: var(--muted); }
+.icon-btn:hover { color: var(--ink); border-color: var(--line-2); }
+.top-av { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--ink); color: #fff; font: 700 9px var(--mono); }
+
+.content { padding: 14px 16px 22px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.title-row { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+.title-row .eyebrow { color: var(--muted); font: 700 8.5px var(--mono); text-transform: uppercase; letter-spacing: .13em; margin-bottom: 5px; }
+.title-row h1 { font-size: 19px; font-weight: 700; letter-spacing: -.03em; }
+.title-row p { margin-top: 3px; color: var(--muted); font-size: 11px; }
+.title-actions { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 10px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--surface); color: var(--ink-2); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.btn:hover { border-color: var(--muted); background: var(--surface-2); }
+.btn-primary { border-color: var(--blue); background: var(--blue); color: #fff; }
+.btn-primary:hover { border-color: #1e40af; background: #1e40af; }
+.btn-sm { height: 25px; padding: 0 7px; font-size: 10px; }
+.btn-ghost { border-color: transparent; background: transparent; }
+.btn-ghost:hover { border-color: var(--line); background: var(--surface-2); }
+
+/* KPIs compactos ------------------------------------------- */
+.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--line); border-radius: var(--r); background: var(--line); overflow: hidden; }
+.kpi { padding: 9px 12px; background: var(--surface); min-width: 0; }
+.kpi span { display: flex; align-items: center; gap: 5px; color: var(--muted); font: 600 8.5px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+.kpi span i { width: 5px; height: 5px; border-radius: 50%; background: var(--tone, var(--blue)); }
+.kpi b { display: block; margin-top: 3px; font: 700 17px/1 var(--mono); letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.kpi b small { font: 500 9px var(--font); color: var(--muted); letter-spacing: 0; margin-left: 2px; }
+.kpi em { display: block; margin-top: 2px; color: var(--faint); font-size: 9px; font-style: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Split ---------------------------------------------------- */
+.split { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px; align-items: start; }
+.panel { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.panel-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 11px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.panel-head h2 { font-size: 11.5px; font-weight: 700; }
+.panel-head .micro { color: var(--faint); font: 600 8.5px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+.panel-head .right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.seg { display: inline-flex; padding: 2px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); }
+.seg button { border: 0; border-radius: 3px; background: transparent; padding: 3px 7px; color: var(--muted); font: 600 9px var(--mono); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.seg button:hover:not([aria-pressed="true"]) { background: var(--surface-3); color: var(--ink); }
+
+/* Tabla ---------------------------------------------------- */
+.table-wrap { overflow: auto; max-height: calc(100vh - 268px); }
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 10.5px; }
+thead th { position: sticky; top: 0; z-index: 2; padding: 7px 9px; text-align: left; color: var(--muted); font: 700 8px var(--mono); text-transform: uppercase; letter-spacing: .07em; background: var(--surface-2); border-bottom: 1px solid var(--line-2); white-space: nowrap; }
+tbody td { padding: 7px 9px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: middle; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--surface-2); }
+tbody tr.is-selected { background: var(--blue-soft); box-shadow: inset 2px 0 0 var(--blue); }
+tbody tr.is-selected:hover { background: #dde8fd; }
+.host { display: flex; align-items: center; gap: 7px; }
+.host .ico { width: 21px; height: 21px; flex: none; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-2); color: var(--muted); }
+.host b { display: block; font: 600 10px var(--mono); color: var(--ink); }
+.host span { display: block; color: var(--faint); font: 9px var(--mono); }
+.mono { font: 9.5px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.st { display: inline-flex; align-items: center; gap: 4px; border-radius: 3px; padding: 2px 6px; font: 700 8.5px var(--mono); text-transform: uppercase; letter-spacing: .03em; }
+.st i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.st-ok { color: var(--teal); background: var(--teal-soft); }
+.st-change { color: var(--amber); background: var(--amber-soft); }
+.st-bad { color: var(--red); background: var(--red-soft); }
+.st-skip { color: var(--muted); background: var(--surface-3); }
+.delta { font: 600 9.5px var(--mono); }
+.delta.ok { color: var(--teal); }
+.delta.warn { color: var(--amber); }
+.panel-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 7px 11px; border-top: 1px solid var(--line); background: var(--surface-2); color: var(--muted); font: 600 9px var(--mono); }
+.panel-foot .right { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.pager { width: 22px; height: 22px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 3px; background: var(--surface); color: var(--muted); }
+.pager:hover { color: var(--ink); }
+.pager[aria-current="page"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+/* Consola plegable ---------------------------------------- */
+.logbox { border-top: 1px solid var(--line); background: #0b1220; color: #cbd5e1; }
+.logbox summary { display: flex; align-items: center; gap: 7px; padding: 7px 11px; cursor: pointer; list-style: none; color: #94a3b8; font: 600 9px var(--mono); text-transform: uppercase; letter-spacing: .07em; }
+.logbox summary::-webkit-details-marker { display: none; }
+.logbox summary::after { content: "⌄"; margin-left: auto; color: #64748b; }
+.logbox[open] summary::after { content: "⌃"; }
+.logbox pre { margin: 0; padding: 0 11px 11px; font: 9px/1.65 var(--mono); color: #cbd5e1; overflow-x: auto; white-space: pre; }
+.logbox .ok { color: #6ee7b7; }
+.logbox .warn { color: #fbbf24; }
+.logbox .bad { color: #fca5a5; }
+.logbox .dim { color: #64748b; }
+.logbox .cmd { color: #7dd3fc; }
+
+/* Detalle -------------------------------------------------- */
+.detail { position: sticky; top: 66px; }
+.detail-head { padding: 11px 12px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.detail-head .row { display: flex; align-items: center; gap: 8px; }
+.detail-head .ico { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border-radius: 6px; background: var(--blue-soft); color: var(--blue); }
+.detail-head h2 { font: 700 12px var(--mono); letter-spacing: -.01em; }
+.detail-head .ip { color: var(--muted); font: 9.5px var(--mono); margin-top: 1px; }
+.detail-head .st { margin-left: auto; }
+.detail-body { padding: 12px; }
+.dl { display: grid; grid-template-columns: 92px 1fr; gap: 7px 8px; font-size: 10.5px; }
+.dl dt { color: var(--muted); font: 600 8.5px var(--mono); text-transform: uppercase; letter-spacing: .06em; padding-top: 1px; }
+.dl dd { color: var(--ink-2); font: 9.5px var(--mono); overflow-wrap: anywhere; }
+.dl dd b { font-weight: 700; color: var(--ink); }
+.dl dd .ok { color: var(--teal); }
+.dl dd .warn { color: var(--amber); }
+.dl dd .bad { color: var(--red); }
+.detail-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 12px; }
+.detail-actions .btn { width: 100%; }
+.detail-note { margin-top: 10px; padding: 8px 9px; border-radius: var(--r-sm); background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); font-size: 9.5px; line-height: 1.5; }
+.detail-note b { color: var(--ink-2); }
+.detail-timeline { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.detail-timeline h3 { color: var(--muted); font: 700 8px var(--mono); text-transform: uppercase; letter-spacing: .1em; margin-bottom: 7px; }
+.detail-timeline li { display: flex; gap: 7px; padding: 4px 0; font-size: 9.5px; color: var(--muted); }
+.detail-timeline li i { width: 5px; height: 5px; border-radius: 50%; background: var(--line-2); margin-top: 4px; flex: none; }
+.detail-timeline li.ok i { background: var(--teal); }
+.detail-timeline li.warn i { background: var(--amber); }
+.detail-timeline li.bad i { background: var(--red); }
+.detail-timeline li time { margin-left: auto; font: 8.5px var(--mono); color: var(--faint); white-space: nowrap; }
+.hint { display: flex; align-items: center; gap: 5px; padding: 6px 11px; border-top: 1px solid var(--line); background: var(--surface-2); color: var(--faint); font: 8.5px var(--mono); }
+.hint kbd { font-size: 8px; }
+
+/* Modal y toast -------------------------------------------- */
+.backdrop { position: fixed; inset: 0; z-index: 100; display: none; place-items: center; padding: 18px; background: rgba(15, 23, 42, .45); backdrop-filter: blur(3px); }
+.backdrop.open { display: grid; }
+.modal { width: min(460px, 100%); border-radius: var(--r); background: var(--surface); border: 1px solid var(--line-2); box-shadow: 0 30px 70px -25px rgba(15, 23, 42, .55); overflow: hidden; }
+.modal-head { display: flex; align-items: flex-start; gap: 9px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.modal-head h2 { font-size: 13px; font-weight: 700; }
+.modal-head p { margin-top: 2px; color: var(--muted); font-size: 10px; }
+.modal-close { margin-left: auto; width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--muted); }
+.modal-body { padding: 14px 16px; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 6px; padding: 11px 16px; border-top: 1px solid var(--line); background: var(--surface-2); }
+.summary { border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden; }
+.summary div { display: grid; grid-template-columns: 112px 1fr; gap: 8px; padding: 6px 9px; border-bottom: 1px solid var(--line); font-size: 10px; }
+.summary div:last-child { border-bottom: 0; }
+.summary span { color: var(--muted); font: 600 8.5px var(--mono); text-transform: uppercase; letter-spacing: .05em; }
+.summary b { color: var(--ink-2); font-weight: 650; font-family: var(--mono); font-size: 9.5px; }
+.notice { display: flex; gap: 7px; margin-top: 9px; padding: 8px 9px; border-radius: var(--r-sm); background: var(--amber-soft); color: #7c4a08; font-size: 9.5px; line-height: 1.5; }
+.notice svg { flex: none; margin-top: 1px; }
+.toast { position: fixed; right: 14px; bottom: 14px; z-index: 110; display: flex; align-items: flex-start; gap: 8px; width: min(340px, calc(100vw - 28px)); padding: 10px 11px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--surface); box-shadow: 0 20px 45px -20px rgba(15, 23, 42, .5); transform: translateY(10px); opacity: 0; pointer-events: none; transition: .2s; }
+.toast.show { transform: none; opacity: 1; }
+.toast .ti { width: 22px; height: 22px; flex: none; display: grid; place-items: center; border-radius: 5px; background: var(--teal-soft); color: var(--teal); }
+.toast b { display: block; font-size: 10.5px; font-weight: 700; }
+.toast span { display: block; margin-top: 1px; color: var(--muted); font-size: 9.5px; }
+
+/* Responsive ----------------------------------------------- */
+@media (max-width: 1180px) {
+  .split { grid-template-columns: minmax(0, 1fr) 300px; }
+  .kpis { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 980px) {
+  .sidebar { position: fixed; left: 0; top: 0; z-index: 60; transform: translateX(-100%); transition: transform .22s; }
+  .sidebar.open { transform: none; }
+  .menu-btn { display: grid; }
+  .overlay { position: fixed; inset: 0; z-index: 55; background: rgba(15, 23, 42, .4); display: none; }
+  .overlay.open { display: block; }
+  .split { grid-template-columns: 1fr; }
+  .detail { position: static; }
+  .table-wrap { max-height: none; }
+  .search { width: auto; }
+  .search input { width: 120px; }
+}
+@media (max-width: 640px) {
+  .content { padding: 11px 10px 18px; }
+  .kpis { grid-template-columns: 1fr 1fr; }
+  .kpi:last-child { grid-column: span 2; }
+  .title-actions { width: 100%; }
+  .title-actions .btn { flex: 1; }
+  .crumbs { display: none; }
+  .top-status { display: none; }
+  .search kbd { display: none; }
+  .topbar { padding: 0 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Saltar al contenido</a>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 4h7a3 3 0 013 3v13a3 3 0 00-3-3H4z"/><path d="M20 4h-6a3 3 0 00-3 3v13a3 3 0 013-3h6z"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 4l11 8-11 8z"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="1.5"/><path d="M3 10h18M8 3v4M16 3v4"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8m-3 0h3v3"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3l9 16H3z"/><path d="M12 9v4m0 3h.01"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.5-6 8-6s8 2 8 6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="1.5"/><path d="M8 10V7a4 4 0 018 0v3"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l2-6 4 12 2-6h6"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0l4-4m-4 4l-4-4M4 21h16"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 10-2.5 6M20 5v6h-6"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m0 0l-6-6m6 6l-6 6"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h9"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M7 9l3 3-3 3M13 15h4"/></symbol>
+</defs></svg>
+
+<div class="overlay" id="overlay" aria-hidden="true"></div>
+
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar" aria-label="Navegación principal">
+    <a class="brand" href="#main">
+      <span class="brand-mark" aria-hidden="true"><svg class="i"><use href="#i-grid"/></svg></span>
+      <span><b>Ansible Control Center</b><span>Consola de automatización</span></span>
+    </a>
+    <nav class="nav" aria-label="Secciones">
+      <div class="nav-label">Operación</div>
+      <a href="#main" aria-current="page"><svg class="i"><use href="#i-grid"/></svg> Panel</a>
+      <a href="#hosts"><svg class="i"><use href="#i-server"/></svg> Inventario <span class="count">254</span></a>
+      <a href="#hosts"><svg class="i"><use href="#i-book"/></svg> Playbooks <span class="count">12</span></a>
+      <a href="#hosts"><svg class="i"><use href="#i-play"/></svg> Ejecuciones <span class="count">3</span></a>
+      <a href="#hosts"><svg class="i"><use href="#i-calendar"/></svg> Programaciones</a>
+      <div class="nav-label">Gobierno</div>
+      <a href="#hosts"><svg class="i"><use href="#i-key"/></svg> Credenciales <span class="count">4</span></a>
+      <a href="#hosts"><svg class="i"><use href="#i-shield"/></svg> Auditoría</a>
+    </nav>
+    <div class="side-bottom">
+      <div class="side-env"><span class="dot"></span> Producción <b>DRY RUN</b></div>
+      <div class="side-user">
+        <span class="av" aria-hidden="true">OP</span>
+        <div><b>operador</b><span>Administrador</span></div>
+        <button type="button" aria-label="Cerrar sesión" title="Cerrar sesión"><svg class="i"><use href="#i-logout"/></svg></button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-btn menu-btn" id="menuBtn" type="button" aria-label="Abrir navegación" aria-controls="sidebar" aria-expanded="false"><svg class="i"><use href="#i-menu"/></svg></button>
+      <div class="crumbs"><span>Panel</span><span class="sep">/</span><b>Flota</b><span class="sep">/</span><span>254 hosts</span></div>
+      <label class="search">
+        <svg class="i" aria-hidden="true"><use href="#i-search"/></svg>
+        <input id="tableSearch" type="search" placeholder="Buscar host, IP o zona…" aria-label="Buscar hosts">
+        <kbd>/</kbd>
+      </label>
+      <span class="top-status"><span class="dot"></span> Lote <b>#A7F3C9E2</b> · 72 %</span>
+      <span class="icon-btn" id="clock" aria-label="Hora de Madrid" title="Europe/Madrid">--:--</span>
+      <button class="icon-btn" type="button" aria-label="Notificaciones: 3 nuevas" data-toast="3 notificaciones" data-toast-msg="7 hosts con fallo y 2 ventanas próximas."><svg class="i"><use href="#i-activity"/></svg></button>
+      <span class="top-av" title="operador" aria-label="Sesión de operador">OP</span>
+    </header>
+
+    <main class="content" id="main">
+      <div class="title-row">
+        <div>
+          <div class="eyebrow">Operación de flota · 03 nov 2026</div>
+          <h1>Inventario y ejecución</h1>
+          <p>Inspecciona el estado del reloj, filtra hosts y lanza operaciones sobre la selección.</p>
+        </div>
+        <div class="title-actions">
+          <button class="btn" type="button" data-toast="Vista previa" data-toast-msg="Inspección de los 254 hosts sin aplicar cambios."><svg class="i"><use href="#i-eye"/></svg> Vista previa</button>
+          <button class="btn" type="button" data-toast="CSV exportado" data-toast-msg="254 filas · inventario del lote en memoria."><svg class="i"><use href="#i-download"/></svg> Exportar</button>
+          <button class="btn btn-primary" type="button" data-open-modal><svg class="i"><use href="#i-play"/></svg> Nueva operación</button>
+        </div>
+      </div>
+
+      <section class="kpis" aria-label="Indicadores de la flota">
+        <div class="kpi" style="--tone:#2563eb"><span><i></i> Hosts</span><b>254<small>objetivo</small></b><em>192.168.1.0/24</em></div>
+        <div class="kpi" style="--tone:#0f766e"><span><i></i> Correctos</span><b>247</b><em>97,2 % · 235 sin cambios</em></div>
+        <div class="kpi" style="--tone:#b45309"><span><i></i> Cambios</span><b>12</b><em>zona o NTP</em></div>
+        <div class="kpi" style="--tone:#b91c1c"><span><i></i> Fallos</span><b>7</b><em>3 auth · 4 timeout</em></div>
+        <div class="kpi" style="--tone:#1d4ed8"><span><i></i> Duración</span><b>4m 12s</b><em>presupuesto 60 min</em></div>
+      </section>
+
+      <div class="split">
+        <!-- Tabla -->
+        <section class="panel" id="hosts" aria-labelledby="hostsTitle">
+          <div class="panel-head">
+            <h2 id="hostsTitle">Hosts del lote</h2>
+            <span class="micro" id="rowCount">254 registros</span>
+            <div class="right">
+              <div class="seg" role="group" aria-label="Filtrar por estado">
+                <button type="button" data-filter="all" aria-pressed="true">Todos</button>
+                <button type="button" data-filter="ok" aria-pressed="false">OK</button>
+                <button type="button" data-filter="change" aria-pressed="false">Cambios</button>
+                <button type="button" data-filter="bad" aria-pressed="false">Fallos</button>
+              </div>
+              <button class="btn btn-sm" type="button" data-toast="Refresco completado" data-toast-msg="Estado del lote actualizado hace un instante."><svg class="i"><use href="#i-refresh"/></svg></button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Host</th><th>Estado</th><th>Zona actual</th><th>Objetivo</th><th>NTP</th><th>Δ</th><th>Dur.</th><th></th></tr></thead>
+              <tbody id="hostRows">
+                <tr class="is-selected" data-state="ok" data-host="web-01" data-ip="192.168.1.10" data-tz="Europe/Madrid" data-target="Europe/Madrid" data-ntp="activo" data-delta="0,0 s" data-dur="1,8 s" data-note="Inspección y verificación correctas. Sin cambios.">
+                  <td><div class="host"><span class="ico"><svg class="i"><use href="#i-server"/></svg></span><span><b>web-01</b><span>192.168.1.10</span></span></div></td><td><span class="st st-ok"><i></i> OK</span></td><td class="mono">Europe/Madrid</td><td class="mono">Europe/Madrid</td><td class="mono">activo</td><td class="delta ok">0,0 s</td><td class="mono">1,8 s</td><td><svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></td>
+                </tr>
+                <tr data-state="ok" data-host="web-02" data-ip="192.168.1.11" data-tz="Europe/Madrid" data-target="Europe/Madrid" data-ntp="activo" data-delta="0,1 s" data-dur="2,1 s" data-note="Inspección y verificación correctas. Sin cambios.">
+                  <td><div class="host"><span class="ico"><svg class="i"><use href="#i-server"/></svg></span><span><b>web-02</b><span>192.168.1.11</span></span></div></td><td><span class="st st-ok"><i></i> OK</span></td><td class="mono">Europe/Madrid</td><td class="mono">Europe/Madrid</td><td class="mono">activo</td><td class="delta ok">0,1 s</td><td class="mono">2,1 s</td><td><svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></td>
+                </tr>
+                <tr data-state="change" data-host="db-01" data-ip="192.168.1.12" data-tz="UTC" data-target="Europe/Madrid" data-ntp="restore" data-delta="+1 h" data-dur="4,2 s" data-note="Zona ajustada. NTP restaurado al estado previo tras fijar la hora.">
+                  <td><div class="host"><span class="ico"><svg class="i"><use href="#i-server"/></svg></span><span><b>db-01</b><span>192.168.1.12</span></span></div></td><td><span class="st st-change"><i></i> cambio</span></td><td class="mono">UTC</td><td class="mono">Europe/Madrid</td><td class="mono">restore</td><td class="delta warn">+1 h</td><td class="mono">4,2 s</td><td><svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></td>
+                </tr>
+                <tr data-state="bad" data-host="cache-03" data-ip="192.168.1.13" data-tz="—" data-target="Europe/Madrid" data-ntp="—" data-delta="—" data-dur="3,4 s" data-note="Timeout SSH. Revisa red, firewall o credenciales del host.">
+                  <td><div class="host"><span class="ico"><svg class="i"><use href="#i-server"/></svg></span><span><b>cache-03</b><span>192.168.1.13</span></span></div></td><td><span class="st st-bad"><i></i> timeout</span></td><td class="mono">—</td><td class="mono">Europe/Madrid</td><td class="mono">—</td><td class="delta">—</td><td class="mono">3,4 s</td><td><svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></td>
+                </tr>
+                <tr data-state="ok" data-host="app-04" data-ip="192.168.1.14" data-tz="Europe/Madrid" data-target="Europe/Madrid" data-ntp="activo" data-delta="0,0 s" data-dur="1,6 s" data-note="Inspección y verificación correctas. Sin cambios.">
+                  <td><div class="host"><span class="ico"><svg class="i"><use href="#i-server"/></svg></span><span><b>app-04</b><span>192.168.1.14</span></span></div></td><td><span class="st st-ok"><i></i> OK</span></td><td class="mono">Europe/Madrid</td><td class="mono">Europe/Madrid</td><td class="mono">activo</td><td class="delta ok">0,0 s</td><td class="mono">1,6 s</td><td><svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></td>
+                </tr>
+                <tr data-state="change" data-host="mail-05" data-ip="192.168.1.15" data-tz="America/Bogota" data-target="Europe/Madrid" data-ntp="configure" data-delta="−6 h" data-dur="5,0 s" data-note="Zona ajustada y servidores NTP reconfigurados.">
+                  <td><div class="host"><span class="ico"><svg class="i"><use href="#i-server"/></svg></span><span><b>mail-05</b><span>192.168.1.15</span></span></div></td><td><span class="st st-change"><i></i> cambio</span></td><td class="mono">America/Bogota</td><td class="mono">Europe/Madrid</td><td class="mono">configure</td><td class="delta warn">−6 h</td><td class="mono">5,0 s</td><td><svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></td>
+                </tr>
+                <tr data-state="bad" data-host="edge-06" data-ip="192.168.1.16" data-tz="—" data-target="Europe/Madrid" data-ntp="—" data-delta="—" data-dur="2,9 s" data-note="Fallo de autenticación. La credencial #2 no es válida para este host.">
+                  <td><div class="host"><span class="ico"><svg class="i"><use href="#i-server"/></svg></span><span><b>edge-06</b><span>192.168.1.16</span></span></div></td><td><span class="st st-bad"><i></i> auth</span></td><td class="mono">—</td><td class="mono">Europe/Madrid</td><td class="mono">—</td><td class="delta">—</td><td class="mono">2,9 s</td><td><svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></td>
+                </tr>
+                <tr data-state="ok" data-host="db-02" data-ip="192.168.1.17" data-tz="Europe/Madrid" data-target="Europe/Madrid" data-ntp="activo" data-delta="0,0 s" data-dur="2,0 s" data-note="Inspección y verificación correctas. Sin cambios.">
+                  <td><div class="host"><span class="ico"><svg class="i"><use href="#i-server"/></svg></span><span><b>db-02</b><span>192.168.1.17</span></span></div></td><td><span class="st st-ok"><i></i> OK</span></td><td class="mono">Europe/Madrid</td><td class="mono">Europe/Madrid</td><td class="mono">activo</td><td class="delta ok">0,0 s</td><td class="mono">2,0 s</td><td><svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></td>
+                </tr>
+                <tr data-state="skip" data-host="nas-07" data-ip="192.168.1.18" data-tz="Europe/Madrid" data-target="Europe/Madrid" data-ntp="keep" data-delta="—" data-dur="0,4 s" data-note="Omitido: el host ya estaba en el estado objetivo y la idempotencia está activa.">
+                  <td><div class="host"><span class="ico"><svg class="i"><use href="#i-server"/></svg></span><span><b>nas-07</b><span>192.168.1.18</span></span></div></td><td><span class="st st-skip"><i></i> omitido</span></td><td class="mono">Europe/Madrid</td><td class="mono">Europe/Madrid</td><td class="mono">keep</td><td class="delta">—</td><td class="mono">0,4 s</td><td><svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <details class="logbox">
+            <summary><svg class="i" aria-hidden="true"><use href="#i-terminal"/></svg> Consola del lote · ansible-playbook cambiar_hora.yml</summary>
+            <pre><span class="cmd">operator@acc:~$ ansible-playbook cambiar_hora.yml -i inventory.ini --check</span>
+<span class="dim">PLAY [Configurar reloj de la flota] **********************************</span>
+<span class="ok">ok: [web-01] =&gt; { "tz": "Europe/Madrid", "ntp": "active" }</span>
+<span class="ok">ok: [web-02] =&gt; { "tz": "Europe/Madrid", "ntp": "active" }</span>
+<span class="warn">changed: [db-01] =&gt; { "tz": "Europe/Madrid", "delta": "+1h 00m" }</span>
+<span class="bad">fatal: [cache-03] =&gt; UNREACHABLE! ssh: connect to host 192.168.1.13 port 22: timed out</span>
+<span class="dim">TASK [Verificar estado final] ***************************************</span>
+<span class="ok">ok: [web-01] =&gt; { "verified": true, "deviation_ms": 12 }</span>
+<span class="ok">PLAY RECAP · web-01 ok=4 changed=0 failed=0 · db-01 ok=4 changed=1</span></pre>
+          </details>
+
+          <div class="panel-foot">
+            <span>Mostrando <b>9</b> de 254 · datos simulados</span>
+            <span class="right">
+              <button class="pager" type="button" aria-label="Página anterior">‹</button>
+              <button class="pager" type="button" aria-current="page">1</button>
+              <button class="pager" type="button" aria-label="Página 2">2</button>
+              <button class="pager" type="button" aria-label="Página 3">3</button>
+              <button class="pager" type="button" aria-label="Página siguiente">›</button>
+            </span>
+          </div>
+        </section>
+
+        <!-- Detalle -->
+        <aside class="panel detail" id="detail" aria-labelledby="detailTitle" aria-live="polite">
+          <div class="detail-head">
+            <div class="row">
+              <span class="ico"><svg class="i"><use href="#i-server"/></svg></span>
+              <div><h2 id="detailTitle">web-01</h2><div class="ip" id="dIp">192.168.1.10</div></div>
+              <span class="st st-ok" id="dState"><i></i> OK</span>
+            </div>
+          </div>
+          <div class="detail-body">
+            <dl class="dl">
+              <dt>Zona actual</dt><dd id="dTz">Europe/Madrid</dd>
+              <dt>Objetivo</dt><dd id="dTarget">Europe/Madrid</dd>
+              <dt>NTP</dt><dd id="dNtp">activo</dd>
+              <dt>Desviación</dt><dd id="dDelta"><span class="ok">0,0 s</span></dd>
+              <dt>Duración</dt><dd id="dDur">1,8 s</dd>
+              <dt>Último lote</dt><dd>#A7F3C9E2 · <b>operador</b></dd>
+              <dt>Credencial</dt><dd>Vault · candidata #3</dd>
+            </dl>
+            <div class="detail-note" id="dNote"><b>Estado:</b> inspección y verificación correctas. Sin cambios.</div>
+            <div class="detail-actions">
+              <button class="btn btn-sm" type="button" data-toast="Inspección" data-toast-msg="web-01 se inspeccionará sin aplicar cambios."><svg class="i"><use href="#i-eye"/></svg> Inspeccionar</button>
+              <button class="btn btn-sm btn-primary" type="button" data-open-modal><svg class="i"><use href="#i-play"/></svg> Ejecutar</button>
+            </div>
+            <div class="detail-timeline">
+              <h3>Historial del host</h3>
+              <ul>
+                <li class="ok"><i></i> Verificado <time>hace 4 m</time></li>
+                <li><i></i> Inspeccionado <time>hace 4 m</time></li>
+                <li class="ok"><i></i> Zona aplicada <time>ayer</time></li>
+                <li class="warn"><i></i> Deriva detectada <time>2 días</time></li>
+              </ul>
+            </div>
+          </div>
+          <div class="hint"><kbd>J</kbd><kbd>K</kbd> mover <kbd>/</kbd> buscar <kbd>↵</kbd> ejecutar</div>
+        </aside>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- Modal ---------------------------------------------------- -->
+<div class="backdrop" id="modal" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-head">
+      <div><h2 id="modalTitle">Nueva operación</h2><p>254 hosts · modo simulación</p></div>
+      <button class="modal-close" type="button" data-close-modal aria-label="Cerrar"><svg class="i"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="summary">
+        <div><span>Objetivo</span><b>192.168.1.0/24</b></div>
+        <div><span>Acción</span><b>Zona horaria → Europe/Madrid</b></div>
+        <div><span>NTP</span><b>restore · estado previo</b></div>
+        <div><span>Playbook</span><b>cambiar_hora.yml</b></div>
+        <div><span>Modo</span><b>DRY RUN</b></div>
+      </div>
+      <div class="notice"><svg class="i"><use href="#i-alert"/></svg> No se modificará ningún host. Revisa el resultado y repite en modo real cuando estés listo.</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" type="button" data-close-modal>Cancelar</button>
+      <button class="btn btn-primary" type="button" data-close-modal data-toast="Lote encolado" data-toast-msg="#A7F3C9E2 · 254 hosts · simulación iniciada."><svg class="i"><use href="#i-play"/></svg> Ejecutar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast ---------------------------------------------------- -->
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <span class="ti"><svg class="i"><use href="#i-check"/></svg></span>
+  <div><b id="toastTitle">Listo</b><span id="toastMsg">Acción completada.</span></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* Menú móvil --------------------------------------------- */
+  var menuBtn = document.getElementById("menuBtn");
+  var sidebar = document.getElementById("sidebar");
+  var overlay = document.getElementById("overlay");
+  function setMenu(open) {
+    if (!sidebar || !overlay) return;
+    sidebar.classList.toggle("open", open);
+    overlay.classList.toggle("open", open);
+    if (menuBtn) menuBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  if (menuBtn) menuBtn.addEventListener("click", function () { setMenu(!sidebar.classList.contains("open")); });
+  if (overlay) overlay.addEventListener("click", function () { setMenu(false); });
+  document.addEventListener("keydown", function (event) { if (event.key === "Escape") setMenu(false); });
+
+  /* Reloj -------------------------------------------------- */
+  var clock = document.getElementById("clock");
+  function tick() {
+    if (!clock) return;
+    try {
+      clock.textContent = new Intl.DateTimeFormat("es-ES", {
+        timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", hour12: false
+      }).format(new Date());
+    } catch (error) {
+      clock.textContent = new Date().toLocaleTimeString("es-ES");
+    }
+  }
+  tick();
+  setInterval(tick, 30000);
+
+  /* Selección de host y panel de detalle ------------------- */
+  var rows = Array.prototype.slice.call(document.querySelectorAll("#hostRows tr"));
+  var detail = {
+    title: document.getElementById("detailTitle"),
+    ip: document.getElementById("dIp"),
+    state: document.getElementById("dState"),
+    tz: document.getElementById("dTz"),
+    target: document.getElementById("dTarget"),
+    ntp: document.getElementById("dNtp"),
+    delta: document.getElementById("dDelta"),
+    dur: document.getElementById("dDur"),
+    note: document.getElementById("dNote")
+  };
+  var states = {
+    ok: { label: "OK", cls: "st st-ok" },
+    change: { label: "cambio", cls: "st st-change" },
+    bad: { label: "fallo", cls: "st st-bad" },
+    skip: { label: "omitido", cls: "st st-skip" }
+  };
+
+  function selectRow(row) {
+    rows.forEach(function (other) {
+      other.classList.toggle("is-selected", other === row);
+    });
+    var state = row.getAttribute("data-state");
+    var meta = states[state] || states.ok;
+    if (detail.title) detail.title.textContent = row.getAttribute("data-host");
+    if (detail.ip) detail.ip.textContent = row.getAttribute("data-ip");
+    if (detail.state) {
+      detail.state.className = meta.cls;
+      detail.state.innerHTML = "<i></i> " + meta.label;
+    }
+    if (detail.tz) detail.tz.textContent = row.getAttribute("data-tz");
+    if (detail.target) detail.target.textContent = row.getAttribute("data-target");
+    if (detail.ntp) detail.ntp.textContent = row.getAttribute("data-ntp");
+    if (detail.delta) detail.delta.textContent = row.getAttribute("data-delta");
+    if (detail.dur) detail.dur.textContent = row.getAttribute("data-dur");
+    if (detail.note) detail.note.innerHTML = "<b>Estado:</b> " + row.getAttribute("data-note");
+  }
+
+  rows.forEach(function (row) {
+    row.addEventListener("click", function () { selectRow(row); });
+    row.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectRow(row); }
+    });
+    row.setAttribute("tabindex", "0");
+  });
+
+  /* Teclado: j/k para mover la selección ------------------- */
+  document.addEventListener("keydown", function (event) {
+    if (/input|textarea|select/i.test(document.activeElement.tagName)) return;
+    if (event.key !== "j" && event.key !== "k") return;
+    var visible = rows.filter(function (row) { return !row.hidden; });
+    if (!visible.length) return;
+    var index = visible.findIndex(function (row) { return row.classList.contains("is-selected"); });
+    index = event.key === "j" ? Math.min(index + 1, visible.length - 1) : Math.max(index - 1, 0);
+    if (index < 0) index = 0;
+    selectRow(visible[index]);
+    visible[index].scrollIntoView({ block: "nearest" });
+  });
+
+  /* Búsqueda y filtros ------------------------------------- */
+  var search = document.getElementById("tableSearch");
+  var filters = Array.prototype.slice.call(document.querySelectorAll("[data-filter]"));
+  var count = document.getElementById("rowCount");
+  var activeFilter = "all";
+
+  function applyView() {
+    var term = (search ? search.value : "").trim().toLowerCase();
+    var shown = 0;
+    rows.forEach(function (row) {
+      var stateOk = activeFilter === "all" || row.getAttribute("data-state") === activeFilter;
+      var text = row.textContent.toLowerCase();
+      var termOk = !term || text.indexOf(term) !== -1;
+      row.hidden = !(stateOk && termOk);
+      if (!row.hidden) shown += 1;
+    });
+    if (count) count.textContent = shown + " registros";
+  }
+
+  filters.forEach(function (button) {
+    button.addEventListener("click", function () {
+      activeFilter = button.getAttribute("data-filter");
+      filters.forEach(function (other) { other.setAttribute("aria-pressed", other === button ? "true" : "false"); });
+      applyView();
+    });
+  });
+  if (search) search.addEventListener("input", applyView);
+
+  /* Atajo "/" para buscar ---------------------------------- */
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "/" && !/input|textarea|select/i.test(document.activeElement.tagName)) {
+      event.preventDefault();
+      if (search) search.focus();
+    }
+  });
+
+  /* Modal -------------------------------------------------- */
+  var modal = document.getElementById("modal");
+  var lastFocus = null;
+  function openModal() {
+    if (!modal) return;
+    lastFocus = document.activeElement;
+    modal.classList.add("open");
+    modal.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+    var close = modal.querySelector("[data-close-modal]");
+    if (close) close.focus();
+  }
+  function closeModal() {
+    if (!modal) return;
+    modal.classList.remove("open");
+    modal.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+    if (lastFocus) lastFocus.focus();
+  }
+  document.addEventListener("click", function (event) {
+    if (event.target.closest("[data-open-modal]")) { event.preventDefault(); openModal(); }
+    if (event.target.closest("[data-close-modal]")) { event.preventDefault(); closeModal(); }
+  });
+  if (modal) modal.addEventListener("click", function (event) { if (event.target === modal) closeModal(); });
+  document.addEventListener("keydown", function (event) { if (event.key === "Escape") closeModal(); });
+
+  /* Toast -------------------------------------------------- */
+  var toast = document.getElementById("toast");
+  var toastTitle = document.getElementById("toastTitle");
+  var toastMsg = document.getElementById("toastMsg");
+  var toastTimer = null;
+  function showToast(title, message) {
+    if (!toast) return;
+    toastTitle.textContent = title || "Listo";
+    toastMsg.textContent = message || "Acción completada.";
+    toast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toast.classList.remove("show"); }, 3400);
+  }
+  document.addEventListener("click", function (event) {
+    var trigger = event.target.closest("[data-toast]");
+    if (!trigger) return;
+    showToast(trigger.getAttribute("data-toast"), trigger.getAttribute("data-toast-msg"));
+  });
+})();
+</script>
+</body>
+</html>

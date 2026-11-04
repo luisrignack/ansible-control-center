@@ -1,10 +1,11 @@
-# Operación y runbook — Hora Admin
+# Operación y runbook — Ansible Control Center
 
-Guía práctica para operar, diagnosticar y mantener Hora Admin en producción.
+Guía práctica para operar, diagnosticar y mantener Ansible Control Center en producción.
 Complementa [ARQUITECTURA](ARQUITECTURA.md) y [REFERENCIA](REFERENCIA.md).
 
-> **Antes de operar sobre equipos reales:** confirma que
-> `HORA_ADMIN_DRY_RUN=0`, que el host está en `known_hosts` y que tienes
+> **Antes de operar sobre equipos reales:** confirma que el interruptor
+> **Simulación** está desactivado (o `ACC_DRY_RUN=0` si aún no hay valor
+> guardado), que el host está en `known_hosts` y que tienes
 > autorización explícita. La interfaz muestra un banner de simulación, el lote
 > guarda `dry_run` y el historial separa hosts reales de simulados. La vista
 > previa ejecuta una inspección real de solo lectura incluso en DRY RUN.
@@ -40,7 +41,7 @@ la tarea SSE termina en `error`.
 Para cada host, en orden secuencial:
 
 1. Se prueba `ansible -m ping` con las contraseñas candidatas, hasta
-   `HORA_ADMIN_MAX_PASSWORD_ATTEMPTS` (3 por defecto).
+   `ACC_MAX_PASSWORD_ATTEMPTS` (3 por defecto).
 2. La primera que autentica ejecuta `cambiar_hora.yml` mediante `apply_host`.
 3. Si el playbook falla o la verificación no coincide, se prueba la siguiente
    candidata para ese mismo host, sin superar el límite anterior.
@@ -49,7 +50,7 @@ Para cada host, en orden secuencial:
 5. Se conserva además un registro en `executions` (tabla heredada).
 
 Un fallo de host **no detiene** el lote (best-effort). El lote tiene un
-presupuesto total de `HORA_ADMIN_BATCH_TIME_BUDGET` segundos (3600 por
+presupuesto total de `ACC_BATCH_TIME_BUDGET` segundos (3600 por
 defecto); al agotarse, los hosts pendientes se registran como `skipped` y el
 lote cierra en vez de quedar abierto durante horas.
 
@@ -73,11 +74,11 @@ y deriva el estado global:
 
 ### 2.1. Antes de ejecutar
 
-- [ ] `HORA_ADMIN_DRY_RUN=0` si el cambio debe ser real.
+- [ ] Interruptor **Simulación** desactivado si el cambio debe ser real.
 - [ ] Hosts accesibles por SSH y presentes en `known_hosts`.
 - [ ] Usuario con `sudo`/`become` y contraseña correcta en el vault o `.txt`.
 - [ ] Objetivo dentro del rango permitido (`MAX_HOSTS`, `MIN_CIDR_PREFIX`) y,
-      si aplica, de `HORA_ADMIN_ALLOWED_NETWORKS`.
+      si aplica, de `ACC_ALLOWED_NETWORKS`.
 - [ ] Acción y valor revisados:
   - `TZ` → zona IANA existente (`Europe/Madrid`).
   - `TIME` → `AAAA-MM-DDTHH:MM`; decide `utc` o `local`.
@@ -163,19 +164,19 @@ por el playbook (`timezone`, `ntp`, `ntp_synchronized`, `local_rtc`, `utc`,
 
 ```bash
 # Log de la aplicación (si LOG_TO_FILE=1)
-sudo tail -f /var/log/hora-admin/hora-admin.log
+sudo tail -f /var/log/ansible-control-center/ansible-control-center.log
 
 # Servicio systemd
-sudo journalctl -u hora-admin -f
+sudo journalctl -u ansible-control-center -f
 
 # Últimos lotes
-sqlite3 /var/lib/hora-admin/hora_admin.db \
+sqlite3 /var/lib/ansible-control-center/acc.db \
   "SELECT batch_id, created_at, status, operator, action, value,
           success_count, failure_count, error_count
      FROM execution_batches ORDER BY created_at DESC LIMIT 10;"
 
 # Detalle de un lote
-sqlite3 -header -column /var/lib/hora-admin/hora_admin.db \
+sqlite3 -header -column /var/lib/ansible-control-center/acc.db \
   "SELECT host, result, duration_ms, substr(error,1,120) AS error
      FROM execution_hosts WHERE batch_id='<BATCH_ID>' ORDER BY id;"
 ```
@@ -197,7 +198,7 @@ Causas habituales:
 Comprobación:
 
 ```bash
-sqlite3 /var/lib/hora-admin/hora_admin.db \
+sqlite3 /var/lib/ansible-control-center/acc.db \
   "SELECT batch_id, created_at, total_hosts,
           success_count + failure_count + error_count + preview_count AS procesados
      FROM execution_batches
@@ -241,7 +242,7 @@ Síntomas: error de ping, `Permission denied`, `sshpass` ausente, timeout.
   - `hwclock` no disponible en contenedor;
   - zona horaria inexistente o `tzdata` desactualizado;
   - permisos insuficientes para `timedatectl`/`date`.
-- La tolerancia se controla con `HORA_ADMIN_TIME_TOLERANCE` (2 s por defecto).
+- La tolerancia se controla con `ACC_TIME_TOLERANCE` (2 s por defecto).
 
 ### 4.4. `partial`
 
@@ -262,12 +263,12 @@ Al arrancar, la aplicación marca los lotes `running` como `error` porque sus
 hilos daemon ya no existen. También puedes forzarlo manualmente:
 
 ```bash
-sudo -u hora-admin .venv/bin/flask --app app reconcile-batches
+sudo -u ansible-control-center .venv/bin/flask --app app reconcile-batches
 ```
 
 ### 4.7. “Éxito” en modo simulación
 
-Con `HORA_ADMIN_DRY_RUN=1` el resultado del cambio se simula: no se toca el
+Con `ACC_DRY_RUN=1` el resultado del cambio se simula: no se toca el
 host. El panel y el detalle muestran el badge `DRY RUN`, el lote guarda
 `dry_run` y el historial separa los hosts simulados de los reales. Aun así,
 **comprueba el modo antes de dar un cambio por real**: el estado `success` de
@@ -314,47 +315,47 @@ como operación de reversión.
 
 | Elemento | Ruta habitual | Contenido |
 |---|---|---|
-| SQLite | `/var/lib/hora-admin/hora_admin.db` | Usuarios, hashes, lotes, resultados |
-| WAL/SHM | `hora_admin.db-wal`, `hora_admin.db-shm` | Cambios aún no consolidados |
-| Vault | `/etc/hora-admin/secrets/passwords_vault.yml` | Contraseñas cifradas |
-| `.env` | `/opt/hora-admin/.env` | `SECRET_KEY` y configuración |
-| Logs | `/var/log/hora-admin/` | Diagnóstico |
+| SQLite | `/var/lib/ansible-control-center/acc.db` | Usuarios, hashes, lotes, resultados |
+| WAL/SHM | `acc.db-wal`, `acc.db-shm` | Cambios aún no consolidados |
+| Vault | `/etc/ansible-control-center/secrets/passwords_vault.yml` | Contraseñas cifradas |
+| `.env` | `/opt/ansible-control-center/.env` | `SECRET_KEY` y configuración |
+| Logs | `/var/log/ansible-control-center/` | Diagnóstico |
 
 ### 6.2. Copia consistente
 
 Con el servicio parado:
 
 ```bash
-sudo systemctl stop hora-admin
-sudo install -d -m 0700 /var/backups/hora-admin
-sudo cp -a /var/lib/hora-admin/hora_admin.db* /var/backups/hora-admin/
-sudo cp -a /etc/hora-admin/secrets/passwords_vault.yml /var/backups/hora-admin/
-sudo cp -a /opt/hora-admin/.env /var/backups/hora-admin/
-sudo systemctl start hora-admin
+sudo systemctl stop ansible-control-center
+sudo install -d -m 0700 /var/backups/ansible-control-center
+sudo cp -a /var/lib/ansible-control-center/acc.db* /var/backups/ansible-control-center/
+sudo cp -a /etc/ansible-control-center/secrets/passwords_vault.yml /var/backups/ansible-control-center/
+sudo cp -a /opt/ansible-control-center/.env /var/backups/ansible-control-center/
+sudo systemctl start ansible-control-center
 ```
 
 En caliente, usa la API de backup de SQLite (incluye WAL):
 
 ```bash
-sudo sqlite3 /var/lib/hora-admin/hora_admin.db \
-  ".backup '/var/backups/hora-admin/hora_admin-$(date +%F).db'"
+sudo sqlite3 /var/lib/ansible-control-center/acc.db \
+  ".backup '/var/backups/ansible-control-center/acc-$(date +%F).db'"
 ```
 
 ### 6.3. Restauración
 
 ```bash
-sudo systemctl stop hora-admin
-sudo cp /var/backups/hora-admin/hora_admin-AAAA-MM-DD.db \
-      /var/lib/hora-admin/hora_admin.db
-sudo rm -f /var/lib/hora-admin/hora_admin.db-wal \
-           /var/lib/hora-admin/hora_admin.db-shm
-sudo cp /var/backups/hora-admin/passwords_vault.yml \
-      /etc/hora-admin/secrets/passwords_vault.yml
-sudo chown hora-admin:hora-admin \
-      /var/lib/hora-admin/hora_admin.db \
-      /etc/hora-admin/secrets/passwords_vault.yml
-sudo chmod 600 /etc/hora-admin/secrets/passwords_vault.yml
-sudo systemctl start hora-admin
+sudo systemctl stop ansible-control-center
+sudo cp /var/backups/ansible-control-center/acc-AAAA-MM-DD.db \
+      /var/lib/ansible-control-center/acc.db
+sudo rm -f /var/lib/ansible-control-center/acc.db-wal \
+           /var/lib/ansible-control-center/acc.db-shm
+sudo cp /var/backups/ansible-control-center/passwords_vault.yml \
+      /etc/ansible-control-center/secrets/passwords_vault.yml
+sudo chown ansible-control-center:ansible-control-center \
+      /var/lib/ansible-control-center/acc.db \
+      /etc/ansible-control-center/secrets/passwords_vault.yml
+sudo chmod 600 /etc/ansible-control-center/secrets/passwords_vault.yml
+sudo systemctl start ansible-control-center
 ```
 
 Después, verifica login, `/history` y que el vault se descifra con la
@@ -364,8 +365,8 @@ contraseña maestra esperada.
 
 ## 7. Retención y limpieza
 
-`HORA_ADMIN_JOB_RETENTION_HOURS` (24) se aplica al arrancar: las instantáneas
-de tareas más antiguas se borran de `task_state`. `HORA_ADMIN_HISTORY_DAYS`
+`ACC_JOB_RETENTION_HOURS` (24) se aplica al arrancar: las instantáneas
+de tareas más antiguas se borran de `task_state`. `ACC_HISTORY_DAYS`
 (180) sigue pendiente de un job de purga; la retención de lotes es manual.
 
 ### 7.1. Borrar lotes antiguos
@@ -392,8 +393,8 @@ DELETE FROM executions WHERE timestamp < datetime('now', '-180 days');
 ### 7.2. Compactar
 
 ```bash
-sudo sqlite3 /var/lib/hora-admin/hora_admin.db "PRAGMA wal_checkpoint(TRUNCATE);"
-sudo sqlite3 /var/lib/hora-admin/hora_admin.db "VACUUM;"
+sudo sqlite3 /var/lib/ansible-control-center/acc.db "PRAGMA wal_checkpoint(TRUNCATE);"
+sudo sqlite3 /var/lib/ansible-control-center/acc.db "VACUUM;"
 ```
 
 Ejecuta `VACUUM` con el servicio parado o en ventana de baja actividad.
@@ -406,12 +407,12 @@ Ejecuta `VACUUM` con el servicio parado o en ventana de baja actividad.
 
 ```bash
 # 1. Copia de seguridad (§6)
-sudo systemctl stop hora-admin
-cd /opt/hora-admin
-sudo -u hora-admin git pull            # o copia el nuevo código
-sudo -u hora-admin .venv/bin/pip install -r requirements.txt
-sudo -u hora-admin .venv/bin/flask --app app init-db
-sudo systemctl start hora-admin
+sudo systemctl stop ansible-control-center
+cd /opt/ansible-control-center
+sudo -u ansible-control-center git pull            # o copia el nuevo código
+sudo -u ansible-control-center .venv/bin/pip install -r requirements.txt
+sudo -u ansible-control-center .venv/bin/flask --app app init-db
+sudo systemctl start ansible-control-center
 ```
 
 `init-db` es idempotente y aplica migraciones no destructivas. El esquema
@@ -420,7 +421,7 @@ actual es `PRAGMA user_version = 5`.
 ### 8.2. Rotar la contraseña del administrador
 
 ```bash
-sudo -u hora-admin .venv/bin/flask --app app init-admin
+sudo -u ansible-control-center .venv/bin/flask --app app init-admin
 ```
 
 Vuelve a pedir la contraseña y actualiza el hash Werkzeug.
@@ -428,7 +429,7 @@ Vuelve a pedir la contraseña y actualiza el hash Werkzeug.
 ### 8.3. Rotar `SECRET_KEY`
 
 1. Genera una nueva: `openssl rand -hex 32`.
-2. Actualiza `HORA_ADMIN_SECRET_KEY` en `.env`.
+2. Actualiza `ACC_SECRET_KEY` en `.env`.
 3. Reinicia el servicio. **Todas las sesiones activas se invalidan.**
 
 ### 8.4. Rotar la contraseña maestra del vault
@@ -436,8 +437,8 @@ Vuelve a pedir la contraseña y actualiza el hash Werkzeug.
 `ansible-vault rekey` no está integrado en la interfaz. Procedimiento manual:
 
 ```bash
-sudo -u hora-admin ansible-vault rekey \
-  /etc/hora-admin/secrets/passwords_vault.yml
+sudo -u ansible-control-center ansible-vault rekey \
+  /etc/ansible-control-center/secrets/passwords_vault.yml
 ```
 
 Guarda la nueva contraseña en el gestor de secretos correspondiente. No se
@@ -445,7 +446,7 @@ persiste en la aplicación.
 
 ### 8.5. Logs
 
-- `HORA_ADMIN_LOG_TO_FILE=1` escribe en `LOG_DIR/hora-admin.log` con rotación
+- `ACC_LOG_TO_FILE=1` escribe en `LOG_DIR/ansible-control-center.log` con rotación
   (`LOG_MAX_BYTES`, `LOG_BACKUPS`).
 - Gunicorn escribe a stdout/stderr; en systemd va a journald.
 - Revisa crecimiento y errores periódicamente.
@@ -455,7 +456,7 @@ persiste en la aplicación.
 Con `HOST_KEY_CHECKING=1`, provisiona las claves antes del primer uso:
 
 ```bash
-ssh-keyscan -H 192.0.2.10 | sudo -u hora-admin tee -a ~/.ssh/known_hosts
+ssh-keyscan -H 192.0.2.10 | sudo -u ansible-control-center tee -a ~/.ssh/known_hosts
 ```
 
 Verifica las huellas por un canal de confianza antes de aceptarlas. No
@@ -467,7 +468,7 @@ desactives la verificación salvo decisión consciente y documentada.
 
 - No ejecutes la app como `root`; usa un usuario de servicio sin privilegios.
 - `install.sh` crea directorios para el usuario que lo invoca, pero el unit de
-  systemd documentado usa `User=hora-admin`. Alinea ambos (ver
+  systemd documentado usa `User=ansible-control-center`. Alinea ambos (ver
   [DEPLOYMENT](../DEPLOYMENT.md#servicio-systemd)).
 - Mantén `.env` en `0600` y el vault en `0600`.
 - No compartas la contraseña maestra por chat/correo; usa un gestor de secretos.
@@ -476,7 +477,7 @@ desactives la verificación salvo decisión consciente y documentada.
   global.
 - No hay RBAC, MFA ni auditoría de eventos independiente. Un usuario
   autenticado puede apuntar a cualquier IP/CIDR permitido por
-  `HORA_ADMIN_ALLOWED_NETWORKS` y los límites globales.
+  `ACC_ALLOWED_NETWORKS` y los límites globales.
 
 ---
 

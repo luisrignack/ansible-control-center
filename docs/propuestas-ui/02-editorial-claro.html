@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Propuesta 02 · Editorial claro — Ansible Control Center</title>
+<meta name="description" content="Propuesta de interfaz 02: editorial clara, serena y tipográfica, con foco en la legibilidad.">
+<style>
+/* ============================================================
+   Propuesta 02 — Editorial claro
+   Papel cálido, tipografía serif de titular, acento verde bosque.
+   Menos “dashboard”, más documento operativo bien editado.
+   ============================================================ */
+:root {
+  --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --paper: #f7f4ee;
+  --paper-2: #fffdf9;
+  --ink: #17211c;
+  --ink-2: #3d4a43;
+  --muted: #79837c;
+  --line: #ded9cf;
+  --line-2: #eae5db;
+  --green: #1e5c46;
+  --green-2: #2f7a5e;
+  --green-soft: #e7efe9;
+  --clay: #b65f3b;
+  --clay-soft: #f6e9e2;
+  --amber: #9a6b16;
+  --amber-soft: #f6eedb;
+  --red: #a83a3a;
+  --red-soft: #f7e5e3;
+  --blue: #2c5a86;
+  --blue-soft: #e6edf4;
+  --r: 4px;
+  --r-lg: 8px;
+  --max: 1180px;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 14px/1.65 var(--font); -webkit-font-smoothing: antialiased;
+}
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(900px 500px at 85% -10%, rgba(30, 92, 70, .06), transparent 65%),
+    radial-gradient(700px 400px at 0% 20%, rgba(182, 95, 59, .045), transparent 60%);
+}
+a { color: var(--green); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 3px; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+h1, h2, h3, p { margin: 0; }
+svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.skip { position: absolute; left: -999px; top: 8px; background: var(--ink); color: #fff; padding: 8px 14px; border-radius: 4px; z-index: 90; }
+.skip:focus { left: 8px; }
+:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+::selection { background: #dce8df; }
+
+.wrap { position: relative; z-index: 1; max-width: var(--max); margin: 0 auto; padding: 0 28px; }
+
+/* Masthead ------------------------------------------------- */
+.masthead { border-bottom: 1px solid var(--line); background: rgba(247, 244, 238, .88); backdrop-filter: blur(10px); position: sticky; top: 0; z-index: 30; }
+.masthead .wrap { display: flex; align-items: center; gap: 24px; height: 68px; }
+.wordmark { display: flex; align-items: center; gap: 10px; color: var(--ink); }
+.wordmark:hover { text-decoration: none; }
+.seal { width: 32px; height: 32px; border: 1px solid var(--ink); border-radius: 50%; display: grid; place-items: center; font: 600 12px var(--serif); }
+.wordmark b { font: 600 17px/1 var(--serif); letter-spacing: -.2px; }
+.wordmark span { display: block; font-size: 8.5px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); margin-top: 3px; }
+.mainnav { display: flex; gap: 20px; margin-left: 18px; }
+.mainnav a { font-size: 12px; color: var(--ink-2); letter-spacing: .02em; padding: 4px 0; border-bottom: 1px solid transparent; }
+.mainnav a:hover { text-decoration: none; color: var(--ink); }
+.mainnav a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--ink); }
+.mast-actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.mode { display: inline-flex; align-items: center; gap: 7px; border: 1px solid #e2cfa6; background: var(--amber-soft); color: #6f4b09; padding: 5px 10px; border-radius: 30px; font-size: 10px; font-weight: 600; letter-spacing: .04em; }
+.mode i { width: 5px; height: 5px; border-radius: 50%; background: var(--amber); }
+.who { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--ink-2); }
+.who .av { width: 28px; height: 28px; border-radius: 50%; background: var(--green); color: #f4f1e8; display: grid; place-items: center; font: 600 9.5px var(--mono); }
+.menu-btn { display: none; border: 1px solid var(--line); background: transparent; border-radius: 4px; padding: 6px; }
+
+/* Hero ----------------------------------------------------- */
+.hero { padding: 54px 0 30px; display: grid; grid-template-columns: 1fr 330px; gap: 60px; align-items: end; }
+.kicker { display: flex; align-items: center; gap: 9px; font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--green); font-weight: 600; margin-bottom: 18px; }
+.kicker::before { content: ""; width: 22px; height: 1px; background: var(--green); }
+h1 { font: 400 46px/1.08 var(--serif); letter-spacing: -1.4px; max-width: 700px; }
+h1 em { font-style: italic; color: var(--green); }
+.hero p.lead { margin-top: 16px; max-width: 560px; color: var(--ink-2); font-size: 14.5px; line-height: 1.7; }
+.hero-side { border-left: 1px solid var(--line); padding-left: 26px; }
+.hero-side .h-label { font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.hero-side .h-value { font: 400 27px/1.1 var(--serif); margin-top: 6px; letter-spacing: -.4px; }
+.hero-side .h-value small { font: 11px var(--font); color: var(--muted); letter-spacing: 0; }
+.hero-side .h-sub { font-size: 11px; color: var(--muted); margin-top: 6px; }
+.hero-side .h-sub b { color: var(--green); font-weight: 600; }
+.h-rule { height: 1px; background: var(--line); margin: 14px 0; }
+
+/* Park stats ----------------------------------------------- */
+.park { display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.park div { padding: 18px 20px 18px 0; border-right: 1px solid var(--line-2); }
+.park div:last-child { border-right: 0; padding-right: 0; }
+.park span { display: block; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.park b { display: block; font: 400 25px/1.2 var(--serif); margin-top: 4px; letter-spacing: -.5px; }
+.park b small { font: 10px var(--font); color: var(--muted); }
+.park em { display: block; font-style: normal; font-size: 10px; color: var(--muted); margin-top: 2px; }
+.park .ok b { color: var(--green); } .park .bad b { color: var(--red); } .park .warn b { color: var(--amber); }
+
+/* Layout --------------------------------------------------- */
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 54px; padding: 38px 0 60px; }
+.article { min-width: 0; }
+.section { padding-bottom: 34px; margin-bottom: 34px; border-bottom: 1px solid var(--line-2); }
+.section:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+.section-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; }
+.section-head .num { font: 400 12px var(--mono); color: var(--clay); letter-spacing: .05em; }
+.section-head h2 { font: 500 21px/1.2 var(--serif); letter-spacing: -.3px; }
+.section-head p { margin-left: auto; font-size: 10.5px; color: var(--muted); }
+.section-intro { font-size: 12.5px; color: var(--muted); margin: -8px 0 18px; max-width: 560px; }
+
+/* Form ----------------------------------------------------- */
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 24px; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field.full { grid-column: 1 / -1; }
+label { font-size: 9.5px; letter-spacing: .13em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.input, select {
+  width: 100%; border: 0; border-bottom: 1px solid var(--line); background: transparent;
+  padding: 9px 2px; font-size: 14px; color: var(--ink); outline: none; border-radius: 0;
+  transition: border-color .15s;
+}
+.input:hover, select:hover { border-bottom-color: #b9b2a4; }
+.input:focus, select:focus { border-bottom-color: var(--green); box-shadow: 0 1px 0 0 var(--green); }
+.input::placeholder { color: #b0b7b1; }
+select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 11px) 55%, calc(100% - 7px) 55%; background-size: 4px 4px, 4px 4px; background-repeat: no-repeat; padding-right: 22px; }
+.hint { font-size: 10.5px; color: var(--muted); line-height: 1.45; }
+.hint b { color: var(--ink-2); font-weight: 600; }
+.suggest { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.suggest button { border: 1px solid var(--line); background: transparent; color: var(--ink-2); font-size: 10px; padding: 3px 8px; border-radius: 20px; }
+.suggest button:hover { border-color: var(--green); color: var(--green); }
+
+/* Action cards --------------------------------------------- */
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.action-card { text-align: left; border: 1px solid var(--line); background: var(--paper-2); border-radius: var(--r); padding: 13px 14px; display: flex; gap: 11px; align-items: flex-start; transition: .15s; }
+.action-card:hover { border-color: #c5beb0; }
+.action-card[aria-pressed="true"] { border-color: var(--green); background: #fbfdfb; box-shadow: inset 0 0 0 1px var(--green); }
+.action-card .ico { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--green-soft); color: var(--green); flex: none; }
+.action-card[aria-pressed="false"] .ico { background: #f0ede6; color: var(--muted); }
+.action-card b { display: block; font-size: 12.5px; font-weight: 600; }
+.action-card span { display: block; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+.action-card .check { margin-left: auto; color: var(--green); opacity: 0; }
+.action-card[aria-pressed="true"] .check { opacity: 1; }
+
+/* Options list --------------------------------------------- */
+.options { border-top: 1px solid var(--line-2); }
+.opt { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line-2); }
+.opt .ot { min-width: 0; }
+.opt .ot b { display: block; font-size: 12.5px; font-weight: 600; }
+.opt .ot span { display: block; font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+.opt .end { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: var(--muted); }
+.toggle { position: relative; width: 36px; height: 20px; border-radius: 30px; border: 1px solid #c9c3b6; background: #e9e5dc; flex: none; transition: .16s; }
+.toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2); transition: .16s; }
+.toggle[aria-pressed="true"] { background: var(--green); border-color: var(--green); }
+.toggle[aria-pressed="true"]::after { left: 18px; }
+
+/* Aside ---------------------------------------------------- */
+.aside { min-width: 0; }
+.sticky { position: sticky; top: 92px; }
+.order { border: 1px solid var(--ink); background: var(--paper-2); padding: 22px; position: relative; }
+.order::after { content: ""; position: absolute; inset: 5px; border: 1px solid var(--line); pointer-events: none; }
+.order .o-kicker { font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; }
+.order .o-kicker b { color: var(--green); font-weight: 600; letter-spacing: .06em; }
+.order h3 { font: 400 24px/1.15 var(--serif); margin-top: 14px; letter-spacing: -.4px; }
+.order .o-target { font: 11px var(--mono); color: var(--ink-2); margin-top: 6px; }
+.order .o-rows { margin: 18px 0; border-top: 1px solid var(--line-2); }
+.order .o-row { display: flex; justify-content: space-between; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--line-2); font-size: 11.5px; }
+.order .o-row span { color: var(--muted); }
+.order .o-row b { font-weight: 600; text-align: right; }
+.order .o-row b.mono { font: 10px var(--mono); }
+.order .big { display: flex; align-items: baseline; gap: 6px; margin-top: 4px; }
+.order .big b { font: 400 38px/1 var(--serif); letter-spacing: -1px; }
+.order .big span { font-size: 10px; color: var(--muted); }
+.order .o-note { display: flex; gap: 8px; font-size: 10px; line-height: 1.45; color: var(--amber); background: var(--amber-soft); border: 1px solid #eadcbe; padding: 9px 10px; margin-top: 14px; }
+.order .btn { width: 100%; justify-content: center; margin-top: 10px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--ink); background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: 3px; font-size: 12px; font-weight: 600; letter-spacing: .02em; transition: .15s; }
+.btn:hover { background: #2b3831; }
+.btn-line { background: transparent; color: var(--ink); border-color: var(--line); }
+.btn-line:hover { background: #efece4; color: var(--ink); }
+.btn-green { background: var(--green); border-color: var(--green); }
+.btn-green:hover { background: var(--green-2); }
+.btn-sm { padding: 7px 11px; font-size: 10.5px; }
+.order .o-foot { margin-top: 12px; font-size: 9.5px; color: var(--muted); text-align: center; line-height: 1.5; }
+
+/* History mini --------------------------------------------- */
+.mini-history { margin-top: 22px; }
+.mini-history h4 { font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin: 0 0 8px; }
+.mini-row { display: flex; align-items: center; gap: 9px; padding: 9px 0; border-bottom: 1px solid var(--line-2); font-size: 11px; }
+.mini-row .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex: none; }
+.mini-row .dot.bad { background: var(--red); } .mini-row .dot.warn { background: var(--amber); }
+.mini-row b { font-weight: 600; }
+.mini-row span { color: var(--muted); font-size: 10px; display: block; }
+.mini-row time { margin-left: auto; font: 9px var(--mono); color: var(--muted); }
+
+/* Host list ------------------------------------------------ */
+.list-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.filters { display: flex; gap: 4px; }
+.filters button { border: 1px solid transparent; background: transparent; color: var(--muted); font-size: 10px; padding: 4px 8px; border-radius: 20px; }
+.filters button[aria-pressed="true"] { border-color: var(--line); background: var(--paper-2); color: var(--ink); }
+.list-tools .export { margin-left: auto; }
+.host-list { border-top: 1px solid var(--line); }
+.host-row { display: grid; grid-template-columns: 20px 1.4fr 1fr .9fr .8fr 60px; gap: 12px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--line-2); font-size: 11.5px; }
+.host-row.head { font-size: 8.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); padding: 8px 0; }
+.host-row .st { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+.host-row .st.bad { background: var(--red); } .host-row .st.warn { background: var(--amber); } .host-row .st.neutral { background: #b9b2a4; }
+.host-row b { font-weight: 600; font-size: 12px; }
+.host-row .ip { font: 10px var(--mono); color: var(--muted); display: block; }
+.host-row .cell-label { display: none; }
+.host-row .tz { font: 10.5px var(--mono); color: var(--ink-2); }
+.host-row .result { font-size: 10px; font-weight: 600; letter-spacing: .03em; }
+.host-row .result.ok { color: var(--green); } .host-row .result.bad { color: var(--red); } .host-row .result.warn { color: var(--amber); }
+.host-row .dur { font: 10px var(--mono); color: var(--muted); text-align: right; }
+.list-foot { display: flex; justify-content: space-between; align-items: center; padding-top: 12px; font-size: 10.5px; color: var(--muted); }
+
+/* Console -------------------------------------------------- */
+.console-card { border: 1px solid var(--line); background: #1c2420; border-radius: var(--r); overflow: hidden; }
+.console-head { display: flex; align-items: center; gap: 8px; padding: 9px 13px; border-bottom: 1px solid #2b352f; color: #9fb3a7; font: 9.5px var(--mono); }
+.console-head .right { margin-left: auto; display: flex; gap: 6px; }
+.console-head button { background: transparent; border: 1px solid #38453e; color: #9fb3a7; font-size: 9px; padding: 3px 7px; border-radius: 3px; }
+.console-card pre { margin: 0; padding: 14px; max-height: 220px; overflow: auto; color: #a9bcae; font: 10.5px/1.75 var(--mono); }
+.console-card .ok { color: #8ed6a8; } .console-card .bad { color: #f0a3a3; } .console-card .warn { color: #e8c887; } .console-card .dim { color: #647a6c; } .console-card .cy { color: #7fd4c0; }
+.console-card .cursor { display: inline-block; width: 6px; height: 11px; background: #8ed6a8; animation: blink 1.1s step-end infinite; vertical-align: -1px; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* Dialog --------------------------------------------------- */
+dialog { border: 1px solid var(--ink); background: var(--paper-2); color: var(--ink); padding: 0; width: min(460px, calc(100vw - 32px)); border-radius: 4px; box-shadow: 0 30px 80px -20px rgba(23,33,28,.45); }
+dialog::backdrop { background: rgba(23, 33, 28, .4); backdrop-filter: blur(2px); }
+.dlg-head { padding: 20px 22px 14px; border-bottom: 1px solid var(--line-2); }
+.dlg-head h3 { font: 400 22px var(--serif); }
+.dlg-head p { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.dlg-body { padding: 16px 22px; }
+.dlg-body .o-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--line-2); font-size: 11.5px; }
+.dlg-body .o-row span { color: var(--muted); }
+.dlg-foot { padding: 14px 22px 20px; display: flex; gap: 8px; justify-content: flex-end; }
+
+/* Footer --------------------------------------------------- */
+.foot { border-top: 1px solid var(--line); padding: 20px 0 40px; display: flex; gap: 20px; align-items: center; font-size: 10px; color: var(--muted); }
+.foot .right { margin-left: auto; display: flex; gap: 16px; }
+
+/* Toast ---------------------------------------------------- */
+.toast { position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 16px); z-index: 70; background: var(--ink); color: #f4f1e8; padding: 12px 18px; border-radius: 4px; display: flex; gap: 10px; align-items: center; opacity: 0; pointer-events: none; transition: .25s; box-shadow: 0 20px 50px -15px rgba(0,0,0,.5); }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast b { font-size: 11.5px; display: block; }
+.toast span { font-size: 10px; color: #b9c6be; display: block; }
+
+/* Responsive ----------------------------------------------- */
+@media (max-width: 980px) {
+  .hero { grid-template-columns: 1fr; gap: 24px; padding-top: 40px; }
+  .hero-side { border-left: 0; border-top: 1px solid var(--line); padding-left: 0; padding-top: 18px; }
+  .layout { grid-template-columns: 1fr; gap: 32px; }
+  .sticky { position: static; }
+  .park { grid-template-columns: repeat(3, 1fr); }
+  .park div:nth-child(3) { border-right: 0; }
+  .park div:nth-child(n+4) { border-top: 1px solid var(--line-2); }
+}
+@media (max-width: 760px) {
+  .mainnav { display: none; }
+  .mainnav.open {
+    display: flex; position: absolute; left: 0; right: 0; top: 60px;
+    flex-direction: column; gap: 0; margin: 0; padding: 8px 18px 12px;
+    background: var(--paper); border-bottom: 1px solid var(--line);
+    box-shadow: 0 18px 30px -24px rgba(23, 33, 28, .5);
+  }
+  .mainnav.open a { padding: 10px 0; border-bottom: 1px solid var(--line-2); }
+  .mainnav.open a[aria-current="page"] { border-bottom-color: var(--ink); }
+  .masthead .wrap { gap: 10px; height: 60px; }
+  .wordmark { gap: 8px; min-width: 0; }
+  .wordmark .seal { flex: none; width: 28px; height: 28px; font-size: 10px; }
+  .wordmark b { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 210px; }
+  .wordmark span span { display: none; }
+  .mode { display: none; }
+  .who > span:last-child { display: none; }
+  .menu-btn { display: grid; }
+  .wrap { padding: 0 18px; }
+  h1 { font-size: 34px; }
+  .grid2, .actions { grid-template-columns: 1fr; }
+  .host-row { grid-template-columns: 16px 1fr 1fr; gap: 6px 10px; }
+  .host-row.head { display: none; }
+  .host-row .hide-sm { display: none; }
+  .park { grid-template-columns: 1fr 1fr; }
+  .park div:nth-child(2n) { border-right: 0; }
+  .park div:nth-child(n+3) { border-top: 1px solid var(--line-2); }
+  .section-head p { display: none; }
+  .foot .right { display: none; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Saltar al contenido</a>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3l9 16H3z"/><path d="M12 9v4m0 3h.01"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4l12 8-12 8z"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8m-3 0h3v3"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.5-6 8-6s8 2 8 6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m0 0l-6-6m6 6l-6 6"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0l4-4m-4 4l-4-4M4 21h16"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l2-6 4 12 2-6h6"/></symbol>
+</defs></svg>
+
+<header class="masthead">
+  <div class="wrap">
+    <a class="wordmark" href="#main">
+      <span class="seal">AC</span>
+      <span><b>Ansible Control Center</b><span>Consola de automatización</span></span>
+    </a>
+    <nav class="mainnav" id="mainnav" aria-label="Principal">
+      <a href="#main" aria-current="page">Panel</a>
+      <a href="#hosts">Inventario</a>
+      <a href="#form">Playbooks</a>
+      <a href="#console">Ejecuciones</a>
+      <a href="#activity">Programaciones</a>
+      <a href="#form">Credenciales</a>
+      <a href="#console">Auditoría</a>
+    </nav>
+    <div class="mast-actions">
+      <span class="mode"><i></i> Simulación</span>
+      <span class="who"><span class="av">OP</span><span>operador · admin</span></span>
+      <button class="menu-btn" id="menuBtn" aria-label="Abrir menú" aria-controls="mainnav" aria-expanded="false"><svg class="i"><use href="#i-menu"/></svg></button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <div class="wrap">
+    <section class="hero">
+      <div>
+        <div class="kicker">Operación de reloj · 03 nov 2026</div>
+        <h1>El tiempo del parque,<br><em>puesto en orden.</em></h1>
+        <p class="lead">Configura zona horaria, NTP y RTC en un grupo de equipos Ubuntu. Inspecciona primero, aplica después y conserva cada resultado en el historial.</p>
+      </div>
+      <aside class="hero-side" aria-label="Resumen del parque">
+        <div class="h-label">Último lote</div>
+        <div class="h-value">247 <small>/ 254 correctos</small></div>
+        <div class="h-sub"><b>97,2 %</b> del parque · finalizado hace 4 min</div>
+        <div class="h-rule"></div>
+        <div class="h-label">Modo de ejecución</div>
+        <div class="h-sub" style="font-size:12px;color:var(--ink-2);margin-top:4px">DRY RUN activo · los cambios no se aplican a los hosts.</div>
+      </aside>
+    </section>
+
+    <section class="park" aria-label="Indicadores">
+      <div><span>Hosts objetivo</span><b>254</b><em>192.168.1.0/24</em></div>
+      <div class="ok"><span>Correctos</span><b>247</b><em>verificados</em></div>
+      <div class="warn"><span>Con cambios</span><b>12</b><em>zona o NTP</em></div>
+      <div class="bad"><span>Fallos</span><b>7</b><em>3 auth · 4 timeout</em></div>
+      <div><span>Duración</span><b>4 m 12 s</b><em>presupuesto 60 min</em></div>
+    </section>
+
+    <div class="layout">
+      <article class="article">
+        <!-- 01 -->
+        <section class="section" id="form">
+          <div class="section-head">
+            <span class="num">01</span>
+            <h2>Define el objetivo</h2>
+            <p>Se procesan todos los hosts del rango</p>
+          </div>
+          <p class="section-intro">Acepta una IP, un hostname resuelto o un rango CIDR acotado. La aplicación enumera el rango antes de ejecutar y muestra cuántos hosts responderían.</p>
+
+          <div class="grid2">
+            <div class="field full">
+              <label for="target">IP, hostname o rango CIDR</label>
+              <input class="input" id="target" value="192.168.1.0/24" spellcheck="false">
+              <div class="suggest">
+                <button data-target="192.168.1.0/24">192.168.1.0/24</button>
+                <button data-target="10.20.0.0/24">10.20.0.0/24</button>
+                <button data-target="web-01.empresa.local">web-01</button>
+                <button data-target="192.168.1.10">host único</button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="admin">Usuario administrador</label>
+              <input class="input" id="admin" value="ubuntu-admin" spellcheck="false">
+              <span class="hint">Debe tener sudo sin contraseña o la misma clave del vault.</span>
+            </div>
+            <div class="field">
+              <label for="origin">Origen de credenciales</label>
+              <select id="origin">
+                <option>Vault cifrado · 4 candidatas</option>
+                <option>Archivo temporal .txt</option>
+              </select>
+              <span class="hint">La contraseña maestra solo vive en memoria.</span>
+            </div>
+            <div class="field full">
+              <label for="master">Contraseña maestra del vault</label>
+              <input class="input" id="master" type="password" placeholder="Introduce la contraseña maestra" autocomplete="current-password">
+            </div>
+          </div>
+        </section>
+
+        <!-- 02 -->
+        <section class="section">
+          <div class="section-head">
+            <span class="num">02</span>
+            <h2>Elige la operación</h2>
+            <p>Idempotente por defecto</p>
+          </div>
+
+          <div class="actions" role="group" aria-label="Acción">
+            <button class="action-card" data-action="tz" aria-pressed="true">
+              <span class="ico"><svg class="i"><use href="#i-globe"/></svg></span>
+              <span><b>Zona horaria</b><span>Ajusta TZ y, opcionalmente, NTP</span></span>
+              <svg class="i check" style="width:15px;height:15px"><use href="#i-check"/></svg>
+            </button>
+            <button class="action-card" data-action="time" aria-pressed="false">
+              <span class="ico"><svg class="i"><use href="#i-clock"/></svg></span>
+              <span><b>Hora exacta</b><span>Fija el instante en UTC o local</span></span>
+              <svg class="i check" style="width:15px;height:15px"><use href="#i-check"/></svg>
+            </button>
+          </div>
+
+          <div class="grid2" style="margin-top:20px">
+            <div class="field" id="tzField">
+              <label for="tz">Zona horaria</label>
+              <input class="input" id="tz" value="Europe/Madrid" list="tzs">
+              <datalist id="tzs"><option>Europe/Madrid</option><option>UTC</option><option>America/Bogota</option><option>America/Mexico_City</option></datalist>
+            </div>
+            <div class="field" id="timeField" hidden>
+              <label for="timeValue">Hora exacta (UTC)</label>
+              <input class="input" id="timeValue" value="2026-11-03 18:00:00" spellcheck="false">
+            </div>
+            <div class="field">
+              <label for="ntp">Política NTP</label>
+              <select id="ntp">
+                <option>restore · devolver al estado previo</option>
+                <option>keep · no modificar</option>
+                <option>off · desactivar</option>
+                <option>configure · fijar servidores</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="servers">Servidores NTP</label>
+              <input class="input" id="servers" value="ntp.ubuntu.com, time.cloudflare.com" spellcheck="false">
+            </div>
+          </div>
+
+          <div class="options" style="margin-top:18px">
+            <div class="opt">
+              <div class="ot"><b>Sincronizar RTC</b><span>Ejecuta hwclock --systohc después de aplicar el cambio.</span></div>
+              <div class="end"><span>Recomendado</span><button class="toggle" aria-pressed="true" aria-label="Sincronizar RTC"></button></div>
+            </div>
+            <div class="opt">
+              <div class="ot"><b>Forzar el cambio</b><span>Omite la comprobación de idempotencia aunque el estado ya sea correcto.</span></div>
+              <div class="end"><button class="toggle" aria-pressed="false" aria-label="Forzar cambio"></button></div>
+            </div>
+            <div class="opt">
+              <div class="ot"><b>Guardar estado previo</b><span>Permite revertir cada host desde el detalle del lote.</span></div>
+              <div class="end"><span>Siempre activo</span><button class="toggle" aria-pressed="true" aria-label="Guardar estado previo" disabled></button></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 03 -->
+        <section class="section" id="hosts">
+          <div class="section-head">
+            <span class="num">03</span>
+            <h2>Revisa el resultado</h2>
+            <p>Actualizado hace 12 s</p>
+          </div>
+
+          <div class="list-tools">
+            <div class="filters" role="group" aria-label="Filtrar hosts">
+              <button data-filter="all" aria-pressed="true">Todos · 254</button>
+              <button data-filter="ok" aria-pressed="false">Correctos · 247</button>
+              <button data-filter="bad" aria-pressed="false">Fallos · 7</button>
+            </div>
+            <button class="btn btn-line btn-sm export"><svg class="i" style="width:12px;height:12px"><use href="#i-download"/></svg> Exportar CSV</button>
+          </div>
+
+          <div class="host-list" id="hostList">
+            <div class="host-row head"><span></span><span>Host</span><span>Zona actual</span><span class="hide-sm">NTP</span><span class="hide-sm">Resultado</span><span style="text-align:right">Duración</span></div>
+            <div class="host-row" data-state="ok">
+              <span class="st"></span>
+              <span><b>web-01</b><span class="ip">192.168.1.10</span></span>
+              <span class="tz">Europe/Madrid</span>
+              <span class="hide-sm tz">activo</span>
+              <span class="hide-sm result ok">Correcto</span>
+              <span class="dur">1,8 s</span>
+            </div>
+            <div class="host-row" data-state="ok">
+              <span class="st"></span>
+              <span><b>web-02</b><span class="ip">192.168.1.11</span></span>
+              <span class="tz">Europe/Madrid</span>
+              <span class="hide-sm tz">activo</span>
+              <span class="hide-sm result ok">Correcto</span>
+              <span class="dur">2,1 s</span>
+            </div>
+            <div class="host-row" data-state="bad">
+              <span class="st bad"></span>
+              <span><b>db-01</b><span class="ip">192.168.1.12</span></span>
+              <span class="tz">—</span>
+              <span class="hide-sm tz">—</span>
+              <span class="hide-sm result bad">Auth fallida</span>
+              <span class="dur">3,4 s</span>
+            </div>
+            <div class="host-row" data-state="warn">
+              <span class="st warn"></span>
+              <span><b>cache-01</b><span class="ip">192.168.1.13</span></span>
+              <span class="tz">UTC → Madrid</span>
+              <span class="hide-sm tz">keep</span>
+              <span class="hide-sm result warn">Advertencia</span>
+              <span class="dur">2,6 s</span>
+            </div>
+            <div class="host-row" data-state="ok">
+              <span class="st"></span>
+              <span><b>worker-01</b><span class="ip">192.168.1.14</span></span>
+              <span class="tz">Europe/Madrid</span>
+              <span class="hide-sm tz">activo</span>
+              <span class="hide-sm result ok">Correcto</span>
+              <span class="dur">1,9 s</span>
+            </div>
+            <div class="host-row" data-state="bad">
+              <span class="st bad"></span>
+              <span><b>worker-02</b><span class="ip">192.168.1.15</span></span>
+              <span class="tz">—</span>
+              <span class="hide-sm tz">—</span>
+              <span class="hide-sm result bad">Timeout</span>
+              <span class="dur">30,0 s</span>
+            </div>
+          </div>
+          <div class="list-foot">
+            <span>Mostrando 6 de 254 hosts</span>
+            <a href="#hosts">Ver detalle completo del lote <span aria-hidden="true">→</span></a>
+          </div>
+        </section>
+
+        <!-- 04 -->
+        <section class="section" id="console">
+          <div class="section-head">
+            <span class="num">04</span>
+            <h2>Salida de Ansible</h2>
+            <p>Secretos redactados</p>
+          </div>
+          <div class="console-card">
+            <div class="console-head">
+              <span>ansible-playbook · cambiar_hora.yml</span>
+              <span class="right"><button id="clearLog">Limpiar</button><button>Descargar</button></span>
+            </div>
+            <pre id="log"><span class="dim">PLAY [Configurar hora, zona y NTP] *******************************************</span>
+
+<span class="cy">TASK [Gathering Facts] *******************************************************</span>
+<span class="ok">ok: [web-01]  ok: [web-02]  ok: [cache-01]  ok: [worker-01]</span>
+<span class="bad">fatal: [db-01]: UNREACHABLE! => {"msg": "Authentication failed."}</span>
+
+<span class="cy">TASK [Aplicar zona horaria] **************************************************</span>
+<span class="ok">changed: [cache-01]  UTC → Europe/Madrid</span>
+<span class="ok">ok: [web-01]  ok: [web-02]  ok: [worker-01]</span>
+
+<span class="cy">TASK [Verificar estado final] ************************************************</span>
+<span class="ok">ok: [web-01]  verified=true  offset=0.0s</span>
+<span class="warn">changed: [cache-01]  NTP sigue activo (política keep)</span>
+<span class="dim">PLAY RECAP ********************************************************************</span>
+web-01 : ok=4 changed=0 unreachable=0 failed=0
+cache-01 : ok=4 <span class="warn">changed=1</span> unreachable=0 failed=0
+db-01 : ok=0 changed=0 <span class="bad">unreachable=1</span> failed=0
+<span class="dim">esperando hosts restantes</span> <span class="cursor"></span></pre>
+          </div>
+        </section>
+      </article>
+
+      <!-- Aside -->
+      <aside class="aside" id="activity">
+        <div class="sticky">
+          <div class="order">
+            <div class="o-kicker"><span>Orden de operación</span><b>Borrador</b></div>
+            <h3>Zona horaria<br>Europe/Madrid</h3>
+            <div class="o-target">192.168.1.0/24 · 254 hosts</div>
+
+            <div class="o-rows">
+              <div class="o-row"><span>Acción</span><b>TZ</b></div>
+              <div class="o-row"><span>NTP</span><b>restore</b></div>
+              <div class="o-row"><span>RTC</span><b>Sincronizar</b></div>
+              <div class="o-row"><span>Forzar</span><b>No</b></div>
+              <div class="o-row"><span>Modo</span><b style="color:var(--amber)">Simulación</b></div>
+            </div>
+
+            <div class="big"><b>12</b><span>hosts cambiarían<br>235 ya son correctos</span></div>
+
+            <div class="o-note"><svg class="i" style="width:14px;height:14px;margin-top:1px"><use href="#i-alert"/></svg> DRY RUN: la ejecución se registrará como simulada y no aplicará cambios.</div>
+
+            <button class="btn btn-line" style="margin-top:14px" id="previewBtn"><svg class="i"><use href="#i-eye"/></svg> Inspeccionar sin cambios</button>
+            <button class="btn btn-green" id="runBtn"><svg class="i"><use href="#i-play"/></svg> Ejecutar operación</button>
+            <div class="o-foot">Al confirmar se genera un UUID de operación para evitar duplicados por doble clic.</div>
+          </div>
+
+          <div class="mini-history">
+            <h4>Lotes recientes</h4>
+            <div class="mini-row"><span class="dot"></span><div><b>#a7f3c9e2</b><span>247/254 · TZ Madrid</span></div><time>hace 4 m</time></div>
+            <div class="mini-row"><span class="dot bad"></span><div><b>#8c21d4aa</b><span>12/12 · error global</span></div><time>hace 1 h</time></div>
+            <div class="mini-row"><span class="dot warn"></span><div><b>#f10b77c3</b><span>40/42 · parcial</span></div><time>ayer</time></div>
+            <a href="#hosts" style="display:inline-block;margin-top:10px;font-size:10.5px">Ver historial completo →</a>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="wrap" style="display:flex;width:100%;align-items:center">
+    <span>Ansible Control Center · propuesta 02</span>
+    <span class="right"><span>Prototipo estático</span><span>Datos simulados</span><span>Sin CDN</span></span>
+  </div>
+</footer>
+
+<dialog id="confirmDialog" aria-labelledby="dlgTitle">
+  <div class="dlg-head">
+    <h3 id="dlgTitle">Confirmar operación</h3>
+    <p>Revisa el resumen. Esta acción quedará registrada en la auditoría.</p>
+  </div>
+  <div class="dlg-body">
+    <div class="o-row"><span>Objetivo</span><b>192.168.1.0/24</b></div>
+    <div class="o-row"><span>Acción</span><b>TZ → Europe/Madrid</b></div>
+    <div class="o-row"><span>NTP</span><b>restore</b></div>
+    <div class="o-row"><span>Hosts estimados</span><b>254</b></div>
+    <div class="o-row"><span>Modo</span><b style="color:var(--amber)">DRY RUN · simulación</b></div>
+  </div>
+  <div class="dlg-foot">
+    <button class="btn btn-line" id="cancelDialog">Cancelar</button>
+    <button class="btn btn-green" id="confirmRun"><svg class="i"><use href="#i-play"/></svg> Confirmar y ejecutar</button>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <svg class="i" style="width:18px;height:18px;color:#8ed6a8"><use href="#i-check"/></svg>
+  <div><b>Lote encolado correctamente</b><span>ID #a7f3c9e2 · simulación · 254 hosts</span></div>
+</div>
+
+<script>
+  // Menú móvil
+  const menuBtn = document.getElementById('menuBtn');
+  const mainnav = document.getElementById('mainnav');
+  if (menuBtn && mainnav) {
+    menuBtn.addEventListener('click', () => {
+      const open = mainnav.classList.toggle('open');
+      menuBtn.setAttribute('aria-expanded', String(open));
+    });
+    mainnav.addEventListener('click', (event) => {
+      if (event.target.closest('a')) {
+        mainnav.classList.remove('open');
+        menuBtn.setAttribute('aria-expanded', 'false');
+      }
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        mainnav.classList.remove('open');
+        menuBtn.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
+
+  // Acción TZ / TIME
+  document.querySelectorAll('[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-action]').forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+      const isTime = btn.dataset.action === 'time';
+      document.getElementById('tzField').hidden = isTime;
+      document.getElementById('timeField').hidden = !isTime;
+      const h3 = document.querySelector('.order h3');
+      h3.innerHTML = isTime ? 'Hora exacta<br>2026-11-03 18:00 UTC' : 'Zona horaria<br>Europe/Madrid';
+    });
+  });
+
+  // Toggles
+  document.querySelectorAll('.toggle:not([disabled])').forEach(t => {
+    t.addEventListener('click', () => t.setAttribute('aria-pressed', t.getAttribute('aria-pressed') === 'true' ? 'false' : 'true'));
+  });
+
+  // Sugerencias de objetivo
+  document.querySelectorAll('[data-target]').forEach(b => {
+    b.addEventListener('click', () => document.getElementById('target').value = b.dataset.target);
+  });
+
+  // Filtros
+  document.querySelectorAll('[data-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-filter]').forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+      const f = btn.dataset.filter;
+      document.querySelectorAll('#hostList .host-row[data-state]').forEach(row => {
+        row.style.display = (f === 'all' || row.dataset.state === f) ? '' : 'none';
+      });
+    });
+  });
+
+  // Diálogo
+  const dlg = document.getElementById('confirmDialog');
+  document.getElementById('runBtn').addEventListener('click', () => dlg.showModal());
+  document.getElementById('cancelDialog').addEventListener('click', () => dlg.close());
+  document.getElementById('confirmRun').addEventListener('click', () => {
+    dlg.close();
+    const t = document.getElementById('toast');
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 4200);
+  });
+
+  // Vista previa
+  document.getElementById('previewBtn').addEventListener('click', () => {
+    const t = document.getElementById('toast');
+    t.querySelector('b').textContent = 'Inspección completada';
+    t.querySelector('span').textContent = '254 hosts · 12 cambiarían · 7 sin respuesta';
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 4200);
+  });
+
+  // Consola
+  document.getElementById('clearLog').addEventListener('click', () => {
+    document.getElementById('log').innerHTML = '<span class="dim">Consola limpia. La salida completa sigue disponible en el detalle del lote.</span>\n<span>$ <span class="cursor"></span></span>';
+  });
+</script>
+</body>
+</html>

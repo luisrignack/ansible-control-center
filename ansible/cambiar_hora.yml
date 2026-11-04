@@ -69,7 +69,7 @@
         fail_msg: >-
           TIME con NTP activo y política keep: el reloj puede volver a
           sincronizarse. Usa off, restore o configure, o desactiva
-          HORA_ADMIN_TIME_REQUIRE_NTP_OFF de forma consciente.
+          ACC_TIME_REQUIRE_NTP_OFF de forma consciente.
         success_msg: "Política de hora compatible con el estado NTP."
       when: requiere_ntp_off | default(true) | bool
 
@@ -289,7 +289,7 @@
 
     - name: Configurar servidores NTP en chrony
       ansible.builtin.copy:
-        dest: /etc/chrony/conf.d/90-hora-admin.conf
+        dest: /etc/chrony/conf.d/90-ansible-control-center.conf
         content: |
           {% for servidor in ntp_servers | default([]) %}
           server {{ servidor }} iburst
@@ -312,7 +312,7 @@
 
     - name: Configurar servidores NTP en systemd-timesyncd
       ansible.builtin.copy:
-        dest: /etc/systemd/timesyncd.conf.d/90-hora-admin.conf
+        dest: /etc/systemd/timesyncd.conf.d/90-ansible-control-center.conf
         content: |
           [Time]
           NTP={{ ntp_servers | default([]) | join(' ') }}

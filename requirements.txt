@@ -1,4 +1,4 @@
-# Dependencias de Hora Admin
+# Dependencias de Ansible Control Center
 # Instalación: pip install -r requirements.txt
 # (install.sh crea el venv e instala esto; el sistema necesita sshpass)
 

@@ -1,10 +1,10 @@
-"""Configuración central de Hora Admin.
+"""Configuración central de Ansible Control Center.
 
 Los valores por defecto cumplen la ubicación exigida en producción:
 
-* Secretos cifrados: ``/etc/hora-admin/secrets`` (modo 0700).
-* Base de datos SQLite: ``/var/lib/hora-admin/hora_admin.db``.
-* Logs: ``/var/log/hora-admin``.
+* Secretos cifrados: ``/etc/ansible-control-center/secrets`` (modo 0700).
+* Base de datos SQLite: ``/var/lib/ansible-control-center/acc.db``.
+* Logs: ``/var/log/ansible-control-center``.
 
 Todas las rutas y parámetros sensibles pueden sobrescribirse con variables de
 entorno (o con un archivo ``.env``) para desarrollo y pruebas. Nunca se guarda
@@ -37,6 +37,14 @@ except ImportError:  # pragma: no cover - dependencia opcional en tests aislados
 
 if load_dotenv is not None:
     load_dotenv(BASE_DIR / ".env", override=False)
+
+# Compatibilidad con el nombre anterior del producto. Si un despliegue aún
+# define HORA_ADMIN_*, se copia a su equivalente ACC_* sin pisar lo explícito.
+for _legacy_name, _legacy_value in list(os.environ.items()):
+    if _legacy_name.startswith("HORA_ADMIN_"):
+        os.environ.setdefault(
+            "ACC_" + _legacy_name[len("HORA_ADMIN_") :], _legacy_value
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -96,20 +104,20 @@ def _find_binary(name: str, env_var: str) -> str:
 # ---------------------------------------------------------------------------
 # Rutas principales
 # ---------------------------------------------------------------------------
-ENVIRONMENT = os.environ.get("HORA_ADMIN_ENV", "development").strip().lower()
+ENVIRONMENT = os.environ.get("ACC_ENV", "development").strip().lower()
 IS_PRODUCTION = ENVIRONMENT == "production"
 
-SECRETS_DIR = _env_path("HORA_ADMIN_SECRETS_DIR", "/etc/hora-admin/secrets")
-DATA_DIR = _env_path("HORA_ADMIN_DATA_DIR", "/var/lib/hora-admin")
-LOG_DIR = _env_path("HORA_ADMIN_LOG_DIR", "/var/log/hora-admin")
+SECRETS_DIR = _env_path("ACC_SECRETS_DIR", "/etc/ansible-control-center/secrets")
+DATA_DIR = _env_path("ACC_DATA_DIR", "/var/lib/ansible-control-center")
+LOG_DIR = _env_path("ACC_LOG_DIR", "/var/log/ansible-control-center")
 
 # Archivo cifrado con ansible-vault. Es el único lugar donde viven las
 # contraseñas candidatas, siempre cifradas con la contraseña maestra.
 VAULT_FILENAME = "passwords_vault.yml"
 VAULT_FILE = SECRETS_DIR / VAULT_FILENAME
 
-DB_PATH = DATA_DIR / "hora_admin.db"
-LOG_FILE = LOG_DIR / "hora-admin.log"
+DB_PATH = DATA_DIR / "acc.db"
+LOG_FILE = LOG_DIR / "ansible-control-center.log"
 
 # Directorio efímero (0700) para ficheros de contraseña del Vault que exige
 # ``ansible-vault --vault-password-file``. Se borra tras cada operación.
@@ -120,43 +128,43 @@ PLAYBOOK_FILE = ANSIBLE_DIR / "cambiar_hora.yml"
 INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "estado_hora.yml"
 ANSIBLE_CFG = ANSIBLE_DIR / "ansible.cfg"
 
-BIN_ANSIBLE = _find_binary("ansible", "HORA_ADMIN_ANSIBLE_BIN")
-BIN_ANSIBLE_PLAYBOOK = _find_binary("ansible-playbook", "HORA_ADMIN_ANSIBLE_PLAYBOOK_BIN")
-BIN_ANSIBLE_VAULT = _find_binary("ansible-vault", "HORA_ADMIN_ANSIBLE_VAULT_BIN")
-BIN_ANSIBLE_GALAXY = _find_binary("ansible-galaxy", "HORA_ADMIN_ANSIBLE_GALAXY_BIN")
+BIN_ANSIBLE = _find_binary("ansible", "ACC_ANSIBLE_BIN")
+BIN_ANSIBLE_PLAYBOOK = _find_binary("ansible-playbook", "ACC_ANSIBLE_PLAYBOOK_BIN")
+BIN_ANSIBLE_VAULT = _find_binary("ansible-vault", "ACC_ANSIBLE_VAULT_BIN")
+BIN_ANSIBLE_GALAXY = _find_binary("ansible-galaxy", "ACC_ANSIBLE_GALAXY_BIN")
 
 # ---------------------------------------------------------------------------
 # Flask / sesiones / autenticación
 # ---------------------------------------------------------------------------
 # La clave se resuelve con ``get_or_create_secret_key()`` al arrancar la app.
-SECRET_KEY = os.environ.get("HORA_ADMIN_SECRET_KEY", "")
+SECRET_KEY = os.environ.get("ACC_SECRET_KEY", "")
 SECRET_KEY_FILE = DATA_DIR / "flask_secret.key"
 
 # El depurador de Flask NUNCA debe quedar activo por defecto: expone una
 # consola interactiva con ejecución de código en la red.
-DEBUG = _env_bool("HORA_ADMIN_DEBUG", False)
+DEBUG = _env_bool("ACC_DEBUG", False)
 
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
-# Detrás de un proxy inverso con HTTPS poner HORA_ADMIN_COOKIE_SECURE=1.
-SESSION_COOKIE_SECURE = _env_bool("HORA_ADMIN_COOKIE_SECURE", False)
+# Detrás de un proxy inverso con HTTPS poner ACC_COOKIE_SECURE=1.
+SESSION_COOKIE_SECURE = _env_bool("ACC_COOKIE_SECURE", False)
 REMEMBER_COOKIE_HTTPONLY = True
 REMEMBER_COOKIE_SAMESITE = "Lax"
 REMEMBER_COOKIE_SECURE = SESSION_COOKIE_SECURE
 REMEMBER_COOKIE_DURATION_SECONDS = _env_int(
-    "HORA_ADMIN_REMEMBER_DAYS", 7, minimum=1, maximum=30
+    "ACC_REMEMBER_DAYS", 7, minimum=1, maximum=30
 ) * 86400
 PERMANENT_SESSION_LIFETIME_SECONDS = _env_int(
-    "HORA_ADMIN_SESSION_HOURS", 8, minimum=1, maximum=72
+    "ACC_SESSION_HOURS", 8, minimum=1, maximum=72
 ) * 3600
 
 # Pepper para los hashes de contraseñas candidatas guardados en SQLite. Si no
 # se define, se genera un secreto local 0600 en DATA_DIR.
-PASSWORD_PEPPER = os.environ.get("HORA_ADMIN_PASSWORD_PEPPER", "")
+PASSWORD_PEPPER = os.environ.get("ACC_PASSWORD_PEPPER", "")
 PASSWORD_PEPPER_FILE = DATA_DIR / "password_pepper.key"
 
 MAX_CONTENT_LENGTH = _env_int(
-    "HORA_ADMIN_MAX_UPLOAD_BYTES", 2 * 1024 * 1024, minimum=1024
+    "ACC_MAX_UPLOAD_BYTES", 2 * 1024 * 1024, minimum=1024
 )
 
 # ---------------------------------------------------------------------------
@@ -164,38 +172,38 @@ MAX_CONTENT_LENGTH = _env_int(
 # ---------------------------------------------------------------------------
 # Todos los POST/PUT/PATCH/DELETE exigen un token ligado a la sesión. El token
 # caduca para limitar la ventana de reutilización de una página abierta.
-CSRF_ENABLED = _env_bool("HORA_ADMIN_CSRF_ENABLED", True)
+CSRF_ENABLED = _env_bool("ACC_CSRF_ENABLED", True)
 CSRF_TIME_LIMIT_SECONDS = _env_int(
-    "HORA_ADMIN_CSRF_TIME_LIMIT", 8 * 3600, minimum=300, maximum=86400
+    "ACC_CSRF_TIME_LIMIT", 8 * 3600, minimum=300, maximum=86400
 )
 
 # ---------------------------------------------------------------------------
 # Rate limiting (en memoria, por proceso)
 # ---------------------------------------------------------------------------
-RATE_LIMIT_ENABLED = _env_bool("HORA_ADMIN_RATE_LIMIT_ENABLED", True)
+RATE_LIMIT_ENABLED = _env_bool("ACC_RATE_LIMIT_ENABLED", True)
 
 # Intentos de login por IP dentro de la ventana.
 LOGIN_RATE_LIMIT = _env_int(
-    "HORA_ADMIN_LOGIN_RATE_LIMIT", 10, minimum=1, maximum=1000
+    "ACC_LOGIN_RATE_LIMIT", 10, minimum=1, maximum=1000
 )
 LOGIN_RATE_WINDOW = _env_int(
-    "HORA_ADMIN_LOGIN_RATE_WINDOW", 300, minimum=10, maximum=86400
+    "ACC_LOGIN_RATE_WINDOW", 300, minimum=10, maximum=86400
 )
 
 # Ejecuciones de Ansible por usuario/IP.
 EXEC_RATE_LIMIT = _env_int(
-    "HORA_ADMIN_EXEC_RATE_LIMIT", 10, minimum=1, maximum=1000
+    "ACC_EXEC_RATE_LIMIT", 10, minimum=1, maximum=1000
 )
 EXEC_RATE_WINDOW = _env_int(
-    "HORA_ADMIN_EXEC_RATE_WINDOW", 60, minimum=10, maximum=86400
+    "ACC_EXEC_RATE_WINDOW", 60, minimum=10, maximum=86400
 )
 
 # Operaciones sobre el vault (cifrar, importar, borrar).
 VAULT_RATE_LIMIT = _env_int(
-    "HORA_ADMIN_VAULT_RATE_LIMIT", 20, minimum=1, maximum=1000
+    "ACC_VAULT_RATE_LIMIT", 20, minimum=1, maximum=1000
 )
 VAULT_RATE_WINDOW = _env_int(
-    "HORA_ADMIN_VAULT_RATE_WINDOW", 60, minimum=10, maximum=86400
+    "ACC_VAULT_RATE_WINDOW", 60, minimum=10, maximum=86400
 )
 
 # ---------------------------------------------------------------------------
@@ -203,81 +211,81 @@ VAULT_RATE_WINDOW = _env_int(
 # ---------------------------------------------------------------------------
 # Activar solo si la app está detrás de un proxy de confianza: habilita
 # ProxyFix para leer X-Forwarded-For/Proto. Sin proxy, dejar en 0.
-TRUST_PROXY = _env_bool("HORA_ADMIN_TRUST_PROXY", False)
+TRUST_PROXY = _env_bool("ACC_TRUST_PROXY", False)
 
-SECURITY_HEADERS_ENABLED = _env_bool("HORA_ADMIN_SECURITY_HEADERS", True)
-CSP_ENABLED = _env_bool("HORA_ADMIN_CSP_ENABLED", True)
-HSTS_ENABLED = _env_bool("HORA_ADMIN_HSTS", SESSION_COOKIE_SECURE)
+SECURITY_HEADERS_ENABLED = _env_bool("ACC_SECURITY_HEADERS", True)
+CSP_ENABLED = _env_bool("ACC_CSP_ENABLED", True)
+HSTS_ENABLED = _env_bool("ACC_HSTS", SESSION_COOKIE_SECURE)
 HSTS_MAX_AGE = _env_int(
-    "HORA_ADMIN_HSTS_MAX_AGE", 31536000, minimum=0, maximum=63072000
+    "ACC_HSTS_MAX_AGE", 31536000, minimum=0, maximum=63072000
 )
 
-ADMIN_USERNAME = os.environ.get("HORA_ADMIN_USERNAME", "admin")
+ADMIN_USERNAME = os.environ.get("ACC_USERNAME", "admin")
 ADMIN_PASSWORD_MIN_LENGTH = _env_int(
-    "HORA_ADMIN_ADMIN_PASSWORD_MIN_LENGTH", 12, minimum=8, maximum=128
+    "ACC_ADMIN_PASSWORD_MIN_LENGTH", 12, minimum=8, maximum=128
 )
 
 # ---------------------------------------------------------------------------
 # Parámetros de ejecución
 # ---------------------------------------------------------------------------
 # DRY RUN activado por defecto: al arrancar no se toca ningún equipo real.
-DRY_RUN = _env_bool("HORA_ADMIN_DRY_RUN", True)
+DRY_RUN = _env_bool("ACC_DRY_RUN", True)
 
 # Verificación estricta de la clave SSH del host. Si los equipos objetivo no
 # están en known_hosts, el primer acceso fallará. Se puede desactivar de forma
-# consciente con HORA_ADMIN_HOST_KEY_CHECKING=0 (menos seguro).
-HOST_KEY_CHECKING = _env_bool("HORA_ADMIN_HOST_KEY_CHECKING", True)
+# consciente con ACC_HOST_KEY_CHECKING=0 (menos seguro).
+HOST_KEY_CHECKING = _env_bool("ACC_HOST_KEY_CHECKING", True)
 
 # Límites de seguridad
-MAX_HOSTS = _env_int("HORA_ADMIN_MAX_HOSTS", 256, minimum=1, maximum=4096)
-MAX_PASSWORDS = _env_int("HORA_ADMIN_MAX_PASSWORDS", 200, minimum=1, maximum=1000)
+MAX_HOSTS = _env_int("ACC_MAX_HOSTS", 256, minimum=1, maximum=4096)
+MAX_PASSWORDS = _env_int("ACC_MAX_PASSWORDS", 200, minimum=1, maximum=1000)
 MAX_PASSWORD_LENGTH = _env_int(
-    "HORA_ADMIN_MAX_PASSWORD_LENGTH", 512, minimum=8, maximum=4096
+    "ACC_MAX_PASSWORD_LENGTH", 512, minimum=8, maximum=4096
 )
 
 # Timeouts de Ansible (segundos)
-PING_TIMEOUT = _env_int("HORA_ADMIN_PING_TIMEOUT", 30, minimum=5, maximum=300)
-PLAYBOOK_TIMEOUT = _env_int("HORA_ADMIN_PLAYBOOK_TIMEOUT", 300, minimum=30, maximum=3600)
-CONNECT_TIMEOUT = _env_int("HORA_ADMIN_CONNECT_TIMEOUT", 10, minimum=3, maximum=120)
+PING_TIMEOUT = _env_int("ACC_PING_TIMEOUT", 30, minimum=5, maximum=300)
+PLAYBOOK_TIMEOUT = _env_int("ACC_PLAYBOOK_TIMEOUT", 300, minimum=30, maximum=3600)
+CONNECT_TIMEOUT = _env_int("ACC_CONNECT_TIMEOUT", 10, minimum=3, maximum=120)
 
 # Retención del historial y del progreso en memoria
-HISTORY_RETENTION_DAYS = _env_int("HORA_ADMIN_HISTORY_DAYS", 180, minimum=1)
-JOB_RETENTION_HOURS = _env_int("HORA_ADMIN_JOB_RETENTION_HOURS", 24, minimum=1)
+HISTORY_RETENTION_DAYS = _env_int("ACC_HISTORY_DAYS", 180, minimum=1)
+JOB_RETENTION_HOURS = _env_int("ACC_JOB_RETENTION_HOURS", 24, minimum=1)
 AUTH_EVENT_RETENTION_DAYS = _env_int(
-    "HORA_ADMIN_AUTH_EVENT_DAYS", 365, minimum=1
+    "ACC_AUTH_EVENT_DAYS", 365, minimum=1
 )
 
 # Límites de memoria y de la tabla de instantáneas de tareas. Evitan que un
 # proceso de larga vida acumule estados de todas las operaciones históricas.
-MAX_MEMORY_TASKS = _env_int("HORA_ADMIN_MAX_MEMORY_TASKS", 200, minimum=10)
+MAX_MEMORY_TASKS = _env_int("ACC_MAX_MEMORY_TASKS", 200, minimum=10)
 MAX_TASK_STATE_ROWS = _env_int(
-    "HORA_ADMIN_MAX_TASK_STATE_ROWS", 500, minimum=10
+    "ACC_MAX_TASK_STATE_ROWS", 500, minimum=10
 )
 
 # Cola de trabajos: concurrencia acotada y tamaño máximo de la cola.
-JOB_MAX_WORKERS = _env_int("HORA_ADMIN_JOB_WORKERS", 2, minimum=1, maximum=32)
-JOB_QUEUE_SIZE = _env_int("HORA_ADMIN_JOB_QUEUE_SIZE", 50, minimum=1)
+JOB_MAX_WORKERS = _env_int("ACC_JOB_WORKERS", 2, minimum=1, maximum=32)
+JOB_QUEUE_SIZE = _env_int("ACC_JOB_QUEUE_SIZE", 50, minimum=1)
 JOB_SHUTDOWN_GRACE_SECONDS = _env_int(
-    "HORA_ADMIN_JOB_SHUTDOWN_GRACE", 10, minimum=0, maximum=300
+    "ACC_JOB_SHUTDOWN_GRACE", 10, minimum=0, maximum=300
 )
 
 # Bloqueo progresivo de cuentas tras intentos fallidos de login.
 LOGIN_LOCKOUT_THRESHOLD = _env_int(
-    "HORA_ADMIN_LOGIN_LOCKOUT_THRESHOLD", 5, minimum=1, maximum=100
+    "ACC_LOGIN_LOCKOUT_THRESHOLD", 5, minimum=1, maximum=100
 )
 LOGIN_LOCKOUT_MINUTES = _env_int(
-    "HORA_ADMIN_LOGIN_LOCKOUT_MINUTES", 15, minimum=1, maximum=1440
+    "ACC_LOGIN_LOCKOUT_MINUTES", 15, minimum=1, maximum=1440
 )
 
 # Roles disponibles. El rol se guarda en la tabla ``users``.
 ROLES: tuple[str, ...] = ("viewer", "operator", "admin")
 
 # Extensión máxima de un rango CIDR aceptado (p. ej. /24 -> 254 hosts).
-MIN_CIDR_PREFIX = _env_int("HORA_ADMIN_MIN_CIDR_PREFIX", 22, minimum=8, maximum=32)
+MIN_CIDR_PREFIX = _env_int("ACC_MIN_CIDR_PREFIX", 22, minimum=8, maximum=32)
 
 
 def _parse_allowed_networks(raw: str) -> tuple:
-    """Convierte ``HORA_ADMIN_ALLOWED_NETWORKS`` en redes validadas.
+    """Convierte ``ACC_ALLOWED_NETWORKS`` en redes validadas.
 
     Vacío significa sin restricción (comportamiento histórico). Una entrada
     inválida es un error de configuración: es mejor no arrancar que aplicar una
@@ -291,7 +299,7 @@ def _parse_allowed_networks(raw: str) -> tuple:
             networks.append(ipaddress.ip_network(chunk, strict=False))
         except ValueError as exc:
             raise ValueError(
-                f"HORA_ADMIN_ALLOWED_NETWORKS contiene una red inválida: "
+                f"ACC_ALLOWED_NETWORKS contiene una red inválida: "
                 f"{chunk!r}"
             ) from exc
     return tuple(networks)
@@ -301,13 +309,13 @@ def _parse_allowed_networks(raw: str) -> tuple:
 # impide el arranque: la aplicación prueba credenciales y ejecuta ``become``
 # contra lo que se le indique, así que nunca debe quedar sin restricción.
 ALLOWED_NETWORKS = _parse_allowed_networks(
-    os.environ.get("HORA_ADMIN_ALLOWED_NETWORKS", "")
+    os.environ.get("ACC_ALLOWED_NETWORKS", "")
 )
 
 # Loopback solo se permite explícitamente en desarrollo (tests y laboratorio).
 # En producción siempre se bloquea, incluso si la allowlist lo incluyera.
 ALLOW_LOOPBACK = _env_bool(
-    "HORA_ADMIN_ALLOW_LOOPBACK", not IS_PRODUCTION
+    "ACC_ALLOW_LOOPBACK", not IS_PRODUCTION
 )
 
 # Direcciones que nunca deben ser objetivo de una operación: loopback,
@@ -335,18 +343,18 @@ BLOCKED_NETWORKS: tuple = tuple(
 # Para una herramienta de fijación de hora, 2 s es un margen razonable; 120 s
 # permitía reportar como éxito un reloj claramente desviado.
 TIME_VERIFY_TOLERANCE = _env_int(
-    "HORA_ADMIN_TIME_TOLERANCE", 2, minimum=0, maximum=3600
+    "ACC_TIME_TOLERANCE", 2, minimum=0, maximum=3600
 )
 
 # ``TIME`` con NTP activo y política ``keep`` puede revertirse en segundos.
 # Por defecto se bloquea la ejecución; la vista previa sigue mostrando el
 # aviso para que el operador pueda corregir la política.
-TIME_REQUIRE_NTP_OFF = _env_bool("HORA_ADMIN_TIME_REQUIRE_NTP_OFF", True)
+TIME_REQUIRE_NTP_OFF = _env_bool("ACC_TIME_REQUIRE_NTP_OFF", True)
 
 # Espera tras reactivar NTP antes de la verificación final (segundos). Da
 # margen a que el demonio aplique su corrección y permite detectar reversiones.
 NTP_SETTLE_SECONDS = _env_int(
-    "HORA_ADMIN_NTP_SETTLE_SECONDS", 3, minimum=0, maximum=60
+    "ACC_NTP_SETTLE_SECONDS", 3, minimum=0, maximum=60
 )
 
 # Límite de contraseñas candidatas que se prueban contra un mismo host. Sin
@@ -354,14 +362,14 @@ NTP_SETTLE_SECONDS = _env_int(
 # ajeno a la autenticación haría probar todas las candidatas (hasta 200 por
 # defecto) con ping + playbook cada una.
 MAX_PASSWORD_ATTEMPTS = _env_int(
-    "HORA_ADMIN_MAX_PASSWORD_ATTEMPTS", 3, minimum=1, maximum=50
+    "ACC_MAX_PASSWORD_ATTEMPTS", 3, minimum=1, maximum=50
 )
 
 # Presupuesto total de tiempo para un lote (segundos). Al agotarse, los hosts
 # pendientes se registran como ``skipped`` en lugar de dejar el lote abierto
 # durante horas. Un host en curso puede terminar su playbook (timeout propio).
 BATCH_TIME_BUDGET_SECONDS = _env_int(
-    "HORA_ADMIN_BATCH_TIME_BUDGET", 3600, minimum=60, maximum=86400
+    "ACC_BATCH_TIME_BUDGET", 3600, minimum=60, maximum=86400
 )
 
 # Políticas NTP:
@@ -371,12 +379,12 @@ BATCH_TIME_BUDGET_SECONDS = _env_int(
 #   configure -> configurar servidores NTP y dejar NTP activo.
 NTP_POLICIES: tuple[str, ...] = ("keep", "off", "restore", "configure")
 MAX_NTP_SERVERS = _env_int(
-    "HORA_ADMIN_MAX_NTP_SERVERS", 8, minimum=1, maximum=32
+    "ACC_MAX_NTP_SERVERS", 8, minimum=1, maximum=32
 )
 DEFAULT_NTP_SERVERS: tuple[str, ...] = tuple(
     server.strip()
     for server in os.environ.get(
-        "HORA_ADMIN_DEFAULT_NTP_SERVERS", "pool.ntp.org"
+        "ACC_DEFAULT_NTP_SERVERS", "pool.ntp.org"
     ).split(",")
     if server.strip()
 )
@@ -387,10 +395,10 @@ ALLOWED_PASSWORD_EXTENSIONS = {".txt", ".yml", ".yaml"}
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
-LOG_LEVEL = os.environ.get("HORA_ADMIN_LOG_LEVEL", "INFO").upper()
-LOG_TO_FILE = _env_bool("HORA_ADMIN_LOG_TO_FILE", True)
-LOG_MAX_BYTES = _env_int("HORA_ADMIN_LOG_MAX_BYTES", 5 * 1024 * 1024, minimum=1024)
-LOG_BACKUP_COUNT = _env_int("HORA_ADMIN_LOG_BACKUPS", 5, minimum=1, maximum=50)
+LOG_LEVEL = os.environ.get("ACC_LOG_LEVEL", "INFO").upper()
+LOG_TO_FILE = _env_bool("ACC_LOG_TO_FILE", True)
+LOG_MAX_BYTES = _env_int("ACC_LOG_MAX_BYTES", 5 * 1024 * 1024, minimum=1024)
+LOG_BACKUP_COUNT = _env_int("ACC_LOG_BACKUPS", 5, minimum=1, maximum=50)
 
 # ---------------------------------------------------------------------------
 # Zonas horarias sugeridas para el datalist del formulario
@@ -457,17 +465,17 @@ def validate_security_config() -> None:
     problems = []
     if not ALLOWED_NETWORKS:
         problems.append(
-            "HORA_ADMIN_ALLOWED_NETWORKS es obligatoria en producción "
+            "ACC_ALLOWED_NETWORKS es obligatoria en producción "
             "(ejemplo: 10.0.0.0/8,192.168.1.0/24)."
         )
     if not SECRET_KEY:
         problems.append(
-            "HORA_ADMIN_SECRET_KEY es obligatoria en producción; no se debe "
+            "ACC_SECRET_KEY es obligatoria en producción; no se debe "
             "depender de una clave generada en el primer arranque."
         )
     if not HOST_KEY_CHECKING:
         problems.append(
-            "HORA_ADMIN_HOST_KEY_CHECKING=0 desactiva la verificación de "
+            "ACC_HOST_KEY_CHECKING=0 desactiva la verificación de "
             "claves SSH y no está permitido en producción."
         )
     if problems:
@@ -493,7 +501,7 @@ def ensure_directories() -> None:
         except PermissionError as exc:
             raise RuntimeError(
                 f"No hay permisos para crear {path}. Ejecuta ./install.sh o "
-                "define HORA_ADMIN_SECRETS_DIR/HORA_ADMIN_DATA_DIR/HORA_ADMIN_LOG_DIR "
+                "define ACC_SECRETS_DIR/ACC_DATA_DIR/ACC_LOG_DIR "
                 "a rutas de desarrollo."
             ) from exc
 
@@ -516,7 +524,7 @@ def _is_writable_dir(path: Path) -> bool:
     """Comprueba de forma segura si se puede crear/escribir en un directorio."""
     try:
         path.mkdir(parents=True, exist_ok=True)
-        probe = path / ".hora-admin-write-test"
+        probe = path / ".ansible-control-center-write-test"
         probe.write_text("", encoding="utf-8")
         probe.unlink()
         return True
@@ -524,18 +532,30 @@ def _is_writable_dir(path: Path) -> bool:
         return False
 
 
+def _existing_db(candidate: Path, legacy_name: str = "hora_admin.db") -> Path:
+    """Prefiere la base nueva y reutiliza la del nombre anterior si existe.
+
+    Así un despliegue que se actualiza no arranca con una base vacía: sigue
+    usando ``hora_admin.db`` hasta que se migre manualmente a ``acc.db``.
+    """
+    if candidate.exists():
+        return candidate
+    legacy = candidate.parent / legacy_name
+    return legacy if legacy.exists() else candidate
+
+
 def resolve_db_path() -> Path:
     """Devuelve una ruta de SQLite utilizable.
 
-    En producción usa ``DATA_DIR`` (``/var/lib/hora-admin``). Si no hay
+    En producción usa ``DATA_DIR`` (``/var/lib/ansible-control-center``). Si no hay
     permisos —por ejemplo al ejecutar ``python app.py`` como usuario normal
     sin haber lanzado ``install.sh``— cae a ``instance/`` para que el entorno
     de desarrollo arranque sin sudo.
     """
     if _is_writable_dir(DATA_DIR):
-        return DB_PATH
+        return _existing_db(DB_PATH)
     if _is_writable_dir(INSTANCE_DIR):
-        return INSTANCE_DIR / "hora_admin.db"
+        return _existing_db(INSTANCE_DIR / "acc.db")
     raise RuntimeError(
         f"No hay ningún directorio escribible para la base de datos "
         f"({DATA_DIR} ni {INSTANCE_DIR})."
@@ -584,7 +604,7 @@ def get_or_create_secret_key() -> str:
             continue
 
     # Último recurso: clave efímera (las sesiones se invalidan al reiniciar).
-    logging.getLogger("hora_admin").warning(
+    logging.getLogger("acc").warning(
         "No se pudo persistir la clave de sesión; se usará una clave efímera."
     )
     return secrets.token_hex(32)
@@ -636,7 +656,7 @@ def get_or_create_password_pepper() -> str:
         except OSError:
             continue
 
-    logging.getLogger("hora_admin").warning(
+    logging.getLogger("acc").warning(
         "No se pudo persistir el pepper de contraseñas; se usará uno efímero "
         "y los hashes cambiarán al reiniciar."
     )
@@ -649,7 +669,7 @@ def setup_logging() -> logging.Logger:
     No hay ningún handler que reciba contraseñas: los servicios deben registrar
     únicamente hashes cortos e identificadores.
     """
-    logger = logging.getLogger("hora_admin")
+    logger = logging.getLogger("acc")
     logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
     logger.propagate = False
 

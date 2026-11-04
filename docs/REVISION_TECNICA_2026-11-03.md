@@ -1,4 +1,4 @@
-# Revisión técnica y propuesta de producto — Hora Admin
+# Revisión técnica y propuesta de producto — Ansible Control Center
 
 **Fecha:** 3 de noviembre de 2026
 **Alcance:** código, playbooks, datos, seguridad, operación, pruebas, documentación y experiencia de usuario.
@@ -9,7 +9,7 @@
 
 ## 1. Veredicto ejecutivo
 
-Hora Admin es un proyecto **funcionalmente ambicioso y bien encaminado**: cubre el ciclo completo (autenticación → vault → vista previa → ejecución por lotes → verificación → auditoría) y tiene una base de pruebas real. La arquitectura, sin embargo, está en el punto donde el prototipo deja de escalar: un `app.py` de 2.188 líneas, hilos sin control, estado en memoria, ejecución secuencial y una interfaz que obliga a rellenar un formulario de 10+ campos.
+Ansible Control Center es un proyecto **funcionalmente ambicioso y bien encaminado**: cubre el ciclo completo (autenticación → vault → vista previa → ejecución por lotes → verificación → auditoría) y tiene una base de pruebas real. La arquitectura, sin embargo, está en el punto donde el prototipo deja de escalar: un `app.py` de 2.188 líneas, hilos sin control, estado en memoria, ejecución secuencial y una interfaz que obliga a rellenar un formulario de 10+ campos.
 
 La aplicación **no debería considerarse lista para producción** sin resolver antes cuatro frentes:
 
@@ -40,7 +40,7 @@ La aplicación **no debería considerarse lista para producción** sin resolver 
 | T1 | **P0** | Corrección | `TIME` + NTP `keep` puede ser revertido por NTP; solo se emite un aviso | `ansible/cambiar_hora.yml`, `app.py:_ntp_keep_warning` |
 | T2 | **P0** | Corrección | `restore`/`configure` reactivan NTP justo después de `date -s`; la verificación es de una sola muestra | playbook |
 | A1 | **P0** | Arquitectura | Un hilo demonio por operación, sin cola, cupo, cancelación ni apagado ordenado | `app.py:989-1013` |
-| D1 | **P0** | DevOps | `dist/.../hora-admin-images.tar` (177 MB) es anterior al HEAD y `COPY . .` lo mete en la imagen | `Dockerfile:35`, `dist/` |
+| D1 | **P0** | DevOps | `dist/.../ansible-control-center-images.tar` (177 MB) es anterior al HEAD y `COPY . .` lo mete en la imagen | `Dockerfile:35`, `dist/` |
 | S3 | **P1** | Seguridad | Sin MFA, RBAC, bloqueo de cuenta ni auditoría de login duradera | `app.py` login |
 | S4 | **P1** | Seguridad | Rate limit en memoria por proceso, clave solo IP en login | `services/rate_limiter.py` |
 | S5 | **P1** | Seguridad | Vault sin lock: lectura-modificación-escritura concurrente pierde actualizaciones | `services/vault_manager.py` |
@@ -61,7 +61,7 @@ La aplicación **no debería considerarse lista para producción** sin resolver 
 | U3 | **P1** | UX | Estados internos en inglés (`success`, `partial`, `failure`) visibles al usuario | varias plantillas |
 | D5 | **P1** | DevOps | Sin lockfile, sin lint/tipos/seguridad, sin build Docker ni ansible-lint en CI | `requirements.txt`, `.github/workflows/ci.yml` |
 | D6 | **P1** | DevOps | Contenedor sin hardening: sin `cap_drop`, `no-new-privileges`, rootfs de solo lectura ni límites | `docker-compose.yml` |
-| D7 | **P1** | DevOps | `HORA_ADMIN_ADMIN_PASSWORD` por entorno queda visible en `docker inspect` | `docker/entrypoint.sh` |
+| D7 | **P1** | DevOps | `ACC_ADMIN_PASSWORD` por entorno queda visible en `docker inspect` | `docker/entrypoint.sh` |
 | U4 | **P1** | UX | Sin inventario/perfiles; el operador reescribe destinos cada vez | `index.html` |
 | T7 | **P1** | Corrección | Lote con todos los hosts `skipped` se deriva como `failure` | `models/batch.py:539` |
 | X1 | **P2** | UX | Sin tema claro/oscuro/sistema; solo oscuro fijo | `base.html` |
@@ -85,7 +85,7 @@ La aplicación **no debería considerarse lista para producción** sin resolver 
 
 Es el área de mayor riesgo funcional, porque un “éxito” puede no serlo.
 
-**T1 — `TIME` con NTP activo y política `keep`.** El playbook fija la hora con `date -s`, pero systemd-timesyncd/NTP sigue activo y puede corregirla en segundos. Hoy solo se registra un aviso; el lote puede reportar éxito mientras el reloj vuelve a su valor anterior. *Recomendación:* convertir el aviso en bloqueo configurable (`HORA_ADMIN_TIME_REQUIRE_NTP_OFF=1` por defecto) o suspender NTP durante la operación y restaurarlo después, verificando dos veces separadas ≥ 5 s.
+**T1 — `TIME` con NTP activo y política `keep`.** El playbook fija la hora con `date -s`, pero systemd-timesyncd/NTP sigue activo y puede corregirla en segundos. Hoy solo se registra un aviso; el lote puede reportar éxito mientras el reloj vuelve a su valor anterior. *Recomendación:* convertir el aviso en bloqueo configurable (`ACC_TIME_REQUIRE_NTP_OFF=1` por defecto) o suspender NTP durante la operación y restaurarlo después, verificando dos veces separadas ≥ 5 s.
 
 **T2 — Carrera `restore`/`configure`.** La secuencia desactiva NTP, fija la hora y reactiva NTP; la reactivación puede adelantar el reloj antes de la comprobación final. Además, la verificación es una única lectura. *Recomendación:* verificar antes de reactivar NTP, luego reactivar, esperar un ciclo de sincronización y volver a verificar. Registrar el resultado de ambas comprobaciones.
 
@@ -103,7 +103,7 @@ Es el área de mayor riesgo funcional, porque un “éxito” puede no serlo.
 
 ### 3.2 Seguridad
 
-**S1 — Allowlist vacía = sin restricción.** Es el hallazgo más grave. La app prueba credenciales y ejecuta `become: true` contra lo que se le indique. Un usuario autenticado (o una sesión robada) puede apuntar a `127.0.0.1`, `169.254.169.254`, la red de gestión del propio servidor o cualquier host de Internet. *Recomendación:* allowlist obligatoria en producción (fallar al arrancar si está vacía y `HORA_ADMIN_ENV=production`), bloquear por defecto loopback, link-local, multicast y metadatos, y registrar cada destino rechazado.
+**S1 — Allowlist vacía = sin restricción.** Es el hallazgo más grave. La app prueba credenciales y ejecuta `become: true` contra lo que se le indique. Un usuario autenticado (o una sesión robada) puede apuntar a `127.0.0.1`, `169.254.169.254`, la red de gestión del propio servidor o cualquier host de Internet. *Recomendación:* allowlist obligatoria en producción (fallar al arrancar si está vacía y `ACC_ENV=production`), bloquear por defecto loopback, link-local, multicast y metadatos, y registrar cada destino rechazado.
 
 **S2 — DNS rebinding.** Se valida el hostname resolviéndolo, pero Ansible lo resuelve otra vez al conectar. Un DNS malicioso puede devolver una IP permitida en la validación y otra distinta en la ejecución. *Recomendación:* resolver una vez, fijar la IP en el inventario y usar `ansible_host=<ip>` con `Host`/SNI si hace falta; rechazar si la resolución cambia entre validación y ejecución.
 
@@ -115,9 +115,9 @@ Es el área de mayor riesgo funcional, porque un “éxito” puede no serlo.
 
 **S7 — Dependencias externas.** Bootstrap, iconos y Google Fonts vienen de CDN sin `integrity`, y la CSP los autoriza. En una red de gestión aislada la interfaz se rompe; además se expone la IP del operador a terceros. *Recomendación:* empaquetar Bootstrap/icons/fuentes en `static/`, CSP `default-src 'self'` sin CDN, y eliminar `'unsafe-inline'` migrando estilos a ficheros.
 
-**S8 — Entorno heredado.** `ansible_environment()` copia `os.environ` completo; el proceso hijo de Ansible puede ver `HORA_ADMIN_SECRET_KEY`, pepper, etc. *Recomendación:* construir un entorno mínimo allowlist (`PATH`, `HOME`, `LANG`, `ANSIBLE_*`).
+**S8 — Entorno heredado.** `ansible_environment()` copia `os.environ` completo; el proceso hijo de Ansible puede ver `ACC_SECRET_KEY`, pepper, etc. *Recomendación:* construir un entorno mínimo allowlist (`PATH`, `HOME`, `LANG`, `ANSIBLE_*`).
 
-**S9 — Secretos en entorno del contenedor.** `HORA_ADMIN_ADMIN_PASSWORD` es visible en `docker inspect` y en `/proc`. *Recomendación:* fichero de secreto montado o comando interactivo `flask init-admin`; rotar tras el primer arranque.
+**S9 — Secretos en entorno del contenedor.** `ACC_ADMIN_PASSWORD` es visible en `docker inspect` y en `/proc`. *Recomendación:* fichero de secreto montado o comando interactivo `flask init-admin`; rotar tras el primer arranque.
 
 **S10 — Identificadores cortos.** Los hashes de 8 caracteres usados en UI/auditoría tienen 32 bits: colisiones plausibles. *Recomendación:* mostrar 12–16 caracteres o un ID opaco independiente; conservar el HMAC completo en BD.
 

@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Hora Admin — Propuesta de interfaz</title>
-<meta name="description" content="Prototipo navegable de la nueva interfaz de Hora Admin.">
+<title>Ansible Control Center — Propuesta de interfaz</title>
+<meta name="description" content="Prototipo navegable de la nueva interfaz de Ansible Control Center.">
 <style>
 /* ============================================================
    Tokens
@@ -771,8 +771,8 @@ label.field-label { font-size: 12.5px; font-weight: 650; color: var(--text-2); }
     <div class="brand">
       <div class="brand-mark" aria-hidden="true"><svg class="icon"><use href="#i-clock"/></svg></div>
       <div>
-        <div class="brand-name">Hora Admin</div>
-        <div class="brand-sub">Consola de tiempo</div>
+        <div class="brand-name">Ansible Control Center</div>
+        <div class="brand-sub">Consola de automatización</div>
       </div>
     </div>
 
@@ -832,7 +832,7 @@ label.field-label { font-size: 12.5px; font-weight: 650; color: var(--text-2); }
         <svg class="icon"><use href="#i-menu"/></svg>
       </button>
       <div class="crumbs" aria-label="Ruta de navegación">
-        <span>Hora Admin</span>
+        <span>Ansible Control Center</span>
         <span class="sep" aria-hidden="true">/</span>
         <strong id="crumbCurrent">Panel</strong>
       </div>
@@ -1764,7 +1764,7 @@ srv-ntp-01.corp.local</textarea>
                   <div class="small muted" style="margin-top:2px">Actualizado hace 2 días por Elena Ruiz</div>
                 </div>
               </div>
-              <div class="kv"><span>Ruta</span><strong class="mono" style="font-size:11px">/etc/hora-admin/secrets/vault.yml</strong></div>
+              <div class="kv"><span>Ruta</span><strong class="mono" style="font-size:11px">/etc/ansible-control-center/secrets/vault.yml</strong></div>
               <div class="kv"><span>Cifrado</span><strong>ansible-vault · AES256</strong></div>
               <div class="kv"><span>Candidatas</span><strong>48 de 200</strong></div>
               <div class="kv"><span>Último acceso</span><strong>hace 8 min</strong></div>
@@ -2256,7 +2256,7 @@ srv-ntp-01.corp.local</textarea>
   const modeLabel = { dark: "oscuro", light: "claro", system: "sistema" };
   let themeMode = "dark";
   try {
-    const saved = localStorage.getItem("hora-admin-theme");
+    const saved = localStorage.getItem("ansible-control-center-theme");
     if (saved && modes.includes(saved)) themeMode = saved;
   } catch (error) { /* almacenamiento no disponible */ }
   const requestedTheme = new URLSearchParams(window.location.search).get("theme");
@@ -2274,7 +2274,7 @@ srv-ntp-01.corp.local</textarea>
 
   themeBtn.addEventListener("click", () => {
     themeMode = modes[(modes.indexOf(themeMode) + 1) % modes.length];
-    try { localStorage.setItem("hora-admin-theme", themeMode); } catch (error) { /* ignorar */ }
+    try { localStorage.setItem("ansible-control-center-theme", themeMode); } catch (error) { /* ignorar */ }
     applyTheme();
     showToast("Tema " + modeLabel[themeMode] + " activado.");
   });

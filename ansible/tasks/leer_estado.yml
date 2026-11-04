@@ -76,10 +76,10 @@
         from pathlib import Path
 
         paths = [
-            # Configuración escrita por Hora Admin (incluye el nombre antiguo).
-            "/etc/chrony/conf.d/90-hora-admin.conf",
-            "/etc/chrony/conf.d/90-hora-admin.sources",
-            "/etc/systemd/timesyncd.conf.d/90-hora-admin.conf",
+            # Configuración escrita por Ansible Control Center (incluye el nombre antiguo).
+            "/etc/chrony/conf.d/90-ansible-control-center.conf",
+            "/etc/chrony/conf.d/90-ansible-control-center.sources",
+            "/etc/systemd/timesyncd.conf.d/90-ansible-control-center.conf",
             # Configuración del sistema para detectar servidores ya activos.
             "/etc/chrony/chrony.conf",
             "/etc/systemd/timesyncd.conf",

@@ -1,31 +1,31 @@
 #!/bin/sh
-# Entrypoint de la imagen de Hora Admin.
+# Entrypoint de la imagen de Ansible Control Center.
 #
 # Prepara directorios, aplica migraciones, crea el administrador inicial si se
-# proporcionó HORA_ADMIN_ADMIN_PASSWORD y arranca Gunicorn.
+# proporcionó ACC_ADMIN_PASSWORD y arranca Gunicorn.
 set -eu
 
-DATA_DIR="${HORA_ADMIN_DATA_DIR:-/data}"
-SECRETS_DIR="${HORA_ADMIN_SECRETS_DIR:-/secrets}"
-LOG_DIR="${HORA_ADMIN_LOG_DIR:-/logs}"
+DATA_DIR="${ACC_DATA_DIR:-/data}"
+SECRETS_DIR="${ACC_SECRETS_DIR:-/secrets}"
+LOG_DIR="${ACC_LOG_DIR:-/logs}"
 
 mkdir -p "$DATA_DIR" "$SECRETS_DIR" "$LOG_DIR" "$HOME/.ssh"
 chmod 700 "$SECRETS_DIR" "$HOME/.ssh" 2>/dev/null || true
 
 # known_hosts persistente. Se puede poblar con:
 #   docker compose exec app ssh-keyscan 10.0.0.10 >> ~/.ssh/known_hosts
-if [ -n "${HORA_ADMIN_KNOWN_HOSTS:-}" ]; then
-    printf '%s\n' "$HORA_ADMIN_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+if [ -n "${ACC_KNOWN_HOSTS:-}" ]; then
+    printf '%s\n' "$ACC_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
     chmod 600 "$HOME/.ssh/known_hosts"
 elif [ ! -f "$HOME/.ssh/known_hosts" ]; then
     : > "$HOME/.ssh/known_hosts"
     chmod 600 "$HOME/.ssh/known_hosts"
 fi
 
-echo "[hora-admin] Aplicando migraciones de SQLite…"
+echo "[ansible-control-center] Aplicando migraciones de SQLite…"
 python -m flask --app app init-db
 
-echo "[hora-admin] Comprobando usuario administrador…"
+echo "[ansible-control-center] Comprobando usuario administrador…"
 python - <<'PY'
 import os
 import sys
@@ -34,30 +34,30 @@ from config import ADMIN_PASSWORD_MIN_LENGTH, ADMIN_USERNAME, resolve_db_path
 from models.user import User
 
 db_path = str(resolve_db_path())
-password = os.environ.get("HORA_ADMIN_ADMIN_PASSWORD", "")
-username = os.environ.get("HORA_ADMIN_ADMIN_USERNAME", ADMIN_USERNAME)
+password = os.environ.get("ACC_ADMIN_PASSWORD", "")
+username = os.environ.get("ACC_ADMIN_USERNAME", ADMIN_USERNAME)
 
 if password:
     if User.count(db_path=db_path) == 0:
         if len(password) < ADMIN_PASSWORD_MIN_LENGTH:
             sys.exit(
-                "[hora-admin] HORA_ADMIN_ADMIN_PASSWORD es demasiado corta "
+                "[ansible-control-center] ACC_ADMIN_PASSWORD es demasiado corta "
                 f"(mínimo {ADMIN_PASSWORD_MIN_LENGTH} caracteres)."
             )
         User.create_or_update(username, password, db_path=db_path)
-        print(f"[hora-admin] Administrador '{username}' creado.")
+        print(f"[ansible-control-center] Administrador '{username}' creado.")
     else:
         print(
-            "[hora-admin] Ya existen usuarios; no se modifica el administrador. "
+            "[ansible-control-center] Ya existen usuarios; no se modifica el administrador. "
             "Usa 'flask --app app init-admin' para rotar la contraseña."
         )
 elif User.count(db_path=db_path) == 0:
     print(
-        "[hora-admin] AVISO: no hay usuarios. Define "
-        "HORA_ADMIN_ADMIN_PASSWORD o ejecuta "
+        "[ansible-control-center] AVISO: no hay usuarios. Define "
+        "ACC_ADMIN_PASSWORD o ejecuta "
         "'docker compose exec app flask --app app init-admin'."
     )
 PY
 
-echo "[hora-admin] Iniciando Gunicorn en ${HORA_ADMIN_BIND:-0.0.0.0:8000}…"
+echo "[ansible-control-center] Iniciando Gunicorn en ${ACC_BIND:-0.0.0.0:8000}…"
 exec gunicorn -c /app/gunicorn.conf.py app:app

@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Propuesta 05 · Swiss Brutal — Ansible Control Center</title>
+<meta name="description" content="Propuesta de interfaz 05: brutalismo suizo de alto contraste para la consola de automatización de flota Ansible Control Center.">
+<style>
+/* ============================================================
+   Propuesta 05 — Swiss Brutal
+   Papel, tinta y rojo señal. Retícula visible, reglas gruesas,
+   tipografía condensada y cero adornos. Sin dependencias.
+   ============================================================ */
+/* Tokens ---------------------------------------------------- */
+:root { --paper: #f2f0e9; --paper-2: #fbfaf5; --paper-3: #e9e6dc; --ink: #0b0b0b; --red: #ff3b30; --yellow: #ffd400; --muted: #565349; --muted-2: #7c786d; --display: "Helvetica Neue", Helvetica, Arial, ui-sans-serif, sans-serif; --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; --max: 1480px; }
+/* Reset ----------------------------------------------------- */
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; color: var(--ink); background-color: var(--paper); background-image: linear-gradient(to right, rgba(11, 11, 11, .055) 1px, transparent 1px), linear-gradient(to bottom, rgba(11, 11, 11, .055) 1px, transparent 1px); background-size: 48px 48px; font: 14px/1.5 var(--display); -webkit-font-smoothing: antialiased; }
+h1, h2, h3, p, ol, ul { margin: 0; }
+ol, ul { padding: 0; list-style: none; }
+a { color: inherit; text-decoration: none; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: square; stroke-linejoin: miter; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.skip { position: absolute; left: -999px; top: 8px; z-index: 100; background: var(--ink); color: var(--paper); padding: 10px 14px; font: 700 11px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+.skip:focus { left: 8px; }
+:focus-visible { outline: 3px solid var(--red); outline-offset: 3px; }
+::selection { background: var(--yellow); color: var(--ink); }
+/* Cabecera y navegación ------------------------------------- */
+.top { position: sticky; top: 0; z-index: 40; background: var(--paper); border-bottom: 2px solid var(--ink); }
+.top-inner { max-width: var(--max); margin: 0 auto; min-height: 70px; display: flex; align-items: stretch; gap: 0; padding: 0 28px; }
+.brand { display: flex; align-items: center; gap: 11px; padding-right: 22px; flex: none; }
+.brand-mark { position: relative; width: 40px; height: 40px; flex: none; display: grid; place-items: center; background: var(--ink); color: var(--paper); font: 800 13px/1 var(--mono); letter-spacing: .04em; }
+.brand-mark::after { content: ""; position: absolute; right: -4px; bottom: -4px; width: 10px; height: 10px; background: var(--red); border: 2px solid var(--paper); }
+.brand-txt b { display: block; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .015em; line-height: 1.15; }
+.brand-txt span { display: block; margin-top: 3px; color: var(--muted); font: 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .16em; }
+.nav { margin-left: auto; display: flex; align-items: stretch; border-left: 2px solid var(--ink); }
+.nav a { display: flex; align-items: center; gap: 6px; padding: 0 12px; border-right: 2px solid var(--ink); font: 700 9.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .07em; transition: background .12s, color .12s; }
+.nav a svg { width: 13px; height: 13px; }
+.nav a:hover { background: var(--red); color: var(--ink); }
+.nav a[aria-current="page"] { background: var(--ink); color: var(--paper); }
+.nav a[aria-current="page"] svg { color: var(--red); }
+.top-meta { display: flex; align-items: center; gap: 7px; padding-left: 16px; font: 700 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; }
+.top-meta .pulse { width: 8px; height: 8px; background: var(--red); animation: blink 1.8s steps(1, end) infinite; }
+.top-meta .dry { border: 2px solid var(--ink); padding: 4px 6px; background: var(--yellow); }
+@keyframes blink { 50% { opacity: .2; } }
+.menu-btn { display: none; width: 44px; height: 44px; flex: none; align-items: center; justify-content: center; align-self: center; margin-left: auto; border: 2px solid var(--ink); background: var(--paper-2); }
+.menu-btn:hover { background: var(--ink); color: var(--paper); }
+/* Ticker ---------------------------------------------------- */
+.ticker { overflow: hidden; background: var(--ink); color: var(--paper); border-top: 2px solid var(--ink); }
+.ticker-track { display: flex; width: max-content; animation: marquee 38s linear infinite; }
+.ticker:hover .ticker-track { animation-play-state: paused; }
+.ticker-set { display: flex; align-items: center; }
+.ticker-set span { display: flex; align-items: center; gap: 12px; padding: 7px 12px; font: 700 9px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .12em; white-space: nowrap; }
+.ticker-set span::before { content: ""; width: 7px; height: 7px; background: var(--red); flex: none; }
+.ticker-set span:nth-child(4n) { color: var(--yellow); }
+@keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+/* Estructura ------------------------------------------------ */
+.wrap { max-width: var(--max); margin: 0 auto; padding: 0 28px 54px; }
+.hero { padding: 42px 0 30px; border-bottom: 2px solid var(--ink); }
+.hero-grid { display: grid; grid-template-columns: 96px minmax(0, 1fr) 172px; gap: 26px; align-items: start; }
+.hero-no { font: 800 72px/0.8 var(--display); letter-spacing: -.07em; color: var(--red); padding-top: 4px; }
+.kicker { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 14px; font: 700 9.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .16em; }
+.kicker .sq { width: 9px; height: 9px; background: var(--red); }
+h1 { font-family: var(--display); font-weight: 800; font-size: clamp(40px, 6.2vw, 64px); line-height: .9; letter-spacing: -.045em; text-transform: uppercase; max-width: 14ch; }
+h1 .red { color: var(--red); }
+.lead { max-width: 64ch; margin-top: 16px; font-size: 14px; line-height: 1.55; color: var(--muted); }
+.lead strong { color: var(--ink); font-weight: 700; }
+.hero-actions { display: flex; align-items: stretch; gap: 10px; flex-wrap: wrap; margin-top: 22px; }
+.clock { display: flex; align-items: center; gap: 9px; border: 2px solid var(--ink); background: var(--paper-2); padding: 8px 11px; }
+.clock .live { width: 8px; height: 8px; background: var(--red); animation: blink 1.8s steps(1, end) infinite; }
+.clock b { font: 800 16px/1 var(--mono); letter-spacing: -.02em; }
+.clock span { font: 700 8px/1 var(--mono); letter-spacing: .12em; color: var(--muted); text-transform: uppercase; }
+.stamp { border: 2px solid var(--ink); background: var(--yellow); padding: 12px; min-height: 118px; display: flex; flex-direction: column; justify-content: space-between; font: 800 10px/1.25 var(--mono); letter-spacing: .1em; text-transform: uppercase; transform: rotate(1.2deg); }
+.stamp svg { width: 30px; height: 30px; }
+.stamp small { display: block; font: 700 8px/1.2 var(--mono); color: var(--muted); letter-spacing: .06em; }
+/* Botones --------------------------------------------------- */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 8px 13px; border: 2px solid var(--ink); background: var(--paper-2); color: var(--ink); font: 800 10px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; transition: background .12s, color .12s, transform .12s; }
+.btn:hover { background: var(--ink); color: var(--paper); }
+.btn:active { transform: translate(2px, 2px); }
+.btn svg { width: 14px; height: 14px; }
+.btn-red { background: var(--red); }
+.btn-red:hover { background: var(--ink); color: var(--red); }
+.btn-red:focus-visible { outline-color: var(--ink); }
+.btn-ink { background: var(--ink); color: var(--paper); }
+.btn-ink:hover { background: var(--red); color: var(--ink); }
+.btn-sm { min-height: 30px; padding: 6px 9px; font-size: 9px; }
+.btn-ghost { background: transparent; }
+/* Secciones ------------------------------------------------- */
+.sec-head { display: flex; align-items: center; gap: 14px; margin: 32px 0 14px; padding-top: 10px; }
+.sec-no { font: 800 26px/1 var(--display); letter-spacing: -.05em; color: var(--red); }
+.sec-head h2 { font: 800 13px/1 var(--mono); text-transform: uppercase; letter-spacing: .14em; white-space: nowrap; }
+.sec-line { flex: 1; height: 2px; background: var(--ink); }
+.sec-note { font: 700 9px/1.3 var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; text-align: right; white-space: nowrap; }
+/* KPIs ------------------------------------------------------ */
+.kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.kpi { border: 2px solid var(--ink); background: var(--paper-2); padding: 14px 15px 13px; min-height: 118px; display: flex; flex-direction: column; }
+.kpi.is-inverse { background: var(--ink); color: var(--paper); }
+.kpi.is-inverse .k-label { color: var(--yellow); }
+.kpi.is-inverse .k-sub { color: #bdb9ad; border-top-color: #4a4842; }
+.kpi .k-label { display: flex; align-items: center; gap: 6px; font: 700 8.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+.kpi .k-label svg { width: 13px; height: 13px; }
+.kpi .k-val { margin: 10px 0 0; font: 800 36px/0.9 var(--display); letter-spacing: -.05em; font-variant-numeric: tabular-nums; }
+.kpi .k-val small { font: 700 11px/1 var(--mono); letter-spacing: .02em; margin-left: 3px; }
+.kpi .k-sub { margin-top: auto; padding-top: 9px; border-top: 1px solid var(--paper-3); font: 700 8.5px/1.35 var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.kpi .k-sub b { color: var(--ink); }
+.kpi.is-inverse .k-sub b { color: var(--paper); }
+.kpi.is-bad { background: var(--red); }
+.kpi.is-bad .k-label, .kpi.is-bad .k-sub { color: var(--ink); }
+.kpi.is-bad .k-sub { border-top-color: rgba(11, 11, 11, .35); }
+.kpi.is-bad .k-sub b { color: var(--ink); }
+/* Retícula de operación ------------------------------------- */
+.ops { display: grid; grid-template-columns: minmax(0, 1.32fr) minmax(0, .78fr); gap: 18px; align-items: stretch; }
+.panel { border: 2px solid var(--ink); background: var(--paper-2); min-width: 0; scroll-margin-top: 108px; display: flex; flex-direction: column; }
+.panel-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 15px; border-bottom: 2px solid var(--ink); background: var(--paper); }
+.panel-head .ph-txt { min-width: 0; }
+.panel-head .ph-k { display: block; font: 700 8px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--red); margin-bottom: 4px; }
+.panel-head h2 { font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: -.01em; }
+.panel-head .head-tools { margin-left: auto; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.panel-body { padding: 18px; flex: 1; }
+.panel-body[hidden] { display: none; }
+/* Pestañas -------------------------------------------------- */
+.tabs { display: inline-flex; border: 2px solid var(--ink); background: var(--paper-2); }
+.tabs button { border: 0; border-right: 2px solid var(--ink); background: transparent; padding: 7px 9px; font: 800 8.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+.tabs button:last-child { border-right: 0; }
+.tabs button:hover { background: var(--yellow); }
+.tabs button[aria-selected="true"] { background: var(--ink); color: var(--paper); }
+/* Formulario ------------------------------------------------ */
+.form { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field.full { grid-column: 1 / -1; }
+.field label { display: flex; align-items: center; gap: 5px; font: 800 8.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em; }
+.field label svg { width: 12px; height: 12px; color: var(--red); }
+.input, select { width: 100%; min-height: 39px; padding: 9px 10px; border: 2px solid var(--ink); border-radius: 0; background: #ffffff; color: var(--ink); font: 13px/1.2 var(--display); outline: none; }
+.input:hover, select:hover { background: #fffef9; }
+.input:focus-visible, select:focus-visible { outline: 3px solid var(--red); outline-offset: 1px; }
+.input::placeholder { color: #8f8b80; }
+select { appearance: none; padding-right: 30px; cursor: pointer; background-image: linear-gradient(45deg, transparent 50%, var(--ink) 50%), linear-gradient(135deg, var(--ink) 50%, transparent 50%); background-position: calc(100% - 15px) 52%, calc(100% - 10px) 52%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+.help { font: 700 8px/1.4 var(--mono); color: var(--muted); letter-spacing: .02em; }
+.presets { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 1px; }
+.chip { border: 2px solid var(--ink); background: transparent; padding: 4px 7px; font: 700 8.5px/1 var(--mono); letter-spacing: .02em; }
+.chip:hover { background: var(--ink); color: var(--paper); }
+.chip.is-on { background: var(--ink); color: var(--paper); }
+.chip.is-on::before { content: "▪ "; color: var(--red); }
+.switches { display: flex; flex-direction: column; gap: 8px; }
+.switch { display: flex; align-items: center; justify-content: space-between; gap: 14px; border: 2px solid var(--ink); padding: 9px 10px; background: #ffffff; }
+.switch .txt b { display: block; font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .01em; }
+.switch .txt span { display: block; margin-top: 2px; font: 700 8px/1.3 var(--mono); color: var(--muted); }
+.toggle { position: relative; width: 46px; height: 26px; flex: none; border: 2px solid var(--ink); background: var(--paper-3); border-radius: 0; transition: background .12s; }
+.toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; background: var(--ink); transition: left .14s, background .14s; }
+.toggle[aria-pressed="true"] { background: var(--red); }
+.toggle[aria-pressed="true"]::after { left: 23px; background: var(--ink); }
+.toggle:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+.form-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 16px; padding-top: 14px; border-top: 2px solid var(--ink); }
+.form-foot .note { margin-right: auto; display: flex; align-items: center; gap: 6px; font: 700 8px/1.35 var(--mono); color: var(--muted); text-transform: uppercase; }
+.form-foot .note svg { width: 13px; height: 13px; color: var(--red); }
+/* Vista previa ---------------------------------------------- */
+.summary { border: 2px solid var(--ink); background: #ffffff; }
+.summary div { display: flex; justify-content: space-between; gap: 16px; padding: 8px 10px; border-bottom: 1px solid var(--paper-3); font-size: 11.5px; }
+.summary div:last-child { border-bottom: 0; }
+.summary span { font: 700 8px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .07em; color: var(--muted); padding-top: 2px; }
+.summary b { text-align: right; font-weight: 800; }
+.summary b.code { font: 700 10px var(--mono); }
+.summary b.ok { color: #0a6b2d; }
+.summary b.warn { color: #8a6200; }
+.summary b.bad { color: #b3130b; }
+.warn-box { display: flex; gap: 9px; margin-top: 12px; padding: 10px; border: 2px solid var(--red); background: #fff1ef; font: 700 9.5px/1.5 var(--mono); color: #4a0d09; }
+.warn-box svg { width: 15px; height: 15px; color: var(--red); flex: none; margin-top: 1px; }
+/* Lote en curso --------------------------------------------- */
+.run { border-color: var(--ink); }
+.run .panel-head { background: var(--ink); color: var(--paper); }
+.run .panel-head .ph-k { color: var(--red); }
+.run .panel-head .live-tag { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #6b675e; padding: 4px 6px; font: 700 8px/1 var(--mono); color: var(--yellow); text-transform: uppercase; }
+.run .panel-head .live-tag i { width: 6px; height: 6px; background: var(--red); animation: blink 1.4s steps(1, end) infinite; }
+.run-body { padding: 18px; display: flex; flex-direction: column; flex: 1; }
+.run-big { display: flex; align-items: flex-start; gap: 16px; }
+.run-big .num { font: 800 58px/0.82 var(--display); letter-spacing: -.065em; }
+.run-big .num small { font: 800 18px/1 var(--display); letter-spacing: 0; }
+.run-copy { padding-top: 4px; min-width: 0; }
+.run-state { display: inline-block; background: var(--red); color: var(--ink); padding: 4px 6px; font: 800 8px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.run-copy h3 { margin-top: 7px; font-size: 15px; font-weight: 800; letter-spacing: -.01em; }
+.run-copy p { margin-top: 3px; font: 700 8.5px/1.45 var(--mono); color: var(--muted); }
+.run-copy code { color: var(--ink); }
+.progress { position: relative; height: 18px; margin-top: 14px; border: 2px solid var(--ink); background: #ffffff; overflow: hidden; }
+.progress i { display: block; height: 100%; width: 72%; background: var(--red); border-right: 2px solid var(--ink); }
+.progress-meta { display: flex; justify-content: space-between; gap: 10px; margin-top: 5px; font: 700 8px/1.3 var(--mono); color: var(--muted); text-transform: uppercase; }
+.steps { margin-top: 16px; border-top: 2px solid var(--ink); }
+.steps li { display: grid; grid-template-columns: 27px 1fr auto; gap: 9px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--paper-3); }
+.steps li:last-child { border-bottom: 0; padding-bottom: 0; }
+.steps .b { width: 25px; height: 25px; display: grid; place-items: center; border: 2px solid var(--ink); background: #ffffff; font: 800 9px/1 var(--mono); }
+.steps li.done .b { background: var(--ink); color: var(--paper); }
+.steps li.active .b { background: var(--red); color: var(--ink); }
+.steps .t { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .01em; }
+.steps .t small { display: block; margin-top: 2px; font: 700 8px/1.35 var(--mono); color: var(--muted); text-transform: none; letter-spacing: 0; }
+.steps .s { font: 700 8px/1 var(--mono); color: var(--muted); text-transform: uppercase; }
+.steps li.done .s { color: #0a6b2d; }
+.steps li.active .s { color: #b3130b; }
+.run-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-top: 16px; border: 2px solid var(--ink); }
+.run-stats div { padding: 8px 10px; border-right: 1px solid var(--ink); border-bottom: 1px solid var(--ink); }
+.run-stats div:nth-child(2n) { border-right: 0; }
+.run-stats div:nth-child(n+3) { border-bottom: 0; }
+.run-stats span { display: block; font: 700 7.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+.run-stats b { display: block; margin-top: 4px; font: 800 18px/1 var(--display); }
+.run-stats b.info { color: #0b4f8a; }
+.run-stats b.bad { color: #b3130b; }
+/* Sección hosts / actividad --------------------------------- */
+.duo { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, .75fr); gap: 18px; align-items: start; }
+.stack { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.seg { display: flex; border: 2px solid var(--ink); background: #ffffff; flex-wrap: wrap; }
+.seg button { border: 0; border-right: 2px solid var(--ink); background: transparent; padding: 6px 8px; font: 800 8px/1 var(--mono); text-transform: uppercase; letter-spacing: .04em; }
+.seg button:last-child { border-right: 0; }
+.seg button:hover { background: var(--yellow); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+caption { text-align: left; }
+th { text-align: left; white-space: nowrap; padding: 8px 9px; background: var(--ink); color: var(--paper); font: 700 7.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em; border-right: 1px solid #4b4942; }
+th:last-child { border-right: 0; }
+td { padding: 9px; border-bottom: 1px solid var(--ink); color: var(--ink); white-space: nowrap; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: var(--yellow); }
+.host { display: flex; align-items: center; gap: 7px; }
+.host .ico { width: 24px; height: 24px; display: grid; place-items: center; border: 2px solid var(--ink); background: var(--paper); }
+.host b { font: 800 10px/1 var(--mono); letter-spacing: .01em; }
+.host span span { display: block; margin-top: 2px; font: 700 8px/1 var(--mono); color: var(--muted); }
+.tag { display: inline-flex; align-items: center; gap: 3px; padding: 3px 5px; border: 2px solid var(--ink); font: 800 7.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .04em; }
+.tag.ok { background: #ffffff; color: var(--ink); }
+.tag.change { background: var(--yellow); color: var(--ink); }
+.tag.bad { background: var(--red); color: var(--ink); }
+.tag.neutral { background: transparent; color: var(--ink); border-width: 1px; }
+.mono { font: 700 9.5px/1.3 var(--mono); color: var(--muted); }
+.table-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 9px 12px; border-top: 2px solid var(--ink); font: 700 8px/1.3 var(--mono); color: var(--muted); text-transform: uppercase; }
+.table-foot .right { margin-left: auto; display: flex; gap: 5px; }
+.empty-row td { text-align: center; padding: 22px; font: 700 10px var(--mono); }
+/* Actividad ------------------------------------------------- */
+.feed { display: flex; flex-direction: column; }
+.feed li { display: grid; grid-template-columns: 28px 1fr auto; gap: 9px; padding: 10px 0; border-bottom: 1px solid var(--paper-3); }
+.feed li:last-child { border-bottom: 0; padding-bottom: 0; }
+.feed .fi { width: 27px; height: 27px; display: grid; place-items: center; border: 2px solid var(--ink); background: #ffffff; }
+.feed .fi.ok { background: var(--ink); color: var(--paper); }
+.feed .fi.bad { background: var(--red); color: var(--ink); }
+.feed .fi.warn { background: var(--yellow); color: var(--ink); }
+.feed b { display: block; font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .01em; }
+.feed p { margin-top: 2px; font: 700 8px/1.4 var(--mono); color: var(--muted); }
+.feed time { font: 700 7.5px/1.3 var(--mono); color: var(--muted-2); text-transform: uppercase; white-space: nowrap; }
+.side-stats { display: grid; grid-template-columns: 1fr 1fr; margin-top: 12px; border-top: 2px solid var(--ink); }
+.side-stats div { padding: 9px 0 0; }
+.side-stats div + div { border-left: 2px solid var(--ink); padding-left: 11px; }
+.side-stats span { display: block; font: 700 7.5px/1 var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.side-stats b { display: block; margin-top: 4px; font: 800 17px/1 var(--display); }
+/* Programaciones / futuro ----------------------------------- */
+.agenda { border-color: var(--ink); }
+.agenda .soon { display: inline-block; background: var(--yellow); border: 2px solid var(--ink); padding: 4px 6px; font: 800 7.5px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.agenda-list { display: flex; flex-direction: column; margin-top: 2px; }
+.agenda-list li { display: grid; grid-template-columns: 40px 1fr; gap: 9px; padding: 9px 0; border-bottom: 1px solid var(--paper-3); align-items: start; }
+.agenda-list li:last-child { border-bottom: 0; padding-bottom: 0; }
+.agenda-date { border: 2px solid var(--ink); background: #ffffff; text-align: center; padding: 4px 2px; font: 800 8px/1.1 var(--mono); text-transform: uppercase; }
+.agenda-date b { display: block; font: 800 15px/1 var(--display); }
+.agenda-list .txt b { display: block; font-size: 10.5px; font-weight: 800; }
+.agenda-list .txt span { display: block; margin-top: 2px; font: 700 7.5px/1.4 var(--mono); color: var(--muted); }
+.agenda-foot { margin-top: 11px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+/* Consola --------------------------------------------------- */
+.console-panel { margin-top: 0; }
+.console-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; background: var(--ink); color: var(--paper); border-bottom: 2px solid var(--ink); }
+.console-bar .dots { display: flex; gap: 4px; }
+.console-bar .dots i { width: 8px; height: 8px; border: 1px solid #6b675e; }
+.console-bar .dots i:nth-child(1) { background: var(--red); }
+.console-bar .dots i:nth-child(2) { background: var(--yellow); }
+.console-bar .dots i:nth-child(3) { background: var(--paper); }
+.console-bar .file { font: 700 9px/1 var(--mono); color: #cfcbc0; }
+.console-bar .tools { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.console-bar label { display: flex; align-items: center; gap: 5px; font: 700 8px/1 var(--mono); color: #cfcbc0; text-transform: uppercase; }
+.console-bar input[type="checkbox"] { accent-color: var(--red); width: 12px; height: 12px; }
+.console-bar .btn { border-color: #6b675e; background: transparent; color: var(--paper); min-height: 26px; padding: 4px 7px; font-size: 8px; }
+.console-bar .btn:hover { background: var(--paper); color: var(--ink); border-color: var(--paper); }
+.console { background: #050505; color: #e8e4d8; border: 2px solid var(--ink); border-top: 0; }
+.console pre { margin: 0; padding: 14px 16px; max-height: 300px; overflow: auto; font: 10px/1.75 var(--mono); tab-size: 2; }
+.console .ln { display: block; white-space: pre-wrap; word-break: break-word; }
+.console .ok { color: #c8f7b0; }
+.console .warn { color: var(--yellow); }
+.console .bad { color: #ff7a70; }
+.console .dim { color: #8d897e; }
+.console .cmd { color: #ffffff; font-weight: 700; }
+.console .cursor { display: inline-block; width: 7px; height: 12px; background: var(--red); vertical-align: -2px; animation: blink 1.1s steps(1, end) infinite; }
+/* Modal y avisos -------------------------------------------- */
+.backdrop { position: fixed; inset: 0; z-index: 80; display: none; place-items: center; padding: 18px; background: rgba(11, 11, 11, .72); }
+.backdrop.open { display: grid; }
+body.modal-open { overflow: hidden; }
+.modal { width: min(520px, 100%); max-height: calc(100vh - 36px); overflow: auto; background: var(--paper-2); border: 2px solid var(--ink); box-shadow: 10px 10px 0 var(--ink); }
+.modal-head { display: flex; align-items: flex-start; gap: 10px; padding: 14px 16px; border-bottom: 2px solid var(--ink); }
+.modal-head .mi { width: 34px; height: 34px; flex: none; display: grid; place-items: center; background: var(--red); border: 2px solid var(--ink); }
+.modal-head h2 { font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: -.01em; }
+.modal-head p { margin-top: 2px; font: 700 8px/1.4 var(--mono); color: var(--muted); text-transform: uppercase; }
+.modal-close { margin-left: auto; width: 30px; height: 30px; flex: none; display: grid; place-items: center; border: 2px solid var(--ink); background: transparent; }
+.modal-close:hover { background: var(--ink); color: var(--paper); }
+.modal-body { padding: 16px; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; padding: 12px 16px; border-top: 2px solid var(--ink); background: var(--paper); }
+.modal-foot .btn { min-height: 36px; }
+.toast { position: fixed; right: 18px; bottom: 18px; z-index: 90; display: flex; gap: 10px; align-items: flex-start; width: min(380px, calc(100vw - 36px)); padding: 12px 14px; border: 2px solid var(--ink); border-left: 8px solid var(--red); background: var(--ink); color: var(--paper); box-shadow: 8px 8px 0 rgba(11, 11, 11, .25); transform: translateY(16px); opacity: 0; pointer-events: none; transition: transform .2s, opacity .2s; }
+.toast.show { transform: none; opacity: 1; }
+.toast svg { color: var(--red); margin-top: 1px; }
+.toast b { display: block; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.toast span { display: block; margin-top: 3px; font: 700 8.5px/1.5 var(--mono); color: #c9c5ba; }
+/* Pie ------------------------------------------------------- */
+.foot { border-top: 2px solid var(--ink); background: var(--paper-2); padding: 20px 0 26px; }
+.foot-inner { max-width: var(--max); margin: 0 auto; padding: 0 28px; display: flex; align-items: flex-start; gap: 18px; flex-wrap: wrap; }
+.foot .brand { padding: 0; }
+.foot .brand-mark { width: 32px; height: 32px; font-size: 10px; }
+.foot .brand-txt b { font-size: 11px; }
+.foot p { max-width: 46ch; font: 700 8.5px/1.5 var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.foot .foot-meta { margin-left: auto; text-align: right; font: 700 8.5px/1.6 var(--mono); color: var(--muted); text-transform: uppercase; }
+/* Responsive ------------------------------------------------ */
+@media (max-width: 1240px) {
+.top-meta { display: none; }
+.nav a { padding: 0 9px; font-size: 8.5px; }
+.nav a svg { display: none; }
+}
+@media (max-width: 1080px) {
+.ops, .duo { grid-template-columns: 1fr; }
+.kpis { grid-template-columns: repeat(3, 1fr); }
+.kpi.is-inverse { grid-column: span 1; }
+.stamp { display: none; }
+.hero-grid { grid-template-columns: 72px minmax(0, 1fr); }
+.hero-no { font-size: 58px; }
+}
+@media (max-width: 900px) {
+.top-inner { padding: 0 16px; min-height: 62px; flex-wrap: wrap; }
+.menu-btn { display: flex; }
+.nav { display: none; order: 5; width: 100%; margin-left: 0; border-left: 0; border-top: 2px solid var(--ink); flex-direction: column; background: var(--paper-2); }
+.nav.open { display: flex; }
+.nav a { padding: 11px 8px; border-right: 0; border-bottom: 1px solid var(--paper-3); font-size: 9.5px; }
+.nav a:last-child { border-bottom: 0; }
+.nav a svg { display: block; }
+.brand { padding-right: 8px; }
+.wrap { padding: 0 16px 40px; }
+.hero { padding: 28px 0 22px; }
+.hero-grid { grid-template-columns: 52px minmax(0, 1fr); gap: 12px; }
+.hero-no { font-size: 44px; }
+.lead { font-size: 13px; }
+.kpis { grid-template-columns: 1fr 1fr; }
+.kpis .kpi:last-child { grid-column: span 2; }
+.panel-body { padding: 14px; }
+.form { grid-template-columns: 1fr; }
+.field { grid-column: 1 / -1; }
+.sec-head { gap: 9px; flex-wrap: wrap; margin-top: 26px; }
+.sec-line { min-width: 24px; }
+.sec-note { margin-left: auto; }
+.console pre { max-height: 260px; font-size: 9px; }
+.toast { right: 12px; bottom: 12px; }
+}
+@media (max-width: 560px) {
+.kpis { grid-template-columns: 1fr; }
+.kpis .kpi:last-child { grid-column: auto; }
+.hero-actions { display: grid; grid-template-columns: 1fr; }
+.hero-actions .clock { justify-content: center; }
+.hero-grid { grid-template-columns: 1fr; }
+.hero-no { display: none; }
+.stamp { display: none; }
+.panel-head { align-items: flex-start; }
+.panel-head .head-tools { margin-left: 0; width: 100%; }
+.tabs { width: 100%; }
+.tabs button { flex: 1; }
+.seg { width: 100%; }
+.seg button { flex: 1; border-bottom: 1px solid var(--paper-3); }
+.run-big .num { font-size: 48px; }
+.modal { box-shadow: 6px 6px 0 var(--ink); }
+.foot-inner { padding: 0 16px; }
+.foot .foot-meta { margin-left: 0; text-align: left; }
+}
+/* Movimiento reducido --------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+html { scroll-behavior: auto; }
+*, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+.ticker-track { animation: none; width: 100%; overflow-x: auto; }
+.ticker-set[aria-hidden="true"] { display: none; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Saltar al contenido</a>
+<!-- Sprite de iconos: sin dependencias externas -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6"/><rect x="3" y="14" width="18" height="6"/><path d="M7 7h.01M7 17h.01"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4l12 8-12 8z"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16"/><path d="M7 9l3 3-3 3M13 15h4"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16"/><path d="M3 10h18M8 3v4M16 3v4"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8m-3 0h3v3"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3l9 16H3z"/><path d="M12 9v4m0 3h.01"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.5-6 8-6s8 2 8 6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11"/><path d="M8 10V7a4 4 0 018 0v3"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l2-6 4 12 2-6h6"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0l4-4m-4 4l-4-4M4 21h16"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11"/><path d="M5 15V5h10"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 10-2.5 6M20 5v6h-6"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m0 0l-6-6m6 6l-6 6"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 4h7a3 3 0 013 3v13a3 3 0 00-3-3H4z"/><path d="M20 4h-6a3 3 0 00-3 3v13a3 3 0 013-3h6z"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></symbol>
+  <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 6a3 3 0 10-3 3h12a3 3 0 10-3-3v12a3 3 0 103-3H6a3 3 0 103 3z"/></symbol>
+</defs></svg>
+<!-- Cabecera --------------------------------------------------- -->
+<header class="top">
+  <div class="top-inner">
+    <a class="brand" href="#top" aria-label="Ansible Control Center, inicio">
+      <span class="brand-mark" aria-hidden="true">AC</span>
+      <span class="brand-txt">
+        <b>Ansible Control Center</b>
+        <span>Consola de automatización</span>
+      </span>
+    </a>
+    <button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="mainNav" aria-label="Abrir menú de navegación">
+      <svg class="i" aria-hidden="true"><use href="#i-menu"/></svg>
+    </button>
+    <nav class="nav" id="mainNav" aria-label="Navegación principal">
+      <a href="#top" aria-current="page"><svg class="i" aria-hidden="true"><use href="#i-grid"/></svg>Panel</a>
+      <a href="#hosts"><svg class="i" aria-hidden="true"><use href="#i-server"/></svg>Inventario</a>
+      <a href="#futuro"><svg class="i" aria-hidden="true"><use href="#i-book"/></svg>Playbooks</a>
+      <a href="#lote"><svg class="i" aria-hidden="true"><use href="#i-play"/></svg>Ejecuciones</a>
+      <a href="#agenda"><svg class="i" aria-hidden="true"><use href="#i-calendar"/></svg>Programaciones</a>
+      <a href="#credenciales"><svg class="i" aria-hidden="true"><use href="#i-key"/></svg>Credenciales</a>
+      <a href="#actividad"><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg>Auditoría</a>
+    </nav>
+    <div class="top-meta">
+      <span class="pulse" aria-hidden="true"></span>
+      <span>PROD</span>
+      <span class="dry">DRY RUN</span>
+    </div>
+  </div>
+  <div class="ticker" aria-label="Estado del sistema">
+    <div class="ticker-track">
+      <div class="ticker-set">
+        <span>Parque operativo · 254 hosts</span>
+        <span>Lote #A7F3C9E2 · 72% aplicado</span>
+        <span>247 correctos · 12 ajustados · 7 fallos</span>
+        <span>NTP.UBUNTU.COM · desfase +3 ms</span>
+        <span>Time.cloudflare.com · alcanzable</span>
+        <span>Modo simulación · sin cambios reales</span>
+      </div>
+      <div class="ticker-set" aria-hidden="true">
+        <span>Parque operativo · 254 hosts</span>
+        <span>Lote #A7F3C9E2 · 72% aplicado</span>
+        <span>247 correctos · 12 ajustados · 7 fallos</span>
+        <span>NTP.UBUNTU.COM · desfase +3 ms</span>
+        <span>Time.cloudflare.com · alcanzable</span>
+        <span>Modo simulación · sin cambios reales</span>
+      </div>
+    </div>
+  </div>
+</header>
+<main id="main" class="wrap">
+  <!-- Hero --------------------------------------------------- -->
+  <section class="hero" id="top" aria-labelledby="heroTitle">
+    <div class="hero-grid">
+      <div class="hero-no" aria-hidden="true">01</div>
+      <div>
+        <div class="kicker"><span class="sq" aria-hidden="true"></span> Operación NTP / TZ · lote #A7F3C9E2</div>
+        <h1 id="heroTitle">El reloj de la flota<span class="red">.</span></h1>
+        <p class="lead">
+          Configura zona horaria, hora exacta y política NTP en todo el parque desde un único lote.
+          Inspección previa, vista de confirmación y verificación posterior. Ahora mismo hay
+          <strong>183 de 254 hosts</strong> procesados y <strong>7 incidencias</strong> que requieren revisión.
+        </p>
+        <div class="hero-actions"> <button class="btn btn-red" type="button" data-open-modal> <svg class="i" aria-hidden="true"><use href="#i-play"/></svg> Nueva operación </button> <a class="btn" href="#lote"> <svg class="i" aria-hidden="true"><use href="#i-activity"/></svg> Ver lote en curso </a> <div class="clock" aria-label="Hora actual en Madrid"> <span class="live" aria-hidden="true"></span> <b id="clock">--:--:--</b> <span>Madrid</span> </div> </div>
+      </div>
+      <div class="stamp" aria-label="Estado: sistema operativo">
+        <svg class="i" aria-hidden="true"><use href="#i-shield"/></svg>
+        <span>Sistema<br>operativo</span>
+        <small>Último chequeo<br>08 s · sin deriva</small>
+      </div>
+    </div>
+  </section>
+  <!-- KPIs --------------------------------------------------- -->
+  <section aria-labelledby="kpiTitle">
+    <div class="sec-head">
+      <span class="sec-no" aria-hidden="true">02</span>
+      <h2 id="kpiTitle">Estado del parque</h2>
+      <span class="sec-line" aria-hidden="true"></span>
+      <span class="sec-note">Actualizado hace 8 s · operador</span>
+    </div>
+    <div class="kpis">
+      <article class="kpi is-inverse">
+        <div class="k-label"><svg class="i" aria-hidden="true"><use href="#i-server"/></svg> Hosts objetivo</div>
+        <div class="k-val">254 <small>hosts</small></div>
+        <div class="k-sub"><b>192.168.1.0/24</b> · enumerado</div>
+      </article>
+      <article class="kpi">
+        <div class="k-label"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg> Correctos</div>
+        <div class="k-val">247</div>
+        <div class="k-sub"><b>97,2 %</b> · 235 sin cambios + 12 ajustados</div>
+      </article>
+      <article class="kpi">
+        <div class="k-label"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg> Con cambios</div>
+        <div class="k-val">12</div>
+        <div class="k-sub">TZ o NTP corregido en el lote</div>
+      </article>
+      <article class="kpi is-bad">
+        <div class="k-label"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg> Fallos</div>
+        <div class="k-val">7</div>
+        <div class="k-sub"><b>3 auth</b> · 4 timeout · revisar</div>
+      </article>
+      <article class="kpi">
+        <div class="k-label"><svg class="i" aria-hidden="true"><use href="#i-clock"/></svg> Duración</div>
+        <div class="k-val">4<small>m</small> 12<small>s</small></div>
+        <div class="k-sub">Lote <b>#A7F3C9E2</b> · operador</div>
+      </article>
+    </div>
+  </section>
+  <!-- Operación y lote -------------------------------------- -->
+  <section class="ops" aria-label="Nueva operación y estado del lote">
+    <article class="panel" id="operacion" aria-labelledby="opTitle">
+      <header class="panel-head"> <div class="ph-txt"> <span class="ph-k">03 / Operación</span> <h2 id="opTitle">Nueva operación</h2> </div> <div class="head-tools"> <div class="tabs" role="tablist" aria-label="Vista del formulario"> <button type="button" role="tab" id="tabConfig" aria-selected="true" aria-controls="panelConfig" data-tab="config">Configurar</button> <button type="button" role="tab" id="tabPreview" aria-selected="false" aria-controls="panelPreview" data-tab="preview">Vista previa</button> </div> </div> </header>
+      <div class="panel-body" id="panelConfig" role="tabpanel" aria-labelledby="tabConfig" data-panel="config">
+        <form class="form" id="opForm" novalidate>
+          <div class="field full"> <label for="target"><svg class="i" aria-hidden="true"><use href="#i-globe"/></svg> IP, hostname o rango CIDR</label> <input class="input" id="target" name="target" value="192.168.1.0/24" spellcheck="false" autocomplete="off"> <div class="presets" aria-label="Objetivos frecuentes"> <button class="chip is-on" type="button" data-target="192.168.1.0/24">192.168.1.0/24</button> <button class="chip" type="button" data-target="10.20.0.0/24">10.20.0.0/24</button> <button class="chip" type="button" data-target="web-01.empresa.local">web-01</button> <button class="chip" type="button" data-target="192.168.1.10">host único</button> </div> <span class="help">Se procesan todos los hosts del rango, best-effort. 254 hosts detectados.</span> </div>
+          <div class="field"> <label for="admin"><svg class="i" aria-hidden="true"><use href="#i-user"/></svg> Usuario administrador</label> <input class="input" id="admin" name="admin" value="ubuntu-admin" spellcheck="false" autocomplete="username"> </div>
+          <div class="field"> <label for="origin"><svg class="i" aria-hidden="true"><use href="#i-key"/></svg> Origen de credenciales</label> <select id="origin" name="origin"> <option>Vault cifrado (4 candidatas)</option> <option>Archivo temporal .txt</option> </select> </div>
+          <div class="field full" id="credenciales"> <label for="master"><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg> Contraseña maestra del vault</label> <input class="input" id="master" name="master" type="password" placeholder="••••••••••••••••" autocomplete="current-password"> <span class="help">Se usa en memoria; nunca se persiste ni se registra en la auditoría.</span> </div>
+          <div class="field"> <label for="action"><svg class="i" aria-hidden="true"><use href="#i-clock"/></svg> Acción</label> <select id="action" name="action"> <option>Zona horaria (TZ)</option> <option>Hora exacta (TIME)</option> </select> </div>
+          <div class="field"> <label for="tz"><svg class="i" aria-hidden="true"><use href="#i-pin"/></svg> Zona horaria</label> <input class="input" id="tz" name="tz" value="Europe/Madrid" list="tzList" spellcheck="false"> <datalist id="tzList"> <option>Europe/Madrid</option><option>UTC</option><option>Europe/London</option> <option>America/Bogota</option><option>America/Mexico_City</option> </datalist> </div>
+          <div class="field"> <label for="ntp"><svg class="i" aria-hidden="true"><use href="#i-activity"/></svg> Política NTP</label> <select id="ntp" name="ntp"> <option value="restore">restore — devolver al estado previo</option> <option value="keep">keep — no tocar la configuración</option> <option value="off">off — desactivar sincronización</option> <option value="configure">configure — configurar servidores</option> </select> </div>
+          <div class="field"> <label for="ntpServers"><svg class="i" aria-hidden="true"><use href="#i-server"/></svg> Servidores NTP</label> <input class="input" id="ntpServers" name="ntpServers" value="ntp.ubuntu.com, time.cloudflare.com" spellcheck="false"> <span class="help">Separados por coma. Se valida resolución y respuesta UDP 123.</span> </div>
+          <div class="field full switches"> <div class="switch"> <div class="txt"><b>Sincronizar RTC</b><span>hwclock --systohc tras aplicar el cambio</span></div> <button class="toggle" type="button" aria-pressed="true" aria-label="Sincronizar RTC" data-toggle></button> </div> <div class="switch"> <div class="txt"><b>Forzar aunque ya sea correcto</b><span>Omite la comprobación de idempotencia</span></div> <button class="toggle" type="button" aria-pressed="false" aria-label="Forzar cambio" data-toggle></button> </div> </div>
+          <div class="form-foot"> <span class="note"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg> Simulación: no se aplican cambios reales.</span> <button class="btn btn-sm" type="button" data-preview> <svg class="i" aria-hidden="true"><use href="#i-eye"/></svg> Vista previa </button> <button class="btn btn-red btn-sm" type="button" data-open-modal> <svg class="i" aria-hidden="true"><use href="#i-play"/></svg> Ejecutar operación </button> </div>
+        </form>
+      </div>
+      <div class="panel-body" id="panelPreview" role="tabpanel" aria-labelledby="tabPreview" data-panel="preview" hidden>
+        <div class="summary"> <div><span>Objetivo</span><b class="code">192.168.1.0/24 · 254 hosts</b></div> <div><span>Acción</span><b>Zona horaria → Europe/Madrid</b></div> <div><span>Política NTP</span><b>restore (estado previo)</b></div> <div><span>Servidores</span><b class="code">ntp.ubuntu.com · time.cloudflare.com</b></div> <div><span>RTC</span><b class="ok">Sincronizar tras aplicar</b></div> <div><span>Idempotencia</span><b class="ok">Activa · no forzar</b></div> </div>
+        <div class="summary" style="margin-top:12px"> <div><span>Cambiarían</span><b class="warn">12 hosts</b></div> <div><span>Ya correctos</span><b class="ok">235 hosts</b></div> <div><span>No accesibles</span><b class="bad">7 hosts</b></div> <div><span>Desviación media</span><b class="code">+1 h 00 m</b></div> </div>
+        <div class="warn-box">
+          <svg class="i" aria-hidden="true"><use href="#i-alert"/></svg>
+          <span>7 hosts no respondieron a la inspección. Se marcarán como omitidos, no como fallo del lote. Revisa la política NTP antes de confirmar.</span>
+        </div>
+        <div class="form-foot"> <span class="note">Paso 2 de 3 · revisión</span> <button class="btn btn-sm" type="button" data-goto-config>Volver a configurar</button> <button class="btn btn-red btn-sm" type="button" data-open-modal> <svg class="i" aria-hidden="true"><use href="#i-play"/></svg> Confirmar y ejecutar </button> </div>
+      </div>
+    </article>
+    <aside class="panel run" id="lote" aria-labelledby="runTitle">
+      <header class="panel-head"> <div class="ph-txt"> <span class="ph-k">04 / Ejecución</span> <h2 id="runTitle">Lote #A7F3C9E2</h2> </div> <span class="live-tag"><i aria-hidden="true"></i> En vivo</span> </header>
+      <div class="run-body">
+        <div class="run-big"> <div class="num">72<small>%</small></div> <div class="run-copy"> <span class="run-state">En ejecución</span> <h3>183 de 254 hosts</h3> <p>Lote <code>#A7F3C9E2</code> · operador</p> <p>Producción · DRY RUN · 4 m 12 s</p> </div> </div>
+        <div class="progress" role="progressbar" aria-label="Progreso del lote" aria-valuemin="0" aria-valuemax="100" aria-valuenow="72">
+          <i></i>
+        </div>
+        <div class="progress-meta">
+          <span>183 procesados</span>
+          <span>71 restantes · ~1 m 18 s</span>
+        </div>
+        <ol class="steps" aria-label="Pasos del lote">
+          <li class="done"> <span class="b"><svg class="i" style="width:11px;height:11px" aria-hidden="true"><use href="#i-check"/></svg></span> <div class="t">Enumerar<small>254 hosts válidos en el rango</small></div> <span class="s">00:04</span> </li>
+          <li class="done"> <span class="b"><svg class="i" style="width:11px;height:11px" aria-hidden="true"><use href="#i-check"/></svg></span> <div class="t">Inspeccionar<small>247 accesibles · 7 sin respuesta</small></div> <span class="s">01:12</span> </li>
+          <li class="active"> <span class="b">3</span> <div class="t">Aplicar<small>183 / 254 hosts procesados</small></div> <span class="s">en curso</span> </li>
+          <li> <span class="b">4</span> <div class="t">Verificar<small>timedatectl · date · hwclock</small></div> <span class="s">—</span> </li>
+        </ol>
+        <div class="run-stats">
+          <div><span>Cambios</span><b class="info">9</b></div>
+          <div><span>Sin cambios</span><b>171</b></div>
+          <div><span>Fallos</span><b class="bad">3</b></div>
+          <div><span>Omitidos</span><b>0</b></div>
+        </div>
+      </div>
+    </aside>
+  </section>
+
+  <!-- Hosts, actividad y programaciones --------------------- -->
+  <section aria-labelledby="hostsTitle">
+    <div class="sec-head">
+      <span class="sec-no" aria-hidden="true">05</span>
+      <h2 id="hostsTitle">Hosts del lote</h2>
+      <span class="sec-line" aria-hidden="true"></span>
+      <span class="sec-note">Muestra de 10 · 254 hosts totales</span>
+    </div>
+    <div class="duo">
+      <article class="panel" id="hosts" aria-labelledby="hostsPanelTitle">
+        <header class="panel-head"> <div class="ph-txt"> <span class="ph-k">Inventario · lote #A7F3C9E2</span> <h2 id="hostsPanelTitle">Resultado por host</h2> </div> <div class="head-tools"> <div class="seg" role="group" aria-label="Filtrar hosts por estado"> <button type="button" data-filter="all" aria-pressed="true">Todos 254</button> <button type="button" data-filter="ok" aria-pressed="false">OK 235</button> <button type="button" data-filter="change" aria-pressed="false">Cambios 12</button> <button type="button" data-filter="bad" aria-pressed="false">Fallos 7</button> </div> </div> </header>
+        <div class="table-wrap">
+          <table>
+            <caption class="sr-only">Hosts del lote con estado, zona horaria actual, objetivo, NTP, desviación y duración</caption>
+            <thead>
+              <tr><th scope="col">Host</th><th scope="col">Estado</th><th scope="col">Zona actual</th><th scope="col">Objetivo</th><th scope="col">NTP</th><th scope="col">Desviación</th><th scope="col">Duración</th></tr>
+            </thead>
+            <tbody id="hostRows">
+              <tr data-state="ok"><td><div class="host"><span class="ico"><svg class="i" style="width:12px;height:12px" aria-hidden="true"><use href="#i-server"/></svg></span><span><b>web-01</b><span>192.168.1.10</span></span></div></td><td><span class="tag ok"><svg class="i" style="width:9px;height:9px" aria-hidden="true"><use href="#i-check"/></svg> OK</span></td><td class="mono">Europe/Madrid</td><td class="mono">Europe/Madrid</td><td><span class="tag neutral">activo</span></td><td class="mono">0,0 s</td><td class="mono">1,8 s</td></tr>
+              <tr data-state="ok"><td><div class="host"><span class="ico"><svg class="i" style="width:12px;height:12px" aria-hidden="true"><use href="#i-server"/></svg></span><span><b>web-02</b><span>192.168.1.11</span></span></div></td><td><span class="tag ok"><svg class="i" style="width:9px;height:9px" aria-hidden="true"><use href="#i-check"/></svg> OK</span></td><td class="mono">Europe/Madrid</td><td class="mono">Europe/Madrid</td><td><span class="tag neutral">activo</span></td><td class="mono">0,1 s</td><td class="mono">2,1 s</td></tr>
+              <tr data-state="bad"><td><div class="host"><span class="ico"><svg class="i" style="width:12px;height:12px" aria-hidden="true"><use href="#i-server"/></svg></span><span><b>db-01</b><span>192.168.1.12</span></span></div></td><td><span class="tag bad"><svg class="i" style="width:9px;height:9px" aria-hidden="true"><use href="#i-x"/></svg> AUTH</span></td><td class="mono">—</td><td class="mono">Europe/Madrid</td><td><span class="tag neutral">—</span></td><td class="mono">—</td><td class="mono">3,4 s</td></tr>
+              <tr data-state="change"><td><div class="host"><span class="ico"><svg class="i" style="width:12px;height:12px" aria-hidden="true"><use href="#i-server"/></svg></span><span><b>cache-03</b><span>192.168.1.13</span></span></div></td><td><span class="tag change"><svg class="i" style="width:9px;height:9px" aria-hidden="true"><use href="#i-refresh"/></svg> CAMBIO</span></td><td class="mono">UTC</td><td class="mono">Europe/Madrid</td><td><span class="tag neutral">restore</span></td><td class="mono">+1 h 00 m</td><td class="mono">2,6 s</td></tr>
+              <tr data-state="ok"><td><div class="host"><span class="ico"><svg class="i" style="width:12px;height:12px" aria-hidden="true"><use href="#i-server"/></svg></span><span><b>worker-04</b><span>192.168.1.14</span></span></div></td><td><span class="tag ok"><svg class="i" style="width:9px;height:9px" aria-hidden="true"><use href="#i-check"/></svg> OK</span></td><td class="mono">Europe/Madrid</td><td class="mono">Europe/Madrid</td><td><span class="tag neutral">activo</span></td><td class="mono">0,0 s</td><td class="mono">1,9 s</td></tr>
+              <tr data-state="ok"><td><div class="host"><span class="ico"><svg class="i" style="width:12px;height:12px" aria-hidden="true"><use href="#i-server"/></svg></span><span><b>api-02</b><span>192.168.1.16</span></span></div></td><td><span class="tag ok"><svg class="i" style="width:9px;height:9px" aria-hidden="true"><use href="#i-check"/></svg> OK</span></td><td class="mono">Europe/Madrid</td><td class="mono">Europe/Madrid</td><td><span class="tag neutral">activo</span></td><td class="mono">0,0 s</td><td class="mono">2,0 s</td></tr>
+              <tr data-state="bad"><td><div class="host"><span class="ico"><svg class="i" style="width:12px;height:12px" aria-hidden="true"><use href="#i-server"/></svg></span><span><b>batch-07</b><span>192.168.1.17</span></span></div></td><td><span class="tag bad"><svg class="i" style="width:9px;height:9px" aria-hidden="true"><use href="#i-x"/></svg> TIMEOUT</span></td><td class="mono">—</td><td class="mono">Europe/Madrid</td><td><span class="tag neutral">—</span></td><td class="mono">—</td><td class="mono">30,0 s</td></tr>
+              <tr data-state="change"><td><div class="host"><span class="ico"><svg class="i" style="width:12px;height:12px" aria-hidden="true"><use href="#i-server"/></svg></span><span><b>lb-01</b><span>192.168.1.18</span></span></div></td><td><span class="tag change"><svg class="i" style="width:9px;height:9px" aria-hidden="true"><use href="#i-refresh"/></svg> CAMBIO</span></td><td class="mono">Europe/London</td><td class="mono">Europe/Madrid</td><td><span class="tag neutral">keep</span></td><td class="mono">+1 h 00 m</td><td class="mono">2,2 s</td></tr>
+              <tr data-state="ok"><td><div class="host"><span class="ico"><svg class="i" style="width:12px;height:12px" aria-hidden="true"><use href="#i-server"/></svg></span><span><b>redis-02</b><span>192.168.1.19</span></span></div></td><td><span class="tag ok"><svg class="i" style="width:9px;height:9px" aria-hidden="true"><use href="#i-check"/></svg> OK</span></td><td class="mono">Europe/Madrid</td><td class="mono">Europe/Madrid</td><td><span class="tag neutral">activo</span></td><td class="mono">0,1 s</td><td class="mono">1,7 s</td></tr>
+              <tr data-state="ok"><td><div class="host"><span class="ico"><svg class="i" style="width:12px;height:12px" aria-hidden="true"><use href="#i-server"/></svg></span><span><b>mail-01</b><span>192.168.1.20</span></span></div></td><td><span class="tag ok"><svg class="i" style="width:9px;height:9px" aria-hidden="true"><use href="#i-check"/></svg> OK</span></td><td class="mono">Europe/Madrid</td><td class="mono">Europe/Madrid</td><td><span class="tag neutral">activo</span></td><td class="mono">0,0 s</td><td class="mono">2,4 s</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-foot">
+          <span id="tableFoot" aria-live="polite">Mostrando 10 de 254 hosts</span>
+          <span class="right">
+            <button class="btn btn-sm" type="button" data-page="prev">Anterior</button>
+            <button class="btn btn-sm" type="button" data-page="next">Siguiente <svg class="i" style="width:10px;height:10px" aria-hidden="true"><use href="#i-arrow"/></svg></button>
+          </span>
+        </div>
+      </article>
+      <div class="stack">
+        <article class="panel" id="actividad" aria-labelledby="activityTitle">
+          <header class="panel-head"> <div class="ph-txt"> <span class="ph-k">Auditoría · últimos 12 min</span> <h2 id="activityTitle">Actividad reciente</h2> </div> <div class="head-tools"><span class="soon">Operador</span></div> </header>
+          <div class="panel-body">
+            <ul class="feed">
+              <li> <span class="fi ok"><svg class="i" style="width:12px;height:12px" aria-hidden="true"><use href="#i-play"/></svg></span> <div><b>Lote #A7F3C9E2 iniciado</b><p>operador · TZ Europe/Madrid · 254 hosts</p></div> <time datetime="2026-11-03T22:08">hace 4 min</time> </li>
+              <li> <span class="fi"><svg class="i" style="width:12px;height:12px" aria-hidden="true"><use href="#i-key"/></svg></span> <div><b>Vault desbloqueado</b><p>4 credenciales candidatas · sin persistencia</p></div> <time datetime="2026-11-03T22:08">hace 4 min</time> </li>
+              <li> <span class="fi bad"><svg class="i" style="width:12px;height:12px" aria-hidden="true"><use href="#i-x"/></svg></span> <div><b>3 fallos de autenticación</b><p>db-01 · batch-07 · worker-09</p></div> <time datetime="2026-11-03T22:06">hace 6 min</time> </li>
+              <li> <span class="fi warn"><svg class="i" style="width:12px;height:12px" aria-hidden="true"><use href="#i-alert"/></svg></span> <div><b>NTP activo con política keep</b><p>lb-01 · revisar antes de verificar</p></div> <time datetime="2026-11-03T22:03">hace 9 min</time> </li>
+              <li> <span class="fi ok"><svg class="i" style="width:12px;height:12px" aria-hidden="true"><use href="#i-check"/></svg></span> <div><b>Verificación parcial completada</b><p>183 hosts coinciden con el objetivo</p></div> <time datetime="2026-11-03T22:00">hace 12 min</time> </li>
+            </ul>
+            <div class="side-stats">
+              <div><span>Lotes hoy</span><b>18</b></div>
+              <div><span>Éxito</span><b>94 %</b></div>
+            </div>
+          </div>
+        </article>
+        <article class="panel agenda" id="agenda" aria-labelledby="futuro">
+          <header class="panel-head"> <div class="ph-txt"> <span class="ph-k">Hoja de ruta · beta</span> <h2 id="futuro">Playbooks y agenda</h2> </div> <div class="head-tools"><span class="soon">Próximamente</span></div> </header>
+          <div class="panel-body">
+            <ul class="agenda-list">
+              <li> <span class="agenda-date">04<b>NOV</b></span> <div class="txt"><b>Rotación de claves SSH</b><span>Playbook · 02:00 · 254 hosts</span></div> </li>
+              <li> <span class="agenda-date">05<b>NOV</b></span> <div class="txt"><b>Auditoría NTP semanal</b><span>Programación · 06:30 · solo lectura</span></div> </li>
+              <li> <span class="agenda-date">07<b>NOV</b></span> <div class="txt"><b>Inventario dinámico</b><span>Borrador · sin aprobar</span></div> </li>
+            </ul>
+            <div class="agenda-foot">
+              <span class="help">6 playbooks · 3 programaciones</span>
+              <a class="btn btn-sm" href="#futuro" style="margin-left:auto">Abrir agenda <svg class="i" style="width:10px;height:10px" aria-hidden="true"><use href="#i-arrow"/></svg></a>
+            </div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+  <!-- Consola ------------------------------------------------- -->
+  <section aria-labelledby="consoleTitle">
+    <div class="sec-head">
+      <span class="sec-no" aria-hidden="true">06</span>
+      <h2 id="consoleTitle">Salida de Ansible</h2>
+      <span class="sec-line" aria-hidden="true"></span>
+      <span class="sec-note">Secretos redactados · en vivo</span>
+    </div>
+    <article class="panel console-panel" id="console" aria-labelledby="consoleTitle">
+      <header class="panel-head"> <div class="ph-txt"> <span class="ph-k">Ejecución · cambiar_hora.yml</span> <h2>ansible-playbook · inventario prod</h2> </div> <div class="head-tools"> <label class="help" style="display:flex;align-items:center;gap:5px;text-transform:none"> <input type="checkbox" id="autoScroll" checked style="accent-color:#ff3b30"> Auto-scroll </label> <button class="btn btn-sm" type="button" data-clear-log>Limpiar</button> <button class="btn btn-sm" type="button" data-copy-log><svg class="i" style="width:10px;height:10px" aria-hidden="true"><use href="#i-copy"/></svg> Copiar</button> <button class="btn btn-sm" type="button" data-download-log><svg class="i" style="width:10px;height:10px" aria-hidden="true"><use href="#i-download"/></svg> Descargar</button> </div> </header>
+      <div class="console">
+        <div class="console-bar">
+          <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="file">/var/log/acc/lote-A7F3C9E2.log</span>
+          <span class="tools"><span class="help" style="color:#8d897e">SIGUIENDO · 183/254</span></span>
+        </div>
+        <pre id="log" aria-live="polite" aria-label="Registro de ejecución de Ansible"><span class="ln dim">PLAY [Configurar hora, zona y NTP] *******************************************</span><span class="ln"></span><span class="ln cmd">TASK [Gathering Facts] *******************************************************</span><span class="ln ok">ok: [web-01]  ok: [web-02]  ok: [cache-03]  ok: [worker-04]</span><span class="ln bad">fatal: [db-01]: UNREACHABLE! => {"msg": "Authentication failed."}</span><span class="ln"></span><span class="ln cmd">TASK [Leer estado actual del reloj] ******************************************</span><span class="ln ok">ok: [web-01]  tz=Europe/Madrid  ntp=synchronized  offset=+0.003s</span><span class="ln warn">changed: [cache-03]  tz=UTC  ntp=inactive  offset=+3600.4s</span><span class="ln ok">ok: [lb-01]  tz=Europe/London  ntp=active  offset=+0.008s</span><span class="ln"></span><span class="ln cmd">TASK [Aplicar zona horaria] **************************************************</span><span class="ln ok">changed: [cache-03]  UTC → Europe/Madrid  (timedatectl set-timezone)</span><span class="ln ok">changed: [lb-01]  Europe/London → Europe/Madrid</span><span class="ln ok">ok: [web-01]  ok: [web-02]  ok: [worker-04]  ok: [api-02]</span><span class="ln"></span><span class="ln cmd">TASK [Configurar NTP · restore] **********************************************</span><span class="ln warn">changed: [cache-03]  systemd-timesyncd habilitado · ntp.ubuntu.com</span><span class="ln ok">ok: [web-01]  ok: [web-02]  ok: [api-02]</span><span class="ln bad">fatal: [batch-07]: UNREACHABLE! => {"msg": "Timeout (30s) waiting for privilege escalation."}</span><span class="ln"></span><span class="ln cmd">TASK [Sincronizar RTC] *******************************************************</span><span class="ln ok">changed: [cache-03]  hwclock --systohc  drift=0.000s</span><span class="ln ok">ok: [web-01]  [web-02]  [worker-04]  [redis-02]</span><span class="ln"></span><span class="ln dim">PLAY RECAP ********************************************************************</span><span class="ln">web-01      : ok=5 changed=0 unreachable=0 failed=0  skipped=0</span><span class="ln">cache-03    : ok=5 <span class="warn">changed=2</span> unreachable=0 failed=0  skipped=0</span><span class="ln">db-01       : ok=0 changed=0 <span class="bad">unreachable=1</span> failed=0  skipped=0</span><span class="ln">batch-07    : ok=0 changed=0 <span class="bad">unreachable=1</span> failed=0  skipped=0</span><span class="ln dim">183 de 254 hosts procesados · 71 en cola · esperando</span> <span class="cursor" aria-hidden="true"></span></pre>
+      </div>
+    </article>
+  </section>
+</main>
+<!-- Pie ------------------------------------------------------- -->
+<footer class="foot">
+  <div class="foot-inner">
+    <a class="brand" href="#top" aria-label="Ansible Control Center, volver arriba">
+      <span class="brand-mark" aria-hidden="true">AC</span>
+      <span class="brand-txt"><b>Ansible Control Center</b><span>Consola de automatización</span></span>
+    </a>
+    <p>Prototipo estático de operación de flota Ubuntu. Datos simulados, sin conexión y sin secretos reales. Diseño Swiss Brutal · propuesta 05.</p>
+    <div class="foot-meta">Ansible Control Center · 2026<br>v0.5 · papel / tinta / rojo</div>
+  </div>
+</footer>
+<!-- Confirmación ---------------------------------------------- -->
+<div class="backdrop" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalDesc">
+  <div class="modal">
+    <div class="modal-head"> <span class="mi" aria-hidden="true"><svg class="i"><use href="#i-alert"/></svg></span> <div> <h2 id="modalTitle">Confirmar operación</h2> <p id="modalDesc">Revisa el resumen antes de encolar el lote.</p> </div> <button class="modal-close" type="button" data-close-modal aria-label="Cerrar confirmación"> <svg class="i" style="width:13px;height:13px" aria-hidden="true"><use href="#i-x"/></svg> </button> </div>
+    <div class="modal-body"> <div class="summary"> <div><span>Objetivo</span><b class="code">192.168.1.0/24 · 254 hosts</b></div> <div><span>Acción</span><b>TZ → Europe/Madrid</b></div> <div><span>Política NTP</span><b>restore · systemd-timesyncd</b></div> <div><span>Servidores</span><b class="code">ntp.ubuntu.com · time.cloudflare.com</b></div> <div><span>Sincronizar RTC</span><b class="ok">Sí</b></div> <div><span>Forzar</span><b>No · idempotencia activa</b></div> <div><span>Modo</span><b class="warn">DRY RUN · simulación</b></div> </div> <div class="warn-box"> <svg class="i" aria-hidden="true"><use href="#i-alert"/></svg> <span>Estás en modo simulación. El resultado se registrará en auditoría como simulado y no se aplicará ningún cambio real en los 254 hosts.</span> </div> </div>
+    <div class="modal-foot"> <button class="btn" type="button" data-close-modal>Cancelar</button> <button class="btn btn-red modal-confirm" type="button"> <svg class="i" aria-hidden="true"><use href="#i-play"/></svg> Confirmar y ejecutar </button> </div>
+  </div>
+</div>
+<!-- Aviso ----------------------------------------------------- -->
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <svg class="i" style="width:18px;height:18px" aria-hidden="true"><use href="#i-check"/></svg>
+  <div>
+    <b id="toastTitle">Lote encolado correctamente</b>
+    <span id="toastMsg">ID #A7F3C9E2 · simulación · 254 hosts</span>
+  </div>
+</div>
+<script>
+(function () { 'use strict'; var $ = function (sel, ctx) { return (ctx || document).querySelector(sel); };
+var $$ = function (sel, ctx) { return Array.prototype.slice.call((ctx || document).querySelectorAll(sel)); };
+/* Reloj de Madrid · sin red --------------------------------- */
+var clock = $('#clock'); function tick() { var now = new Date(); try { clock.textContent = new Intl.DateTimeFormat('es-ES', {
+timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(now); } catch (err) {
+clock.textContent = now.toTimeString().slice(0, 8); } } tick(); window.setInterval(tick, 1000);
+/* Menú móvil ------------------------------------------------ */
+var menuBtn = $('#menuBtn'); var nav = $('#mainNav'); function setMenu(open) { nav.classList.toggle('open', open);
+menuBtn.setAttribute('aria-expanded', String(open));
+menuBtn.setAttribute('aria-label', open ? 'Cerrar menú de navegación' : 'Abrir menú de navegación'); } menuBtn.addEventListener('click', function () {
+setMenu(menuBtn.getAttribute('aria-expanded') !== 'true'); }); nav.addEventListener('click', function (event) {
+if (event.target.closest('a') && window.innerWidth <= 900) setMenu(false); }); window.addEventListener('resize', function () {
+if (window.innerWidth > 900) setMenu(false); });
+/* Pestañas configurar / vista previa ------------------------ */
+var tabs = $$('[data-tab]'); var panels = $$('[data-panel]'); function selectTab(name) { tabs.forEach(function (tab) {
+tab.setAttribute('aria-selected', String(tab.dataset.tab === name)); tab.setAttribute('tabindex', tab.dataset.tab === name ? '0' : '-1'); });
+panels.forEach(function (panel) { panel.hidden = panel.dataset.panel !== name; }); } tabs.forEach(function (tab, index) {
+tab.addEventListener('click', function () { selectTab(tab.dataset.tab); }); tab.addEventListener('keydown', function (event) {
+if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return; event.preventDefault();
+var next = (index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length; tabs[next].focus(); selectTab(tabs[next].dataset.tab); }); });
+$$('[data-preview]').forEach(function (btn) { btn.addEventListener('click', function () { selectTab('preview'); }); });
+$$('[data-goto-config]').forEach(function (btn) { btn.addEventListener('click', function () { selectTab('config'); }); });
+/* Presets de objetivo --------------------------------------- */
+$$('.chip[data-target]').forEach(function (chip) { chip.addEventListener('click', function () {
+$$('.chip[data-target]').forEach(function (other) { other.classList.remove('is-on'); }); chip.classList.add('is-on');
+$('#target').value = chip.dataset.target; }); });
+/* Interruptores --------------------------------------------- */
+$$('[data-toggle]').forEach(function (toggle) { toggle.addEventListener('click', function () {
+var next = toggle.getAttribute('aria-pressed') !== 'true'; toggle.setAttribute('aria-pressed', String(next));
+showToast(next ? 'Opción activada' : 'Opción desactivada', toggle.getAttribute('aria-label')); }); });
+/* Filtros de la tabla --------------------------------------- */
+var rows = $$('#hostRows tr'); var filterButtons = $$('[data-filter]'); var tableFoot = $('#tableFoot');
+var filterNames = { all: 'Todos', ok: 'OK', change: 'Cambios', bad: 'Fallos' }; function applyFilter(filter) { var visible = 0;
+rows.forEach(function (row) { var show = filter === 'all' || row.dataset.state === filter; row.style.display = show ? '' : 'none';
+if (show) visible += 1; }); filterButtons.forEach(function (btn) { btn.setAttribute('aria-pressed', String(btn.dataset.filter === filter)); });
+tableFoot.textContent = 'Mostrando ' + visible + ' de 10 en la muestra · filtro: ' + filterNames[filter] + ' · 254 totales'; if (visible === 0) {
+tableFoot.textContent = 'Sin hosts en la muestra para «' + filterNames[filter] + '» · 254 totales'; } } filterButtons.forEach(function (btn) {
+btn.addEventListener('click', function () { applyFilter(btn.dataset.filter); }); });
+/* Paginación de muestra ------------------------------------- */
+$$('[data-page]').forEach(function (btn) { btn.addEventListener('click', function () { showToast('Vista de muestra', btn.dataset.page === 'next'
+? 'La página siguiente se habilitará al conectar la API real.' : 'Ya estás en la primera página del lote.'); }); });
+/* Modal ----------------------------------------------------- */
+var modal = $('#modal'); var lastFocus = null; function openModal() { lastFocus = document.activeElement; modal.classList.add('open');
+document.body.classList.add('modal-open'); window.setTimeout(function () { var target = $('.modal-confirm'); if (target) target.focus(); }, 30); }
+function closeModal() { if (!modal.classList.contains('open')) return; modal.classList.remove('open'); document.body.classList.remove('modal-open');
+if (lastFocus && typeof lastFocus.focus === 'function') lastFocus.focus(); } $$('[data-open-modal]').forEach(function (btn) {
+btn.addEventListener('click', openModal); }); $$('[data-close-modal]').forEach(function (btn) { btn.addEventListener('click', closeModal); });
+modal.addEventListener('click', function (event) { if (event.target === modal) closeModal(); });
+document.addEventListener('keydown', function (event) { if (event.key === 'Escape') { if (modal.classList.contains('open')) closeModal();
+else if (nav.classList.contains('open')) setMenu(false); return; } if (event.key !== 'Tab' || !modal.classList.contains('open')) return;
+var focusables = $$('button, a[href], input, select', modal).filter(function (el) { return el.offsetParent !== null; });
+if (!focusables.length) return; var first = focusables[0]; var last = focusables[focusables.length - 1];
+if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus();
+} else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } });
+$('.modal-confirm').addEventListener('click', function () { closeModal();
+showToast('Lote encolado correctamente', 'ID #A7F3C9E2 · simulación · 254 hosts'); });
+/* Avisos ---------------------------------------------------- */
+var toast = $('#toast'); var toastTitle = $('#toastTitle'); var toastMsg = $('#toastMsg'); var toastTimer = null; function showToast(title, message) {
+toastTitle.textContent = title; toastMsg.textContent = message || ''; toast.classList.add('show'); window.clearTimeout(toastTimer);
+toastTimer = window.setTimeout(function () { toast.classList.remove('show'); }, 4200); }
+/* Consola --------------------------------------------------- */
+var log = $('#log');
+var cleanLog = '<span class="ln dim">Consola limpia. La salida completa sigue disponible en el detalle del lote #A7F3C9E2.</span><span class="ln cmd">$ ansible-playbook cambiar_hora.yml --check</span><span class="ln">esperando nueva salida</span> <span class="cursor" aria-hidden="true"></span>';
+$('[data-clear-log]').addEventListener('click', function () { log.innerHTML = cleanLog;
+showToast('Consola limpia', 'El registro completo permanece en el servidor.'); }); function fallbackCopy(text) {
+var area = document.createElement('textarea'); area.value = text; area.setAttribute('readonly', ''); area.style.position = 'fixed';
+area.style.left = '-9999px'; document.body.appendChild(area); area.select(); var ok = false;
+try { ok = document.execCommand('copy'); } catch (err) { ok = false; } document.body.removeChild(area); return ok; }
+$('[data-copy-log]').addEventListener('click', function () { var text = log.innerText; if (navigator.clipboard && navigator.clipboard.writeText) {
+navigator.clipboard.writeText(text).then(function () { showToast('Salida copiada', 'Registro del lote #A7F3C9E2 en el portapapeles.');
+}).catch(function () { showToast(fallbackCopy(text) ? 'Salida copiada' : 'No se pudo copiar', 'Revisa los permisos del navegador.'); }); } else {
+showToast(fallbackCopy(text) ? 'Salida copiada' : 'No se pudo copiar', 'Revisa los permisos del navegador.'); } });
+$('[data-download-log]').addEventListener('click', function () { var blob = new Blob([log.innerText], { type: 'text/plain;charset=utf-8' });
+var url = URL.createObjectURL(blob); var link = document.createElement('a'); link.href = url; link.download = 'lote-A7F3C9E2.log';
+document.body.appendChild(link); link.click(); document.body.removeChild(link); window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+showToast('Descarga preparada', 'lote-A7F3C9E2.log · salida simulada.'); });
+/* Formulario ------------------------------------------------ */
+$('#opForm').addEventListener('submit', function (event) { event.preventDefault(); selectTab('preview');
+showToast('Vista previa generada', 'Revisa el resumen y confirma la operación.'); });
+/* Estado inicial -------------------------------------------- */
+selectTab('config'); applyFilter('all'); })();
+</script>
+</body>
+</html>

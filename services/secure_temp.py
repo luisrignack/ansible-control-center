@@ -29,7 +29,7 @@ def _base_dir() -> Optional[str]:
 @contextmanager
 def secure_temp_file(
     content: str,
-    prefix: str = "hora-admin-",
+    prefix: str = "ansible-control-center-",
     suffix: str = ".tmp",
     directory: Optional[str] = None,
 ) -> Iterator[str]:
@@ -58,7 +58,7 @@ def secure_temp_file(
 
 @contextmanager
 def temporary_directory(
-    prefix: str = "hora-admin-",
+    prefix: str = "ansible-control-center-",
     directory: Optional[str] = None,
 ) -> Iterator[str]:
     """Crea un directorio temporal 0700 y lo elimina siempre."""

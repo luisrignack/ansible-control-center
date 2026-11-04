@@ -56,7 +56,7 @@ class JobQueue:
         for index in range(self.max_workers):
             thread = threading.Thread(
                 target=self._worker,
-                name=f"hora-admin-job-{index + 1}",
+                name=f"ansible-control-center-job-{index + 1}",
                 daemon=True,
             )
             thread.start()

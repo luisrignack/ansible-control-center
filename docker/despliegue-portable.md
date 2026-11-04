@@ -1,6 +1,6 @@
-# Despliegue de Hora Admin en otra PC (Docker)
+# Despliegue de Ansible Control Center en otra PC (Docker)
 
-Guía autocontenida para instalar Hora Admin en un equipo **sin el código
+Guía autocontenida para instalar Ansible Control Center en un equipo **sin el código
 fuente** y **sin acceso a Docker Hub**. Solo necesitas esta carpeta.
 
 ```
@@ -15,7 +15,7 @@ Navegador ──HTTPS(443)──> nginx ──HTTP(8000)──> app (Gunicorn)
 
 | Ruta | Contenido |
 |---|---|
-| `imagenes/hora-admin-images.tar` | Imágenes `hora-admin` (app) y `hora-admin-nginx` |
+| `imagenes/ansible-control-center-images.tar` | Imágenes `ansible-control-center` (app) y `ansible-control-center-nginx` |
 | `imagenes/IMAGENES_INFO.txt` | Arquitectura, fecha de empaquetado y digests |
 | `docker-compose.yml` | Stack: app Flask + Nginx con TLS |
 | `.env.docker.example` | Plantilla de configuración (copiar a `.env.docker`) |
@@ -51,16 +51,18 @@ cat imagenes/IMAGENES_INFO.txt
 sha256sum -c sha256sums.txt
 
 # 1. Cargar las imágenes
-docker load -i imagenes/hora-admin-images.tar
+docker load -i imagenes/ansible-control-center-images.tar
 
 # 2. Crear la configuración
 cp .env.docker.example .env.docker
 chmod 600 .env.docker
-openssl rand -hex 32        # copia el resultado en HORA_ADMIN_SECRET_KEY
+openssl rand -hex 32        # copia el resultado en ACC_SECRET_KEY
 
 # 3. Editar .env.docker
-#    HORA_ADMIN_SECRET_KEY=<la clave del paso 2>
-#    HORA_ADMIN_ADMIN_PASSWORD=<mínimo 12 caracteres>
+#    ACC_SECRET_KEY=<la clave del paso 2>
+#    ACC_ADMIN_PASSWORD=<mínimo 12 caracteres>
+#    ACC_ENV=production
+#    ACC_ALLOWED_NETWORKS=<redes que puede administrar, p. ej. 10.0.0.0/8>
 #    TLS_CN / TLS_SAN=<nombre o IP real de acceso>
 
 # 4. Arrancar (sin reconstruir: no hace falta el código)
@@ -72,7 +74,12 @@ curl -fk https://localhost/healthz
 ```
 
 Abre `https://localhost` (o el nombre/IP configurado) e inicia sesión con
-`HORA_ADMIN_ADMIN_USERNAME` / `HORA_ADMIN_ADMIN_PASSWORD`.
+`ACC_ADMIN_USERNAME` / `ACC_ADMIN_PASSWORD`.
+
+> Con `ACC_ENV=production` (valor por defecto) la aplicación **no arranca** si
+> `ACC_ALLOWED_NETWORKS` está vacía. Es una protección deliberada: indica qué
+> redes puede administrar. Si solo quieres probar en local, usa
+> `ACC_ENV=development`.
 
 El certificado es **autofirmado**: el navegador mostrará una advertencia que
 hay que aceptar una vez. `curl` necesita `-k` (o `--cacert certs/fullchain.pem`).
@@ -83,20 +90,21 @@ hay que aceptar una vez. `curl` necesita `-k` (o `--cacert certs/fullchain.pem`)
 
 | Variable | Por defecto | Descripción |
 |---|---|---|
-| `HORA_ADMIN_SECRET_KEY` | — | **Obligatoria.** Clave de sesión Flask |
-| `HORA_ADMIN_ADMIN_USERNAME` | `admin` | Usuario inicial |
-| `HORA_ADMIN_ADMIN_PASSWORD` | — | Contraseña inicial (≥ 12 caracteres). Solo se usa si aún no hay usuarios |
-| `HORA_ADMIN_DRY_RUN` | `1` | `1` simula Ansible y no toca equipos reales |
-| `HORA_ADMIN_HOST_KEY_CHECKING` | `1` | Verificación estricta de clave SSH |
-| `HORA_ADMIN_ALLOWED_NETWORKS` | vacío | Allowlist de redes destino, p. ej. `10.0.0.0/8,192.168.1.0/24` |
-| `HORA_ADMIN_HSTS` | `0` | Déjalo en `0` con certificado autofirmado |
-| `HORA_ADMIN_HTTP_PORT` | `80` | Puerto HTTP publicado por Nginx (redirige a HTTPS) |
-| `HORA_ADMIN_HTTPS_PORT` | `443` | Puerto HTTPS publicado por Nginx |
+| `ACC_SECRET_KEY` | — | **Obligatoria.** Clave de sesión Flask |
+| `ACC_ENV` | `production` | `production` activa las validaciones de seguridad (allowlist, clave y SSH) |
+| `ACC_ADMIN_USERNAME` | `admin` | Usuario inicial |
+| `ACC_ADMIN_PASSWORD` | — | Contraseña inicial (≥ 12 caracteres). Solo se usa si aún no hay usuarios |
+| `ACC_DRY_RUN` | `1` | Modo simulación inicial. Después se controla con el interruptor **Simulación** de la interfaz |
+| `ACC_HOST_KEY_CHECKING` | `1` | Verificación estricta de clave SSH |
+| `ACC_ALLOWED_NETWORKS` | — | **Obligatoria con `ACC_ENV=production`.** Allowlist de redes destino, p. ej. `10.0.0.0/8,192.168.1.0/24` |
+| `ACC_HSTS` | `0` | Déjalo en `0` con certificado autofirmado |
+| `ACC_HTTP_PORT` | `80` | Puerto HTTP publicado por Nginx (redirige a HTTPS) |
+| `ACC_HTTPS_PORT` | `443` | Puerto HTTPS publicado por Nginx |
 | `TLS_CN` | `localhost` | Common Name del certificado |
 | `TLS_SAN` | `DNS:localhost,IP:127.0.0.1` | Nombres/IPs válidos del certificado |
 | `TLS_DAYS` | `825` | Validez del certificado en días |
 
-> Si cambias `HORA_ADMIN_HTTPS_PORT`, entra siempre por
+> Si cambias `ACC_HTTPS_PORT`, entra siempre por
 > `https://host:<puerto>`: la redirección de HTTP a HTTPS no arrastra el puerto
 > no estándar.
 
@@ -104,8 +112,8 @@ Ajusta `TLS_CN`/`TLS_SAN` antes del primer arranque para que el certificado
 cubra el nombre o IP reales:
 
 ```env
-TLS_CN=hora.empresa.local
-TLS_SAN=DNS:hora.empresa.local,IP:192.168.1.50
+TLS_CN=acc.empresa.local
+TLS_SAN=DNS:acc.empresa.local,IP:192.168.1.50
 ```
 
 Cualquier otro ajuste de la aplicación (timeouts, límites, NTP, retención) se
@@ -134,7 +142,7 @@ Para usar un certificado real: coloca `fullchain.pem` y `privkey.pem` en
 Cuando el certificado sea de confianza, activa HSTS:
 
 ```env
-HORA_ADMIN_HSTS=1
+ACC_HSTS=1
 ```
 
 ---
@@ -142,17 +150,17 @@ HORA_ADMIN_HSTS=1
 ## 6. Acceso SSH a los equipos objetivo
 
 La app ejecuta Ansible desde el contenedor. Necesita `known_hosts` con las
-claves de los hosts si `HORA_ADMIN_HOST_KEY_CHECKING=1`:
+claves de los hosts si `ACC_HOST_KEY_CHECKING=1`:
 
 ```bash
 docker compose exec app sh -c \
-  'ssh-keyscan 10.0.0.10 10.0.0.11 >> /home/hora/.ssh/known_hosts'
-docker compose exec app chmod 600 /home/hora/.ssh/known_hosts
+  'ssh-keyscan 10.0.0.10 10.0.0.11 >> /home/acc/.ssh/known_hosts'
+docker compose exec app chmod 600 /home/acc/.ssh/known_hosts
 ```
 
-También puedes pasar las líneas al arrancar con `HORA_ADMIN_KNOWN_HOSTS`, o
+También puedes pasar las líneas al arrancar con `ACC_KNOWN_HOSTS`, o
 desactivar la verificación de forma consciente
-(`HORA_ADMIN_HOST_KEY_CHECKING=0`).
+(`ACC_HOST_KEY_CHECKING=0`).
 
 ---
 
@@ -160,10 +168,10 @@ desactivar la verificación de forma consciente
 
 | Volumen | Ruta | Contenido |
 |---|---|---|
-| `hora-admin_hora_data` | `/data` | SQLite, clave de sesión y pepper |
-| `hora-admin_hora_secrets` | `/secrets` | Vault cifrado (`ansible-vault`) |
-| `hora-admin_hora_logs` | `/logs` | Logs rotados |
-| `hora-admin_hora_ssh` | `/home/hora/.ssh` | `known_hosts` |
+| `ansible-control-center_acc_data` | `/data` | SQLite, clave de sesión y pepper |
+| `ansible-control-center_acc_secrets` | `/secrets` | Vault cifrado (`ansible-vault`) |
+| `ansible-control-center_acc_logs` | `/logs` | Logs rotados |
+| `ansible-control-center_acc_ssh` | `/home/acc/.ssh` | `known_hosts` |
 | `./certs` (bind) | `/etc/nginx/certs` | Certificado TLS |
 
 Copia de seguridad (detén la app para no copiar un WAL inconsistente):
@@ -172,10 +180,10 @@ Copia de seguridad (detén la app para no copiar un WAL inconsistente):
 docker compose stop app
 mkdir -p backup
 docker run --rm \
-  -v hora-admin_hora_data:/data:ro \
-  -v hora-admin_hora_secrets:/secrets:ro \
+  -v ansible-control-center_acc_data:/data:ro \
+  -v ansible-control-center_acc_secrets:/secrets:ro \
   -v "$PWD/backup:/backup" \
-  alpine tar czf /backup/hora-admin-$(date +%F).tgz -C / data secrets
+  alpine tar czf /backup/ansible-control-center-$(date +%F).tgz -C / data secrets
 docker compose start app
 ```
 
@@ -186,7 +194,7 @@ docker compose start app
 ```bash
 docker compose down                     # conserva los volúmenes
 # copia el nuevo contenido del paquete sobre esta carpeta
-docker load -i imagenes/hora-admin-images.tar
+docker load -i imagenes/ansible-control-center-images.tar
 docker compose --env-file .env.docker up -d --no-build
 ```
 
@@ -207,12 +215,12 @@ docker compose exec app flask --app app reconcile-batches   # lotes huérfanos
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
-| `image not found` con `--no-build` | El `.tar` no se cargó | `docker load -i imagenes/hora-admin-images.tar` |
-| `port is already allocated` | 80/443 ocupados | Cambia `HORA_ADMIN_HTTP_PORT`/`HORA_ADMIN_HTTPS_PORT` |
+| `image not found` con `--no-build` | El `.tar` no se cargó | `docker load -i imagenes/ansible-control-center-images.tar` |
+| `port is already allocated` | 80/443 ocupados | Cambia `ACC_HTTP_PORT`/`ACC_HTTPS_PORT` |
 | Nginx no arranca | Certificado corrupto | `sudo rm -f certs/*.pem` y reinicia nginx |
 | Aviso de certificado en el navegador | Autofirmado | Acéptalo una vez o instala uno real |
 | `permission denied` en `/data` | Volumen con propietario incorrecto | Recrea el volumen (`docker compose down -v` **borra datos**) o ajusta UID 10001 |
-| Ansible no conecta | `known_hosts` vacío o red | Añade claves o revisa `HORA_ADMIN_HOST_KEY_CHECKING` |
+| Ansible no conecta | `known_hosts` vacío o red | Añade claves o revisa `ACC_HOST_KEY_CHECKING` |
 | Progreso SSE se corta | Proxy/timeout intermedio | El timeout de Nginx es 360 s |
 | Lote queda `running` | Proceso reiniciado | Se marca `error` al arrancar; usa `reconcile-batches` |
 | NTP revierte el cambio | Política `keep` con NTP activo | Usa `off`, `restore` o `configure` |
@@ -222,14 +230,16 @@ docker compose exec app flask --app app reconcile-batches   # lotes huérfanos
 ## 10. Notas de seguridad
 
 - Solo Nginx publica puertos; la app queda en la red interna `backend`.
-- `HORA_ADMIN_COOKIE_SECURE=1` y `HORA_ADMIN_TRUST_PROXY=1` ya vienen fijados en
+- `ACC_COOKIE_SECURE=1` y `ACC_TRUST_PROXY=1` ya vienen fijados en
   el compose: no los cambies detrás de este Nginx.
-- Mantén `HORA_ADMIN_DRY_RUN=1` hasta validar el flujo en laboratorio.
+- Mantén `ACC_DRY_RUN=1` hasta validar el flujo en laboratorio. Después, un
+  administrador puede cambiar el modo desde el interruptor **Simulación**; el
+  estado se guarda en SQLite y sobrevive a los reinicios.
 - El certificado autofirmado **cifra** el tráfico pero no protege frente a un
   atacante en la red: sustitúyelo por uno de una CA de confianza.
 - No copies fuera de este equipo `.env.docker`, `certs/privkey.pem` ni los
-  volúmenes `hora_secrets`/`hora_data`.
-- Un único rol administrador, sin RBAC/MFA. Usa `HORA_ADMIN_ALLOWED_NETWORKS`
+  volúmenes `acc_secrets`/`acc_data`.
+- Roles `admin`, `operator` y `viewer` (sin MFA). Usa `ACC_ALLOWED_NETWORKS`
   para acotar los destinos.
 
 ---

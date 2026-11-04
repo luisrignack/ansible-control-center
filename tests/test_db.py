@@ -17,7 +17,7 @@ from models.user import User
 
 @pytest.fixture()
 def db_path(tmp_path):
-    return str(tmp_path / "hora_admin.db")
+    return str(tmp_path / "acc.db")
 
 
 def _columns(db_path: str, table: str) -> set[str]:
