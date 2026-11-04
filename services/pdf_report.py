@@ -91,7 +91,9 @@ def classify_failure_reason(error: str, result: str = "") -> str:
         and not line.strip().startswith(("[WARNING]", "[DEPRECATION WARNING]"))
         and "deprecation" not in line.lower()
     ]
-    first_line = (meaningful[0] if meaningful else text.splitlines()[0]).strip()
+    if not meaningful:
+        return "Motivo desconocido (detalle técnico en el historial)"
+    first_line = meaningful[0]
     if len(first_line) > 140:
         first_line = first_line[:137].rstrip() + "…"
     return first_line

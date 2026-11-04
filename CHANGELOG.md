@@ -38,6 +38,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 - `ExecutionBatch.create_batch()` acepta `task_id`; `handle_execution`,
   `_run_scheduler_tick` y `execute_with_progress` la propagan.
+- **Motivo limpio en los informes**: el ping fallido guarda el error del
+  host (`FAILED`/`UNREACHABLE` de stdout) por delante de los avisos de
+  configuración de Ansible (deprecations de stderr), que antes tapaban la
+  causa real; si el texto del error solo contiene avisos, el informe dice
+  "Motivo desconocido (detalle técnico en el historial)" en vez de mostrar
+  el ruido.
 
 ## [Multiplataforma Windows/Linux (bloque B)] — 2026-11-04
 

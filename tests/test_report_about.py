@@ -104,6 +104,40 @@ def test_classify_reason_unknown_falls_back_to_error_text():
     assert classify_failure_reason(text) == text
 
 
+def test_classify_reason_only_warnings_is_unknown():
+    assert (
+        classify_failure_reason(
+            "[WARNING]: Deprecation warnings can be disabled.\n"
+            "[DEPRECATION WARNING]: The '-o' argument is deprecated."
+        )
+        == "Motivo desconocido (detalle técnico en el historial)"
+    )
+
+
+def test_ping_failure_error_prefers_host_line_over_warnings(monkeypatch):
+    """El error del ping guarda el fallo del host, no los avisos de Ansible."""
+    import subprocess as sp
+
+    import services.password_tester as tester
+
+    def fake_run(cmd, **_kw):
+        return sp.CompletedProcess(
+            cmd,
+            1,
+            # stdout: el host prueba una conexión fallida real.
+            "10.42.0.9 | UNREACHABLE! => {\"changed\": false}",
+            # stderr: solo avisos de configuración.
+            "[WARNING]: Deprecation warnings can be disabled.",
+        )
+
+    monkeypatch.setattr(tester.subprocess, "run", fake_run)
+    monkeypatch.setattr(tester, "DRY_RUN", False)
+    result = tester.test_ansible_ping("10.42.0.9", "admin", "clave")
+    assert not result["success"]
+    assert "UNREACHABLE" in result["error"]
+    assert "[WARNING]" not in result["error"]
+
+
 # ---------------------------------------------------------------------------
 # Ruta del informe
 # ---------------------------------------------------------------------------

@@ -255,8 +255,11 @@ def test_ansible_ping(
         )
     else:
         # Un código de salida distinto de cero NUNCA es un éxito.
+        # stdout tiene prioridad: es donde Ansible escribe el fallo del host
+        # ("UNREACHABLE!", "FAILED"), mientras que stderr suele contener solo
+        # avisos de configuración (deprecations) que no son el motivo real.
         result["error"] = (
-            process.stderr.strip() or process.stdout.strip() or "Sin salida"
+            process.stdout.strip() or process.stderr.strip() or "Sin salida"
         )
     return result
 
