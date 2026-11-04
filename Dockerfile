@@ -4,7 +4,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    ANSIBLE_COLLECTIONS_PATH=/app/ansible/collections \
     ACC_SECRETS_DIR=/secrets \
     ACC_DATA_DIR=/data \
     ACC_LOG_DIR=/logs \
@@ -31,11 +30,7 @@ WORKDIR /app
 
 COPY requirements.txt ./
 RUN python -m pip install --upgrade pip \
-    && python -m pip install -r requirements.txt \
-    && ansible-galaxy collection install \
-        --collections-path /app/ansible/collections \
-        --no-cache ansible.windows \
-    && chown -R acc:acc /app/ansible/collections
+    && python -m pip install -r requirements.txt
 
 COPY --chown=acc:acc . .
 

@@ -247,7 +247,9 @@ def test_win_ping_module_and_connection_vars(monkeypatch, tmp_path):
         "10.55.0.2", "admin", "clave", connection="winrm"
     )
     assert result["success"]
-    assert "win_ping" in captured["cmd"]
+    # raw + echo: el ping sobre WinRM con solo módulos builtin y pywinrm.
+    cmd = captured["cmd"]
+    assert "raw" in cmd and "echo PING_OK" in cmd
     assert captured["payload"]["ansible_connection"] == "winrm"
     assert captured["payload"]["ansible_winrm_transport"] == runner.WINRM_TRANSPORT
     assert int(captured["payload"]["ansible_port"]) == runner.WINRM_PORT
@@ -291,7 +293,9 @@ def test_windows_playbooks_exist_with_expected_markers():
     import config
 
     apply_pb = Path(config.WINDOWS_APPLY_PLAYBOOK_FILE).read_text(encoding="utf-8")
-    assert "win_timezone" in apply_pb
+    # Solo módulos builtin: la imagen se construye sin red/colecciones.
+    assert "raw: tzutil" in apply_pb
+    assert "win_timezone" not in apply_pb
     assert "HORA_VERIFIED" in apply_pb
     assert "HORA_BEFORE_B64" in apply_pb
     assert "HORA_STATE_B64" in apply_pb

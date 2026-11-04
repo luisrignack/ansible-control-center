@@ -178,9 +178,13 @@ def test_ansible_ping(
         result["error"] = "No se proporcionó contraseña ni clave SSH."
         return result
 
-    module = "win_ping" if connection == "winrm" else "ping"
+    module = "raw" if connection == "winrm" else "ping"
+    module_args: Optional[List[str]] = None
     connection_vars: Dict[str, Any] = {}
     if connection == "winrm":
+        # Sin colecciones externas: ``raw`` es builtin y no exige Python en
+        # el destino, así que sirve de ping sobre WinRM con pywinrm.
+        module_args = ["-a", "echo PING_OK"]
         connection_vars = {
             "ansible_connection": "winrm",
             "ansible_port": str(WINRM_PORT),
@@ -210,6 +214,7 @@ def test_ansible_ping(
                 f"{host},",
                 "-m",
                 module,
+                *(module_args or []),
                 "-u",
                 user,
                 "-T",

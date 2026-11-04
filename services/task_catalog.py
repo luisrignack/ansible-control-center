@@ -50,7 +50,7 @@ TASK_CATALOG: List[Dict[str, Any]] = [
         "tone": "blue",
         "summary": (
             "Aplica la zona horaria indicada (por defecto America/Caracas) en "
-            "estaciones Linux (timedatectl) y Windows (win_timezone), con "
+            "estaciones Linux (timedatectl) y Windows (tzutil por WinRM), con "
             "vista previa y verificación por host."
         ),
         "playbook": "cambiar_hora.yml",

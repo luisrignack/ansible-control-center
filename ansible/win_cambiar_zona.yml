@@ -10,11 +10,13 @@
 #       HORA_BEFORE_B64 / HORA_STATE_B64  estado previo y posterior (JSON)
 #       HORA_CHANGED=true|false           si hubo cambio
 #       HORA_VERIFIED=true|false          verificación del playbook
-#       HORA_ERRORS / HORA_WARNINGS       texto plano con problemas
 #
-# La única acción soportada es TZ: el cambio de zona no toca NTP ni la hora
-# exacta (w32tm queda fuera de esta fase). Con ``Timezone`` de ansible.windows
-# el cambio es idempotente y valida que la zona exista.
+# Solo se usan módulos builtin (``raw`` en vez de ``win_shell``) para no
+# depender de la colección ansible.windows: el contenedor es autárquico y
+# puede desplegarse sin acceso a red. ``raw`` no exige Python en el destino,
+# así que funciona igual sobre WinRM que sobre SSH. La idempotencia la aporta
+# el propio playbook: lee la zona, compara con el objetivo y solo ejecuta
+# ``tzutil /s`` si difiere (o si se fuerza el cambio).
 - name: Configurar la zona horaria (Windows)
   hosts: all
   become: false
@@ -45,55 +47,55 @@
           Añádela al mapa ``iana_to_windows`` con su tzutil correcto.
 
     - name: Leer la zona horaria actual (tzutil)
-      ansible.windows.win_shell: tzutil /g
+      ansible.builtin.raw: tzutil /g
       register: _win_tz_antes
       changed_when: false
+
+    - name: Guardar la zona actual leída
+      ansible.builtin.set_fact:
+        zona_antes: "{{ _win_tz_antes.stdout | trim }}"
 
     - name: Publicar el estado inicial (HORA_BEFORE)
       ansible.builtin.debug:
         msg: >-
-          HORA_BEFORE_B64={{ {'timezone': _win_tz_antes.stdout | trim}
+          HORA_BEFORE_B64={{ {'timezone': zona_antes}
           | to_json | b64encode }}
 
-    - name: Registrar si la zona ya coincide
-      ansible.builtin.assert:
-        that:
-          - (_win_tz_antes.stdout | trim) == (iana_to_windows[valor])
-        fail_msg: "La zona actual difiere del objetivo: se cambiará."
-        success_msg: "La zona ya coincide con el objetivo."
-      register: _win_tz_ok
-      ignore_errors: true
-
-    - name: Cambiar la zona horaria (idempotente)
-      ansible.windows.win_timezone:
-        timezone: "{{ iana_to_windows[valor] }}"
+    - name: Cambiar la zona horaria solo si difiere (idempotente)
+      ansible.builtin.raw: tzutil /s "{{ iana_to_windows[valor] }}"
       register: _win_tz_cambio
-      when: force | default(false) | bool
-            or _win_tz_ok is failed
+      when: force | default(false) | bool or zona_antes != iana_to_windows[valor]
 
     - name: Publicar si hubo cambio (HORA_CHANGED)
       ansible.builtin.debug:
         msg: >-
           HORA_CHANGED={{ 'true' if (_win_tz_cambio is defined
-          and _win_tz_cambio.changed) else 'false' }}
+          and (_win_tz_cambio.changed | default(false))) else 'false' }}
 
     - name: Verificar la zona final (tzutil)
-      ansible.windows.win_shell: tzutil /g
+      ansible.builtin.raw: tzutil /g
       register: _win_tz_despues
       changed_when: false
+
+    - name: Fijar la zona final en el estado posterior
+      ansible.builtin.set_fact:
+        zona_despues: "{{ _win_tz_despues.stdout | trim }}"
 
     - name: Publicar el estado final (HORA_STATE)
       ansible.builtin.debug:
         msg: >-
-          HORA_STATE_B64={{ {'timezone': _win_tz_despues.stdout | trim}
+          HORA_STATE_B64={{ {'timezone': zona_despues}
           | to_json | b64encode }}
 
-    - name: Publicar la verificación y los errores
+    - name: Publicar la verificación (HORA_VERIFIED)
       ansible.builtin.debug:
         msg: >-
-          HORA_VERIFIED={{ 'true' if ((_win_tz_despues.stdout | trim)
-          == (iana_to_windows[valor])) else 'false' }}{{
-          ('' if ((_win_tz_despues.stdout | trim)
-          == (iana_to_windows[valor])) else 'HORA_ERRORS=La zona final ('
-          ~ (_win_tz_despues.stdout | trim) ~ ') no coincide con
-          ' ~ iana_to_windows[valor]) }}
+          HORA_VERIFIED={{ 'true' if (zona_despues
+          == iana_to_windows[valor]) else 'false' }}
+
+    - name: Registrar el fallo si la zona final no coincide (HORA_ERRORS)
+      ansible.builtin.fail:
+        msg: >-
+          HORA_ERRORS=La zona final ({{ zona_despues }}) no coincide con
+          {{ iana_to_windows[valor] }}
+      when: zona_despues != iana_to_windows[valor]

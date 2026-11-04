@@ -145,8 +145,9 @@ TEMP_DIR = SECRETS_DIR / ".tmp"
 ANSIBLE_DIR = BASE_DIR / "ansible"
 PLAYBOOK_FILE = ANSIBLE_DIR / "cambiar_hora.yml"
 INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "estado_hora.yml"
-# Playbooks equivalentes para hosts Windows (conexión winrm, colección
-# ansible.windows). Se auto-disponen cuando el grupo de inventario es Windows.
+# Playbooks equivalentes para hosts Windows (conexión winrm, módulos
+# builtin sobre tzutil; funcionan sin colecciones externas). Se auto-disponen
+# cuando el grupo de inventario es Windows.
 WINDOWS_APPLY_PLAYBOOK_FILE = ANSIBLE_DIR / "win_cambiar_zona.yml"
 WINDOWS_INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "win_estado_zona.yml"
 ANSIBLE_CFG = ANSIBLE_DIR / "ansible.cfg"

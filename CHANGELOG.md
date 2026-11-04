@@ -28,12 +28,14 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
   (`basic`/`ntlm`/`credssp`, `ntlm` por defecto) y
   `ansible_winrm_server_cert_validation=ignore`) van siempre por
   extra-vars en fichero `0600`, nunca por línea de comandos. El ping de
-  verificación usa el módulo `win_ping` para winrm.
+  verificación usa el módulo builtin `raw` (`echo PING_OK`), que funciona
+  sobre WinRM con solo pywinrm y sin colecciones adicionales.
 - **Playbooks Windows dedicados** (`ansible/win_cambiar_zona.yml`,
   `ansible/win_estado_zona.yml`): mismo contrato de marcadores `HORA_*`
   (HORA_BEFORE_B64/HORA_STATE_B64/HORA_CHANGED/HORA_VERIFIED/HORA_ERRORS)
-  que el de Linux; `become: false`, sin NTP. La inspección Windows publica
-  solo la zona horaria (los demás relojes requieren WMI; fuera de fase).
+  que el de Linux; `become: false`, sin NTP, solo módulos builtin. La
+  inspección Windows publica solo la zona horaria (los demás relojes
+  requieren WMI; fuera de fase).
 - **Direccionado de playbook por conexión:** con `connection=winrm` el
   runner usa los playbooks Windows automáticamente, tanto en la vista
   previa como en la aplicación.
@@ -52,9 +54,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 ### Infraestructura
 
 - `requirements.txt`: `pywinrm>=0.4.3`.
-- `Dockerfile`: colección `ansible.windows` instalada en
-  `/app/ansible/collections` con `ansible-galaxy` y
-  `ANSIBLE_COLLECTIONS_PATH` configurada como ENV de imagen.
+- Los playbooks Windows usan solo módulos builtin (`ansible.builtin.raw` con
+  `tzutil`), así que **no** se necesita la colección `ansible.windows` y la
+  imagen sigue construyéndose sin acceso a red (la instalación de la colección
+  vía `ansible-galaxy` fallaba en redes aisladas; `raw` no exige Python en el
+  destino y funciona sobre WinRM). La idempotencia la aporta el playbook:
+  leer → comparar → `tzutil /s` solo si difiere → verificar con `tzutil /g`.
 - Pruebas: 10 nuevas (`tests/test_windows.py`), total 174. No hay hosts
   Windows reales disponibles: la cobertura winrm es a nivel cmd/payload,
   catálogo y validación de app; la prueba contra una estación real queda

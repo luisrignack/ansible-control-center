@@ -15,8 +15,9 @@ gunicorn>=22.0,<24.0
 # ansible-core aporta ansible, ansible-playbook y ansible-vault.
 # La app invoca los binarios directamente (sin ansible-runner).
 ansible-core>=2.16,<2.20
-# Colección oficial para Windows (`win_timezone`, `win_shell`, `win_service`).
-# Se instala como librería dentro de la imagen en el Dockerfile (ansible-galaxy).
+# pywinrm habilita la conexión winrm de ansible-core contra hosts Windows.
+# Los playbooks Windows usan solo módulos builtin (raw/tzutil), así que no se
+# necesita la colección ansible.windows y la imagen se construye sin red.
 pywinrm>=0.4.3
 
 # --- Pruebas (incluidas para que `pytest` funcione tras instalar) ---
