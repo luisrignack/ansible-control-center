@@ -80,7 +80,7 @@ y deriva el estado global:
 - [ ] Objetivo dentro del rango permitido (`MAX_HOSTS`, `MIN_CIDR_PREFIX`) y,
       si aplica, de `ACC_ALLOWED_NETWORKS`.
 - [ ] Acción y valor revisados:
-  - `TZ` → zona IANA existente (`Europe/Madrid`).
+  - `TZ` → zona IANA existente (`America/Caracas`).
   - `TIME` → `AAAA-MM-DDTHH:MM`; decide `utc` o `local`.
 - [ ] Política NTP elegida conscientemente (ver §2.3).
 - [ ] Ventana de mantenimiento si el salto de hora puede afectar servicios.

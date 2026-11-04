@@ -87,6 +87,11 @@ entrypoint crea el administrador al arrancar. La contraseña debe tener al menos
 12 caracteres y **solo se usa en el primer arranque**; después los cambios de esa
 variable no pisan la contraseña existente.
 
+Como alternativa a las variables de entorno (visibles con `docker inspect`),
+la aplicación admite `ACC_SECRET_KEY_FILE`, `ACC_PASSWORD_PEPPER_FILE` y
+`ACC_ADMIN_PASSWORD_FILE`. Apunta cada una al fichero de un Docker secret o de
+una credencial montada; si existen a la vez, el valor directo tiene prioridad.
+
 Para crearlo o rotarlo manualmente:
 
 ```bash

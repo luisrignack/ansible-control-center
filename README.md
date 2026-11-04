@@ -371,7 +371,9 @@ administrador desactiva el interruptor **Simulación** de la barra superior
 - **TZ**: cambia la zona horaria con `timedatectl set-timezone`.
 - **TIME**: fija la hora con `date -s @<epoch>`.
   - `time_mode=utc`: el valor se interpreta como UTC; mismo instante en todos.
-  - `time_mode=local`: el valor es la hora de pared de cada host.
+  - `time_mode=local`: el valor se interpreta en la zona IANA seleccionada
+    (`time_zone`) y se aplica el **mismo instante** a todos los hosts del lote.
+    No se usa la zona particular de cada host.
 
 ### Políticas NTP
 
@@ -450,7 +452,7 @@ Variables:
 | `accion` | `TZ` o `TIME` |
 | `valor` | Zona horaria o `AAAA-MM-DDTHH:MM` |
 | `modo_hora` | `utc` o `local` |
-| `valor_epoch` | Epoch objetivo en modo UTC |
+| `valor_epoch` | Epoch objetivo calculado por la app (UTC o local) |
 | `ntp_policy` | `keep`, `off`, `restore`, `configure` |
 | `ntp_servers` | Lista de servidores NTP |
 | `sync_rtc` | Sincronizar RTC con `hwclock --systohc` |

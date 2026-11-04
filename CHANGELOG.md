@@ -7,6 +7,49 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ---
 
+## [Endurecimiento y correcciones] — 2026-11-04
+
+### Seguridad
+
+- **IP del cliente:** `_client_ip()` usa `request.remote_addr` (ya reescrito por
+  `ProxyFix`) en lugar de leer el primer valor de `X-Forwarded-For`. Evita
+  suplantar la IP y eludir los límites de login, ejecución y vault.
+- **Rate limiter acotado:** purga por antigüedad y límite de claves
+  (`MAX_KEYS`) para impedir crecimiento de memoria con claves cambiantes.
+- **Permisos SQLite:** la base y sus ficheros `-wal`/`-shm` se fuerzan a `0600`.
+- **Producción:** se rechaza el arranque si `ACC_COOKIE_SECURE=0`.
+
+### Corregido
+
+- **Modal “Cifrar y guardar contraseñas”:** se mueve al `<body>` para sacarlo
+  del stacking context de `.app-shell`; el backdrop de Bootstrap ya no tapa el
+  modal ni deja la página aparentemente congelada.
+- **Feedback del vault:** el guardado usa un aviso inline en vez de `alert()`
+  bloqueante, y muestra los errores del servidor.
+- **Vista previa por lotes:** el enlace de repetición usa `batch.time_zone` en
+  lugar de la marca de tiempo.
+- **NTP idempotente:** la vista previa considera correcta la configuración si
+  están todos los servidores deseados (aunque existan otros del sistema) y el
+  playbook no marca `ntp_on` como cambio si NTP ya estaba activo.
+- **Usuario por defecto:** el formulario usa `ACC_USERNAME` en vez de `ldamin`.
+
+### Cambiado
+
+- **Zonas horarias sugeridas:** solo se listan zonas de América; se mantiene
+  `America/Caracas`.
+- **Semántica `local` documentada:** se interpreta en la zona seleccionada y se
+  aplica el mismo instante a todos los hosts.
+- **DRY RUN:** el banner aclara que la simulación no valida conectividad ni
+  credenciales y remite a la vista previa real.
+- **CI:** `pytest` con cobertura (`pytest-cov`) y umbral mínimo.
+
+### Documentación
+
+- `README`, `docs/ARQUITECTURA.md` y `.env.example` alineados con el
+  comportamiento real (hora local y allowlist en producción).
+
+---
+
 ## [Rango IPv4 y máscara de objetivo] — 2026-11-04
 
 ### Añadido
@@ -456,15 +499,14 @@ fiel de `restore` y avisos de riesgo.
 
 ## Pendiente (no implementado)
 
-- Bloqueo de `TIME` + `keep` (hoy solo se avisa).
-- Paralelismo, cola persistente, cancelación y reintento de hosts fallidos.
-- Parada ordenada con captura de `SIGTERM`.
-- Retención automática del historial (`ACC_HISTORY_DAYS`).
-- RBAC, MFA, aprobaciones y auditoría de eventos independiente.
-- Rollback asistido y exportación de historial.
-- Inventarios, CSV, grupos y exclusiones.
+- MFA, aprobaciones y rollback asistido.
+- Exportación de historial e inventarios/CSV/grupos/exclusiones.
 - API/CLI de ejecución, webhooks y exportación.
 - Multiplataforma (RHEL/Rocky, Windows, red).
+- Refactor de `app.py` en blueprints y secretos Docker montados como archivo
+  (`*_FILE`) en lugar de variables de entorno.
+- Linters (`ruff`, `mypy`, `bandit`, `ansible-lint`, `shellcheck`) y pruebas de
+  integración SSH/Docker en CI.
 
 Consulta el detalle y la priorización en
 [docs/ANALISIS_Y_RECOMENDACIONES.md](docs/ANALISIS_Y_RECOMENDACIONES.md).

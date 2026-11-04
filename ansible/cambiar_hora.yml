@@ -331,7 +331,9 @@
           (ntp_policy == 'restore' and _hora_ntp_off is defined and
            _hora_ntp_off.changed)
       register: _hora_ntp_on
-      changed_when: _hora_ntp_on.rc == 0
+      # ``timedatectl set-ntp true`` devuelve 0 aunque NTP ya estuviera activo.
+      # Solo cuenta como cambio neto si el host lo tenía desactivado al inicio.
+      changed_when: _hora_ntp_on.rc == 0 and not (hora_antes.ntp | bool)
 
     - name: Registrar la reactivación de NTP
       ansible.builtin.set_fact:

@@ -44,4 +44,7 @@ jobs:
           PY
 
       - name: Ejecutar pruebas
-        run: python -m pytest -q
+        run: |
+          python -m pytest -q \
+            --cov=app --cov=config --cov=models --cov=services \
+            --cov-report=term-missing --cov-fail-under=55

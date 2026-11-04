@@ -26,6 +26,12 @@ echo "[ansible-control-center] Aplicando migraciones de SQLite…"
 python -m flask --app app init-db
 
 echo "[ansible-control-center] Comprobando usuario administrador…"
+# Soporte de Docker secrets / credenciales montadas: si no hay contraseña en
+# claro, se lee de ACC_ADMIN_PASSWORD_FILE para no exponerla en `docker inspect`.
+if [ -z "${ACC_ADMIN_PASSWORD:-}" ] && [ -n "${ACC_ADMIN_PASSWORD_FILE:-}" ] && [ -r "${ACC_ADMIN_PASSWORD_FILE}" ]; then
+    ACC_ADMIN_PASSWORD="$(cat "${ACC_ADMIN_PASSWORD_FILE}")"
+    export ACC_ADMIN_PASSWORD
+fi
 python - <<'PY'
 import os
 import sys

@@ -107,8 +107,36 @@ def test_production_accepts_explicit_allowlist(monkeypatch):
     )
     monkeypatch.setattr(config_module, "SECRET_KEY", "clave-explicita")
     monkeypatch.setattr(config_module, "HOST_KEY_CHECKING", True)
+    monkeypatch.setattr(config_module, "SESSION_COOKIE_SECURE", True)
 
     config_module.validate_security_config()
+
+
+def test_production_requires_secure_cookies(monkeypatch):
+    monkeypatch.setattr(config_module, "IS_PRODUCTION", True)
+    monkeypatch.setattr(
+        config_module,
+        "ALLOWED_NETWORKS",
+        (ipaddress.ip_network("10.0.0.0/8"),),
+    )
+    monkeypatch.setattr(config_module, "SECRET_KEY", "clave-explicita")
+    monkeypatch.setattr(config_module, "HOST_KEY_CHECKING", True)
+    monkeypatch.setattr(config_module, "SESSION_COOKIE_SECURE", False)
+
+    with pytest.raises(RuntimeError, match="ACC_COOKIE_SECURE"):
+        config_module.validate_security_config()
+
+
+def test_env_secret_reads_file_when_no_plain_value(tmp_path, monkeypatch):
+    secret_file = tmp_path / "acc_secret_key"
+    secret_file.write_text("clave-desde-fichero\n", encoding="utf-8")
+    monkeypatch.delenv("ACC_SECRET_KEY", raising=False)
+    monkeypatch.setenv("ACC_SECRET_KEY_FILE", str(secret_file))
+
+    assert config_module._env_secret("ACC_SECRET_KEY") == "clave-desde-fichero"
+
+    monkeypatch.setenv("ACC_SECRET_KEY", "clave-desde-entorno")
+    assert config_module._env_secret("ACC_SECRET_KEY") == "clave-desde-entorno"
 
 
 def test_loopback_and_metadata_are_blocked_even_if_allowlisted(monkeypatch):
@@ -309,6 +337,29 @@ def test_ntp_configure_matches_normalized_server_set():
             ntp_servers=["otro.example"],
         )
         is True
+    )
+
+
+def test_ntp_configure_tolerates_extra_system_servers():
+    """Tras aplicar, el sistema puede conservar servidores propios."""
+    state = {
+        "timezone": "UTC",
+        "ntp": True,
+        "epoch": 1000,
+        "ntp_servers": ["a.example", "b.example", "extra.example"],
+    }
+
+    assert (
+        app_module._would_change(
+            state,
+            "TZ",
+            "UTC",
+            "utc",
+            "configure",
+            False,
+            ntp_servers=["a.example", "b.example"],
+        )
+        is False
     )
 
 

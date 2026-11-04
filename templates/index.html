@@ -24,7 +24,7 @@
     <div class="banner-icon" aria-hidden="true"><i class="bi bi-exclamation-triangle"></i></div>
     <div>
         <div class="banner-title">Modo simulación activo</div>
-        <div class="banner-text">Los playbooks no se ejecutan en los hosts: solo se simula el resultado. Desactívalo con el interruptor <strong>Simulación</strong> de la barra superior.</div>
+        <div class="banner-text">Los playbooks no se ejecutan en los hosts: solo se simula el resultado. La simulación no comprueba conectividad ni credenciales; usa <strong>Vista previa</strong> para inspeccionar los hosts de verdad antes de aplicar. Desactiva la simulación con el interruptor <strong>Simulación</strong> de la barra superior.</div>
     </div>
 </div>
 {% endif %}
@@ -65,7 +65,7 @@
                             <i class="bi bi-person-meet me-2"></i> Usuario Admin
                         </label>
                         <input type="text" class="form-control" id="adminUser" name="admin_user"
-                            value="{{ prefill.get('admin_user') or 'ldamin' }}" required>
+                            value="{{ prefill.get('admin_user') or default_admin_user }}" required>
                     </div>
 
                     <!-- Origen de contraseñas -->
@@ -127,12 +127,14 @@
                                 UTC (mismo instante en todos los hosts)
                             </option>
                             <option value="local" {% if prefill.get('time_mode') == 'local' %}selected{% endif %}>
-                                Hora local de cada host
+                                Hora local en la zona seleccionada
                             </option>
                         </select>
                         <div class="form-text">
                             Solo aplica a “Hora Exacta”. En modo UTC, el valor se
-                            interpreta como UTC y se convierte a epoch.
+                            interpreta como UTC. En modo local se interpreta en la
+                            zona seleccionada y se aplica el mismo instante a todos
+                            los hosts del lote.
                         </div>
                     </div>
 
@@ -143,7 +145,7 @@
                         </label>
                         <input list="timezoneList" type="text" class="form-control" id="timeZone"
                             name="time_zone" value="{{ prefill.get('time_zone', '') }}"
-                            placeholder="Ej: Europe/Madrid" autocomplete="off">
+                            placeholder="Ej: America/Caracas" autocomplete="off">
                         <div class="form-text">
                             Obligatoria para calcular el instante cuando la hora es local.
                         </div>

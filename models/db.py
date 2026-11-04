@@ -2,6 +2,7 @@
 # Acceso SQLite centralizado: conexiones, WAL, busy_timeout y migraciones.
 from __future__ import annotations
 
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -12,6 +13,22 @@ from typing import Iterator, Optional
 SCHEMA_VERSION = 7
 
 
+def _secure_sqlite_files(path: str) -> None:
+    """Restringe a ``0600`` la base y sus ficheros auxiliares WAL/SHM.
+
+    SQLite crea los ficheros con el umask del proceso (habitualmente ``0644``),
+    lo que expone el historial y los hashes a otros usuarios del sistema.
+    """
+    if path == ":memory:" or path.startswith("file:"):
+        return
+    for candidate in (path, f"{path}-wal", f"{path}-shm"):
+        try:
+            os.chmod(candidate, 0o600)
+        except OSError:
+            # El fichero auxiliar puede no existir todavía; no es un error.
+            pass
+
+
 def connect(db_path: str) -> sqlite3.Connection:
     """Abre una conexión con ajustes seguros para concurrencia."""
     path = str(db_path)
@@ -19,6 +36,7 @@ def connect(db_path: str) -> sqlite3.Connection:
 
     conn = sqlite3.connect(path, timeout=10)
     conn.row_factory = sqlite3.Row
+    _secure_sqlite_files(path)
     conn.execute("PRAGMA busy_timeout = 5000")
     conn.execute("PRAGMA foreign_keys = ON")
     try:
@@ -27,6 +45,7 @@ def connect(db_path: str) -> sqlite3.Connection:
     except sqlite3.DatabaseError:
         # ``:memory:`` u otros motores no soportan WAL; no es fatal.
         pass
+    _secure_sqlite_files(path)
     return conn
 
 

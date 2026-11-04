@@ -158,8 +158,11 @@ execution_hosts
 
 - `utc`: el valor se interpreta como UTC y se convierte a epoch. Todos los
   hosts reciben el mismo instante.
-- `local`: el valor es la hora de pared de cada host. Hosts con zonas distintas
-  quedan en instantes distintos.
+- `local`: el valor se interpreta en la zona IANA seleccionada en `time_zone`.
+  La aplicación calcula un único `target_epoch` y lo envía a todos los hosts,
+  por lo que todos quedan en el mismo instante. No se usa la zona particular de
+  cada host; para lotes heterogéneos hay que ejecutar un lote por zona o usar
+  `utc`.
 
 ### Política NTP
 

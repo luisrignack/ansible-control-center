@@ -288,11 +288,13 @@ def _is_safe_redirect(target: Optional[str]) -> bool:
 
 
 def _client_ip() -> str:
-    """IP del cliente, respetando X-Forwarded-For solo si hay proxy de confianza."""
-    if TRUST_PROXY:
-        forwarded = request.headers.get("X-Forwarded-For", "")
-        if forwarded:
-            return forwarded.split(",")[0].strip() or "unknown"
+    """IP del cliente tal y como la resuelve el servidor.
+
+    Con ``ACC_TRUST_PROXY=1`` Werkzeug aplica ``ProxyFix`` y reescribe
+    ``request.remote_addr`` con la IP añadida por el proxy de confianza. Leer
+    ``X-Forwarded-For`` a mano permitiría a un cliente falsificar el primer
+    valor de la cabecera y eludir los límites por IP, así que no se hace.
+    """
     return request.remote_addr or "unknown"
 
 
@@ -677,9 +679,14 @@ def _would_change(
         changed = changed or _state_bool(state.get("ntp"))
     elif ntp_policy == "configure":
         current_servers = state.get("ntp_servers")
-        servers_match = isinstance(current_servers, list) and {
-            str(server) for server in current_servers
-        } == {str(server) for server in (ntp_servers or [])}
+        desired_servers = {str(server) for server in (ntp_servers or [])}
+        # El playbook escribe los servidores deseados en su propio fichero,
+        # pero no elimina los que ya existan en la configuración del sistema.
+        # Exigir igualdad exacta hacía que la vista previa siguiera indicando
+        # "cambiará" después de aplicar. Basta con que estén todos los deseados.
+        servers_match = isinstance(current_servers, list) and desired_servers.issubset(
+            {str(server) for server in current_servers}
+        )
         changed = (
             changed
             or not _state_bool(state.get("ntp"))
@@ -1240,6 +1247,7 @@ def index():
         common_timezones=COMMON_TIMEZONES,
         ntp_policies=NTP_POLICIES,
         default_ntp_servers=", ".join(DEFAULT_NTP_SERVERS),
+        default_admin_user=ADMIN_USERNAME,
         prefill=prefill,
     )
 

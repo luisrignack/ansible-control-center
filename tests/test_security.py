@@ -63,6 +63,45 @@ def test_rate_limiter_keys_are_independent():
     assert limiter.check("b", 1, 60)[0] is True
 
 
+def test_rate_limiter_purges_stale_keys(monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(rate_limiter_module.time, "monotonic", lambda: now[0])
+
+    limiter = RateLimiter()
+    assert limiter.check("viejo", 1, 60)[0] is True
+
+    now[0] += 3600
+    # La limpieza se dispara cada CLEANUP_EVERY comprobaciones.
+    for index in range(limiter.CLEANUP_EVERY - 1):
+        limiter.check(f"nueva-{index}", 1, 60)
+
+    assert "viejo" not in limiter._events
+
+
+def test_rate_limiter_bounds_key_count(monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(rate_limiter_module.time, "monotonic", lambda: now[0])
+
+    limiter = RateLimiter()
+    limiter.MAX_KEYS = 5
+    for index in range(50):
+        limiter.check(f"clave-{index}", 1, 60)
+
+    assert len(limiter._events) <= limiter.MAX_KEYS
+
+
+def test_client_ip_does_not_trust_unverified_forwarded_for(monkeypatch):
+    monkeypatch.setattr(app_module, "TRUST_PROXY", True)
+    with app_module.app.test_request_context(
+        "/",
+        headers={"X-Forwarded-For": "203.0.113.50"},
+        environ_base={"REMOTE_ADDR": "10.0.0.9"},
+    ):
+        # ProxyFix solo se aplica al WSGI real; en la petición de prueba la IP
+        # fiable es REMOTE_ADDR y la cabecera no debe usarse a mano.
+        assert app_module._client_ip() == "10.0.0.9"
+
+
 def test_validate_ip_format_accepts_valid_targets():
     assert validate_ip_format("192.168.1.10")
     assert validate_ip_format("192.168.1.0/24")

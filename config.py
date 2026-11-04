@@ -101,6 +101,25 @@ def _find_binary(name: str, env_var: str) -> str:
     return shutil.which(name) or name
 
 
+def _env_secret(name: str) -> str:
+    """Lee un secreto de ``<NAME>`` o, si no existe, de ``<NAME>_FILE``.
+
+    El soporte de fichero permite usar Docker secrets o systemd
+    ``LoadCredential`` sin exponer el valor en ``docker inspect`` ni en el
+    entorno del proceso.
+    """
+    value = os.environ.get(name, "")
+    if value:
+        return value
+    file_path = os.environ.get(f"{name}_FILE", "")
+    if not file_path:
+        return ""
+    try:
+        return Path(file_path).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 # ---------------------------------------------------------------------------
 # Rutas principales
 # ---------------------------------------------------------------------------
@@ -137,7 +156,7 @@ BIN_ANSIBLE_GALAXY = _find_binary("ansible-galaxy", "ACC_ANSIBLE_GALAXY_BIN")
 # Flask / sesiones / autenticación
 # ---------------------------------------------------------------------------
 # La clave se resuelve con ``get_or_create_secret_key()`` al arrancar la app.
-SECRET_KEY = os.environ.get("ACC_SECRET_KEY", "")
+SECRET_KEY = _env_secret("ACC_SECRET_KEY")
 SECRET_KEY_FILE = DATA_DIR / "flask_secret.key"
 
 # El depurador de Flask NUNCA debe quedar activo por defecto: expone una
@@ -160,7 +179,7 @@ PERMANENT_SESSION_LIFETIME_SECONDS = _env_int(
 
 # Pepper para los hashes de contraseñas candidatas guardados en SQLite. Si no
 # se define, se genera un secreto local 0600 en DATA_DIR.
-PASSWORD_PEPPER = os.environ.get("ACC_PASSWORD_PEPPER", "")
+PASSWORD_PEPPER = _env_secret("ACC_PASSWORD_PEPPER")
 PASSWORD_PEPPER_FILE = DATA_DIR / "password_pepper.key"
 
 MAX_CONTENT_LENGTH = _env_int(
@@ -403,28 +422,16 @@ LOG_BACKUP_COUNT = _env_int("ACC_LOG_BACKUPS", 5, minimum=1, maximum=50)
 # ---------------------------------------------------------------------------
 # Zonas horarias sugeridas para el datalist del formulario
 # ---------------------------------------------------------------------------
+# Solo se sugieren zonas de América. El campo admite cualquier zona IANA
+# válida, pero el datalist prioriza el ámbito operativo habitual.
 COMMON_TIMEZONES: tuple[str, ...] = (
-    "UTC",
-    "Europe/Madrid",
-    "Europe/Lisbon",
-    "Europe/London",
-    "Europe/Paris",
-    "Europe/Berlin",
-    "Europe/Rome",
-    "Europe/Amsterdam",
-    "Europe/Brussels",
-    "Europe/Zurich",
-    "Europe/Vienna",
-    "Europe/Warsaw",
-    "Europe/Athens",
-    "Europe/Istanbul",
-    "Europe/Moscow",
-    "Atlantic/Canary",
+    "America/Halifax",
     "America/New_York",
     "America/Chicago",
     "America/Denver",
     "America/Los_Angeles",
     "America/Mexico_City",
+    "America/Panama",
     "America/Bogota",
     "America/Lima",
     "America/La_Paz",
@@ -432,21 +439,7 @@ COMMON_TIMEZONES: tuple[str, ...] = (
     "America/Argentina/Buenos_Aires",
     "America/Sao_Paulo",
     "America/Caracas",
-    "America/Panama",
     "America/Santo_Domingo",
-    "Asia/Tokyo",
-    "Asia/Shanghai",
-    "Asia/Singapore",
-    "Asia/Dubai",
-    "Asia/Kolkata",
-    "Asia/Seoul",
-    "Australia/Sydney",
-    "Pacific/Auckland",
-    "Africa/Cairo",
-    "Africa/Johannesburg",
-    "Africa/Casablanca",
-    "Etc/GMT+4",
-    "America/Halifax",
 )
 
 
@@ -478,6 +471,11 @@ def validate_security_config() -> None:
         problems.append(
             "ACC_HOST_KEY_CHECKING=0 desactiva la verificación de "
             "claves SSH y no está permitido en producción."
+        )
+    if not SESSION_COOKIE_SECURE:
+        problems.append(
+            "ACC_COOKIE_SECURE=0 permite enviar la cookie de sesión por HTTP. "
+            "Actívalo (ACC_COOKIE_SECURE=1) en producción con HTTPS."
         )
     if problems:
         raise RuntimeError("Configuración insegura:\n- " + "\n- ".join(problems))
