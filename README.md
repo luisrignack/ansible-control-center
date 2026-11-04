@@ -32,7 +32,8 @@ Incluye empaquetado Docker con Nginx y TLS.
 
 ### Operación
 
-- **Objetivo único o CIDR**: IP, hostname resuelto o rango CIDR acotado.
+- **Objetivo único, CIDR o rango**: IP, hostname resuelto, rango CIDR acotado
+  o rango inclusivo `inicio-fin`.
 - **Todos los hosts**: la operación recorre el grupo completo; un fallo no
   detiene el resto (best-effort).
 - **Reintento de contraseñas acotado**: si una contraseña autentica pero el
@@ -352,7 +353,7 @@ Estas variables las lee `gunicorn.conf.py`, no `config.py`:
 1. **Crear administrador**: `flask --app app init-admin`.
 2. **Contraseñas**: alta manual, importación `.txt` o vault `.yml/.yaml` ya
    cifrado. Se requiere la contraseña maestra.
-3. **Panel**: IP/CIDR, usuario admin, origen de contraseñas, acción
+3. **Panel**: IP/CIDR/rango, usuario admin, origen de contraseñas, acción
    (`TZ`/`TIME`), valor, semántica UTC/local, política NTP, servidores NTP,
    RTC y “Forzar”.
 4. **Vista previa (recomendada)**: inspecciona todos los hosts sin cambiar
@@ -495,7 +496,8 @@ Define `hora_estado` con: `timezone`, `ntp`, `ntp_synchronized`,
   tras cada ejecución.
 - CSRF activo por defecto.
 - Rate limiting en memoria; con varios workers cada proceso lleva su ventana.
-- Los rangos CIDR se validan y acotan antes de enumerarse.
+- Los rangos CIDR y los rangos inclusivos `inicio-fin` se validan y acotan
+  antes de enumerarse.
 - La allowlist de destino es obligatoria en producción y se comprueba contra
   **todas** las direcciones de un hostname; loopback, link-local (incluido
   `169.254.169.254`) y rangos reservados se bloquean siempre. El hostname se
@@ -525,7 +527,7 @@ Define `hora_estado` con: `timezone`, `ntp`, `ntp_synchronized`,
   y permite cancelar; no hay reintento selectivo de fallidos.
 - **Sin MFA**: hay roles y auditoría de acceso, pero la autenticación es solo
   usuario/contraseña. La allowlist de red es global.
-- **Sin inventario/CSV/grupos**: solo IP/CIDR.
+- **Sin inventario/CSV/grupos**: solo IP/CIDR/rango.
 - **Solo Ubuntu/systemd**: no hay soporte para RHEL, Windows o dispositivos de
   red.
 - **Sin programación ni notificaciones**.

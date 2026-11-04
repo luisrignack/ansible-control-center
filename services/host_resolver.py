@@ -15,6 +15,36 @@ _HOSTNAME_RE = re.compile(
     r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)*\.?$"
 )
 
+# Rango IPv4 inclusivo con la forma ``inicio-fin``.
+_IPV4_RANGE_RE = re.compile(
+    r"^\s*(\d{1,3}(?:\.\d{1,3}){3})\s*-\s*(\d{1,3}(?:\.\d{1,3}){3})\s*$"
+)
+
+
+def _parse_ipv4_range(
+    value: str,
+) -> Optional[Tuple[ipaddress.IPv4Address, ipaddress.IPv4Address]]:
+    """Devuelve los extremos de un rango IPv4 ``inicio-fin``.
+
+    No exige que ``inicio <= fin`` para que el llamador pueda distinguir un
+    rango invertido de un formato inválido. Devuelve ``None`` si la forma no
+    es un rango IPv4 válido.
+    """
+    match = _IPV4_RANGE_RE.fullmatch(value or "")
+    if not match:
+        return None
+    try:
+        start = ipaddress.IPv4Address(match.group(1))
+        end = ipaddress.IPv4Address(match.group(2))
+    except ValueError:
+        return None
+    return start, end
+
+
+def _looks_like_ipv4_range(value: str) -> bool:
+    """Indica si el texto pretende ser un rango IPv4, aunque sea inválido."""
+    return bool(_IPV4_RANGE_RE.fullmatch(value or ""))
+
 
 def _effective_limits(
     max_hosts: Optional[int], min_prefix: Optional[int]
@@ -207,21 +237,73 @@ def resolve_cidr_range(
     return hosts
 
 
+def resolve_ipv4_range(
+    range_str: str,
+    max_hosts: Optional[int] = None,
+    min_prefix: Optional[int] = None,
+) -> List[str]:
+    """Expande un rango IPv4 inclusivo ``inicio-fin``.
+
+    El rango se rechaza si está invertido, si supera ``max_hosts`` o si alguna
+    de sus direcciones queda fuera de la allowlist o toca un rango prohibido.
+    """
+    max_hosts, _ = _effective_limits(max_hosts, min_prefix)
+    pair = _parse_ipv4_range(range_str)
+    if pair is None:
+        logger.warning("Rango IPv4 inválido: %r", range_str)
+        return []
+
+    start, end = pair
+    if int(start) > int(end):
+        logger.warning("Rango IPv4 invertido: %r", range_str)
+        return []
+
+    count = int(end) - int(start) + 1
+    if count > max_hosts:
+        logger.warning(
+            "Rango rechazado %s: %d direcciones supera el máximo de %d hosts",
+            range_str,
+            count,
+            max_hosts,
+        )
+        return []
+
+    hosts: List[str] = []
+    for offset in range(count):
+        ip = str(ipaddress.IPv4Address(int(start) + offset))
+        if not _ip_allowed(ip):
+            logger.warning(
+                "Rango rechazado %s: la IP %s está fuera de las redes permitidas",
+                range_str,
+                ip,
+            )
+            return []
+        hosts.append(ip)
+    return hosts
+
+
 def resolve_target(
     target: str,
     max_hosts: Optional[int] = None,
     min_prefix: Optional[int] = None,
 ) -> List[str]:
-    """Resolver un objetivo que puede ser IP única, hostname o rango CIDR.
+    """Resolver un objetivo que puede ser IP única, hostname, CIDR o rango.
 
     Args:
-        target: IP única (192.168.1.10) o rango CIDR (192.168.1.0/24).
+        target: IP única (192.168.1.10), rango CIDR (192.168.1.0/24),
+            rango inclusivo (172.17.128.118-172.17.128.235) o hostname.
 
     Returns:
         Lista de direcciones IP individuales.
     """
     target = (target or "").strip()
     if not target:
+        return []
+
+    # Rango inclusivo inicio-fin (solo IPv4).
+    if _parse_ipv4_range(target) is not None:
+        return resolve_ipv4_range(target, max_hosts, min_prefix)
+    if _looks_like_ipv4_range(target):
         return []
 
     # Verificar si contiene "/" para CIDR
@@ -255,17 +337,24 @@ def resolve_target(
 
 
 def validate_ip_format(ip_str: str) -> bool:
-    """Validar que el string sea una IP o un rango CIDR real.
+    """Validar que el string sea una IP, un CIDR o un rango IPv4 real.
 
     Args:
         ip_str: Cadena a validar.
 
     Returns:
-        True si ``ipaddress`` la acepta como dirección o red.
+        True si ``ipaddress`` la acepta como dirección/red o si es un rango
+        IPv4 inclusivo con ``inicio <= fin``.
     """
     value = (ip_str or "").strip()
     if not value:
         return False
+
+    range_pair = _parse_ipv4_range(value)
+    if range_pair is not None:
+        start, end = range_pair
+        return int(start) <= int(end)
+
     try:
         if "/" in value:
             ipaddress.ip_network(value, strict=False)
@@ -295,6 +384,41 @@ def pin_target(
     value = (target or "").strip()
     if not value:
         return None, "La IP o rango es obligatorio."
+
+    # Rango IPv4 inclusivo. Se valida cada dirección para que la allowlist y
+    # los rangos prohibidos se apliquen también a los extremos intermedios.
+    range_pair = _parse_ipv4_range(value)
+    if range_pair is not None:
+        start, end = range_pair
+        if int(start) > int(end):
+            return (
+                None,
+                "El inicio del rango debe ser menor o igual que el fin.",
+            )
+        max_hosts, _ = _effective_limits(max_hosts, min_prefix)
+        host_count = int(end) - int(start) + 1
+        if host_count > max_hosts:
+            return (
+                None,
+                f"El rango incluye {host_count} hosts; el máximo permitido "
+                f"es {max_hosts}.",
+            )
+        for offset in range(host_count):
+            ip = str(ipaddress.IPv4Address(int(start) + offset))
+            if not _ip_allowed(ip):
+                return (
+                    None,
+                    f"El rango contiene la IP {ip}, fuera de las redes "
+                    "permitidas.",
+                )
+        return f"{start}-{end}", None
+    if _looks_like_ipv4_range(value):
+        return (
+            None,
+            "Rango de IP inválido. Usa inicio-fin, por ejemplo "
+            "172.17.128.118-172.17.128.235.",
+        )
+
     if not validate_ip_format(value):
         # La interfaz admite también un hostname resoluble. Se resuelve una
         # sola vez y se comprueban *todas* las direcciones contra la allowlist

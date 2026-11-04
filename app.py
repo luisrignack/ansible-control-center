@@ -1034,6 +1034,7 @@ def _security_context():
         "csp_nonce": getattr(g, "csp_nonce", ""),
         "dry_run": is_dry_run(),
         "is_production": IS_PRODUCTION,
+        "max_hosts": MAX_HOSTS,
         "status_labels": STATUS_LABELS,
         "host_result_labels": HOST_RESULT_LABELS,
     }

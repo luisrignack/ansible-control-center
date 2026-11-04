@@ -12,6 +12,7 @@ from services.csrf import (
     validate_csrf_token,
 )
 from services.host_resolver import (
+    pin_target,
     resolve_target,
     validate_ip_format,
     validate_target,
@@ -83,6 +84,79 @@ def test_validate_target_rejects_oversized_ranges():
 
     error = validate_target("192.168.0.0/16", max_hosts=256, min_prefix=22)
     assert error is not None
+
+
+def test_validate_ip_format_accepts_ipv4_range():
+    assert validate_ip_format("172.17.128.118-172.17.128.235")
+    assert validate_ip_format("172.17.128.118 - 172.17.128.235")
+
+
+def test_validate_ip_format_rejects_invalid_ipv4_range():
+    assert not validate_ip_format("172.17.128.235-172.17.128.118")
+    assert not validate_ip_format("172.17.128.118-")
+    assert not validate_ip_format("999.1.1.1-999.1.1.2")
+    assert not validate_ip_format("172.17.128.118-172.17.128.235-172.17.128.240")
+
+
+def test_resolve_target_expands_ipv4_range():
+    hosts = resolve_target(
+        "172.17.128.118-172.17.128.120",
+        max_hosts=256,
+        min_prefix=22,
+    )
+    assert hosts == [
+        "172.17.128.118",
+        "172.17.128.119",
+        "172.17.128.120",
+    ]
+
+
+def test_resolve_target_rejects_oversized_ipv4_range():
+    assert resolve_target(
+        "172.17.128.118-172.17.129.118",
+        max_hosts=256,
+        min_prefix=22,
+    ) == []
+
+
+def test_pin_target_normalizes_ipv4_range():
+    pinned, error = pin_target(
+        " 172.17.128.118 - 172.17.128.235 ",
+        max_hosts=256,
+        min_prefix=22,
+    )
+    assert error is None
+    assert pinned == "172.17.128.118-172.17.128.235"
+
+
+def test_pin_target_rejects_reversed_ipv4_range():
+    pinned, error = pin_target(
+        "172.17.128.235-172.17.128.118",
+        max_hosts=256,
+        min_prefix=22,
+    )
+    assert pinned is None
+    assert "inicio" in error.lower()
+
+
+def test_ipv4_range_respects_allowlist(monkeypatch):
+    import ipaddress
+
+    import config as config_module
+
+    monkeypatch.setattr(
+        config_module,
+        "ALLOWED_NETWORKS",
+        (ipaddress.ip_network("10.0.0.0/24"),),
+    )
+
+    assert resolve_target("10.0.0.5-10.0.0.7") == [
+        "10.0.0.5",
+        "10.0.0.6",
+        "10.0.0.7",
+    ]
+    assert resolve_target("10.0.0.250-10.0.1.5") == []
+    assert pin_target("10.0.0.250-10.0.1.5")[0] is None
 
 
 def test_validate_target_accepts_small_range():

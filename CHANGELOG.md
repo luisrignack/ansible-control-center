@@ -7,6 +7,24 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ---
 
+## [Rango IPv4 y máscara de objetivo] — 2026-11-04
+
+### Añadido
+
+- **Rango inclusivo `inicio-fin`:** el campo de objetivo acepta, además de IP,
+  hostname y CIDR, un rango como `172.17.128.118-172.17.128.235`.
+- **Máscara de entrada:** el formulario limita los octetos a 0–255, impide
+  caracteres no válidos y valida en vivo el CIDR, el orden del rango y el
+  máximo de hosts.
+- **Validación de servidor:** `pin_target` y `resolve_target` normalizan y
+  expanden el rango, aplicando allowlist, rangos prohibidos y `MAX_HOSTS`.
+
+### Corregido
+
+- El resumen y el modal de confirmación distinguen CIDR y rango inclusivo.
+
+---
+
 ## [Interruptor de simulación] — 2026-11-04
 
 ### Añadido

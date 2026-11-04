@@ -32,7 +32,7 @@ Campos aceptados por `/`, `/preview` y `/execute`:
 
 | Campo | Valores | Obligatorio |
 |---|---|---|
-| `target_ip` | IP, hostname o CIDR | Sí |
+| `target_ip` | IP, hostname, CIDR o rango `inicio-fin` | Sí |
 | `admin_user` | Usuario SSH | Sí |
 | `password_origin` | `stored`, `temporal` | Sí |
 | `master_password` | Contraseña maestra | Si `stored` |
@@ -129,8 +129,9 @@ Resultado habitual:
 |---|---|
 | `resolve_single_ip(ip_str)` | IP o resolución DNS |
 | `resolve_cidr_range(cidr_str, max_hosts, min_prefix)` | Enumera un CIDR acotado |
-| `resolve_target(target, max_hosts, min_prefix)` | IP/hostname/CIDR → lista |
-| `validate_ip_format(ip_str)` | Valida IP/CIDR |
+| `resolve_ipv4_range(range_str, max_hosts, min_prefix)` | Enumera un rango inclusivo `inicio-fin` |
+| `resolve_target(target, max_hosts, min_prefix)` | IP/hostname/CIDR/rango → lista |
+| `validate_ip_format(ip_str)` | Valida IP/CIDR/rango |
 | `validate_target(target, max_hosts, min_prefix)` | Devuelve mensaje de error o `None` |
 
 ### `services/vault_manager.py`

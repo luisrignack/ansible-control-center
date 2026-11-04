@@ -44,14 +44,19 @@
                     <!-- Campo: IP o Rango -->
                     <div class="col-md-6">
                         <label for="targetIp" class="form-label fw-medium">
-                            <i class="bi bi-globe me-2"></i> IP o rango CIDR
+                            <i class="bi bi-globe me-2"></i> IP, CIDR o rango
                         </label>
                         <input type="text" class="form-control" id="targetIp" name="target_ip"
                             value="{{ prefill.get('target_ip', '') }}"
-                            placeholder="192.168.1.10 o 192.168.1.0/24" required>
-                        <div class="form-text">
-                            Se procesarán todos los hosts del rango (best-effort).
+                            placeholder="172.17.128.118-172.17.128.235"
+                            inputmode="text" autocomplete="off" spellcheck="false"
+                            aria-describedby="targetHelp targetError" required>
+                        <div class="form-text" id="targetHelp">
+                            Rango inclusivo: <code>172.17.128.118-172.17.128.235</code>.
+                            También una IP (<code>192.168.1.10</code>) o un CIDR
+                            (<code>192.168.1.0/24</code>).
                         </div>
+                        <div class="invalid-feedback" id="targetError"></div>
                     </div>
 
                     <!-- Campo: Usuario administrador -->
@@ -271,7 +276,7 @@
             <div class="sum-note">
                 <strong>Vista previa primero</strong>
                 Inspecciona cada host y revisa su estado antes de aplicar el cambio.
-                Un rango CIDR se expande a todos sus hosts.
+                Un rango CIDR o un rango inicio-fin se expande a todos sus hosts.
             </div>
         </div>
         <div class="sum-actions">
@@ -305,8 +310,8 @@
                     <dt class="col-4">Modo</dt><dd class="col-8" id="confirmMode">—</dd>
                 </dl>
                 <div class="alert alert-warning mt-3 mb-0 small">
-                    Un rango CIDR se expande a todos sus hosts. Revisa el objetivo
-                    antes de continuar.
+                    Un rango CIDR o inicio-fin se expande a todos sus hosts. Revisa
+                    el objetivo antes de continuar.
                 </div>
             </div>
             <div class="modal-footer">
@@ -326,15 +331,167 @@
 const prefill = {{ prefill | tojson }};
 const defaultNtpServers = {{ default_ntp_servers | tojson }};
 const dryRunEnabled = {{ dry_run | tojson }};
+const maxHosts = {{ max_hosts | tojson }};
+
+function describeTarget(value) {
+    if (value.includes('/')) return value + ' (CIDR)';
+    if (value.includes('-')) return value + ' (rango)';
+    return value;
+}
+
+function ipv4ToInt(ip) {
+    const parts = ip.split('.');
+    if (parts.length !== 4) return null;
+    let result = 0;
+    for (const part of parts) {
+        if (!/^\d{1,3}$/.test(part)) return null;
+        const value = Number(part);
+        if (value > 255) return null;
+        result = result * 256 + value;
+    }
+    return result;
+}
+
+function isValidIpv4(ip) {
+    return ipv4ToInt(ip) !== null;
+}
+
+function normalizeIpv4(ip) {
+    return ip.split('.').map((part) => String(Number(part))).join('.');
+}
+
+function normalizeTarget(value) {
+    let target = (value || '').trim();
+    if (!/^\d/.test(target) || target.includes(':')) return target;
+    if (target.includes('-')) {
+        const parts = target.split('-');
+        if (parts.length === 2 && isValidIpv4(parts[0].trim()) && isValidIpv4(parts[1].trim())) {
+            return normalizeIpv4(parts[0].trim()) + '-' + normalizeIpv4(parts[1].trim());
+        }
+    }
+    if (target.includes('/')) {
+        const parts = target.split('/');
+        if (parts.length === 2 && isValidIpv4(parts[0].trim())) {
+            return normalizeIpv4(parts[0].trim()) + '/' + parts[1].trim();
+        }
+    }
+    if (isValidIpv4(target)) return normalizeIpv4(target);
+    return target;
+}
+
+function validateTarget(value) {
+    const target = (value || '').trim();
+    if (!target) return 'La IP o rango es obligatorio.';
+    // IPv6 se valida en el servidor; aquí solo se comprueba el formato básico.
+    if (target.includes(':')) return '';
+    if (target.includes('-')) {
+        const parts = target.split('-');
+        if (parts.length !== 2) return 'Rango inválido: usa inicio-fin.';
+        const startText = parts[0].trim();
+        const endText = parts[1].trim();
+        if (!isValidIpv4(startText) || !isValidIpv4(endText)) {
+            return 'Rango inválido: usa inicio-fin, por ejemplo 172.17.128.118-172.17.128.235.';
+        }
+        const start = ipv4ToInt(startText);
+        const end = ipv4ToInt(endText);
+        if (start > end) {
+            return 'El inicio del rango debe ser menor o igual que el fin.';
+        }
+        const count = end - start + 1;
+        if (count > maxHosts) {
+            return 'El rango incluye ' + count + ' hosts; el máximo es ' + maxHosts + '.';
+        }
+        return '';
+    }
+    if (target.includes('/')) {
+        const parts = target.split('/');
+        if (parts.length !== 2) return 'CIDR inválido: usa IP/prefijo.';
+        const ip = parts[0].trim();
+        const prefix = parts[1].trim();
+        if (!isValidIpv4(ip) || !/^\d{1,2}$/.test(prefix)) {
+            return 'CIDR inválido: usa por ejemplo 192.168.1.0/24.';
+        }
+        const prefixNumber = Number(prefix);
+        if (prefixNumber < 0 || prefixNumber > 32) {
+            return 'El prefijo CIDR debe estar entre 0 y 32.';
+        }
+        return '';
+    }
+    if (isValidIpv4(target)) return '';
+    // Hostname: el servidor lo resuelve y valida contra la allowlist.
+    if (/^[A-Za-z][A-Za-z0-9.-]*$/.test(target)) return '';
+    return 'Formato inválido. Usa IP, CIDR o rango inicio-fin.';
+}
+
+function targetMaskAllows(value) {
+    const trimmed = value.replace(/^\s+/, '');
+    if (!/^\d/.test(trimmed)) return true; // hostname o IPv6
+
+    if (/[^0-9.\-/ ]/.test(value)) return false;
+    if ((value.match(/-/g) || []).length > 1) return false;
+    if ((value.match(/\//g) || []).length > 1) return false;
+    if (value.includes('-') && value.includes('/')) return false;
+
+    function octetsOk(part) {
+        part = part.trim();
+        const octets = part.split('.');
+        if (octets.length > 4) return false;
+        for (const octet of octets) {
+            if (octet.length > 3) return false;
+            if (octet !== '' && Number(octet) > 255) return false;
+        }
+        return true;
+    }
+
+    const firstIp = value.split(/[-\/]/)[0];
+    if (!octetsOk(firstIp)) return false;
+    if (value.includes('-') && !octetsOk(value.split('-')[1])) return false;
+    if (value.includes('/')) {
+        const prefix = value.split('/')[1].trim();
+        if (prefix.length > 2) return false;
+        if (prefix !== '' && Number(prefix) > 32) return false;
+    }
+    return true;
+}
+
+const targetInput = document.getElementById('targetIp');
+const targetError = document.getElementById('targetError');
+let lastAllowedTarget = targetInput ? targetInput.value : '';
+
+function setTargetError(message, native) {
+    if (!targetInput) return;
+    targetInput.classList.toggle('is-invalid', Boolean(message));
+    if (targetError) targetError.textContent = message || '';
+    if (native) targetInput.setCustomValidity(message || '');
+}
+
+if (targetInput) {
+    targetInput.addEventListener('input', () => {
+        if (!targetMaskAllows(targetInput.value)) {
+            targetInput.value = lastAllowedTarget;
+            return;
+        }
+        lastAllowedTarget = targetInput.value;
+        setTargetError(validateTarget(targetInput.value), false);
+        updateSummary();
+    });
+    targetInput.addEventListener('blur', () => {
+        const normalized = normalizeTarget(targetInput.value);
+        if (normalized !== targetInput.value) {
+            targetInput.value = normalized;
+            lastAllowedTarget = normalized;
+        }
+        setTargetError(validateTarget(targetInput.value), true);
+        updateSummary();
+    });
+}
 
 function updateSummary() {
     const target = document.getElementById('targetIp');
     const targetValue = target ? target.value.trim() : '';
     const targetEl = document.getElementById('sumTarget');
     if (targetEl) {
-        targetEl.textContent = targetValue
-            ? (targetValue.includes('/') ? targetValue + ' (rango)' : targetValue)
-            : '—';
+        targetEl.textContent = targetValue ? describeTarget(targetValue) : '—';
     }
 
     const action = document.getElementById('action');
@@ -453,6 +610,22 @@ const confirmModalElement = document.getElementById('confirmModal');
 const confirmModal = new bootstrap.Modal(confirmModalElement);
 
 execForm.addEventListener('submit', (event) => {
+    const targetElement = document.getElementById('targetIp');
+    const normalizedTarget = normalizeTarget(targetElement.value);
+    if (normalizedTarget !== targetElement.value) {
+        targetElement.value = normalizedTarget;
+        lastAllowedTarget = normalizedTarget;
+    }
+    const targetValue = normalizedTarget.trim();
+    const targetValidation = validateTarget(targetValue);
+    if (targetValidation) {
+        event.preventDefault();
+        setTargetError(targetValidation, true);
+        targetElement.focus();
+        return;
+    }
+    setTargetError('', true);
+
     if (confirmedSubmit) return;
     if (!event.submitter || event.submitter.value !== 'execute') return;
 
@@ -466,8 +639,10 @@ execForm.addEventListener('submit', (event) => {
     const ntpText = ntp.options[ntp.selectedIndex].text;
 
     document.getElementById('confirmHosts').textContent = target.includes('/')
-        ? 'todos los hosts del rango ' + target
-        : 'el host ' + target;
+        ? 'todos los hosts del CIDR ' + target
+        : (target.includes('-')
+            ? 'todos los hosts del rango ' + target
+            : 'el host ' + target);
     document.getElementById('confirmTarget').textContent = target || '—';
     document.getElementById('confirmAction').textContent =
         action.options[action.selectedIndex].text;
