@@ -427,6 +427,7 @@ COMMON_TIMEZONES: tuple[str, ...] = (
     "America/Mexico_City",
     "America/Bogota",
     "America/Lima",
+    "America/La_Paz",
     "America/Santiago",
     "America/Argentina/Buenos_Aires",
     "America/Sao_Paulo",
