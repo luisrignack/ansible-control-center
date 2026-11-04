@@ -5,6 +5,61 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Multiplataforma Windows/Linux (bloque B)] — 2026-11-04
+
+### Añadido
+
+- **Tarea `zona-todas` (Zona horaria Linux y Windows):** aplica la zona IANA
+  (por defecto `America/Caracas`) a estaciones Linux (`timedatectl`) y
+  Windows (`ansible.windows.win_timezone`). Solo la acción TZ: no toca
+  NTP, ni la hora exacta, ni w32tm. No destructiva, `min_role` operator.
+  El mapa IANA→tzutil vive en el playbook (`America/Caracas` →
+  `SA Pacific Standard Time`); zonas sin equivalencia se rechazan con
+  mensaje claro en vez de aplicar algo incorrecto.
+- **Grupos de inventario Windows:** al crear un grupo se elige la
+  plataforma (`Linux (Ubuntu) · SSH` o `Windows · WinRM`); la conexión se
+  deriva automáticamente (`ssh`/`winrm`) y no se puede configurar una
+  contra la otra. La subida de clave SSH se rechaza para grupos Windows
+  (autenticación winrm es usuario/contraseña del grupo) y la ficha del
+  grupo lo indica en pantalla con el badge de plataforma.
+- **Conexión WinRM en el runner:** las variables de conexión
+  (`ansible_connection=winrm`, `ansible_port` de `ACC_WINRM_PORT`
+  (5985 por defecto), `ansible_winrm_transport` de `ACC_WINRM_TRANSPORT`
+  (`basic`/`ntlm`/`credssp`, `ntlm` por defecto) y
+  `ansible_winrm_server_cert_validation=ignore`) van siempre por
+  extra-vars en fichero `0600`, nunca por línea de comandos. El ping de
+  verificación usa el módulo `win_ping` para winrm.
+- **Playbooks Windows dedicados** (`ansible/win_cambiar_zona.yml`,
+  `ansible/win_estado_zona.yml`): mismo contrato de marcadores `HORA_*`
+  (HORA_BEFORE_B64/HORA_STATE_B64/HORA_CHANGED/HORA_VERIFIED/HORA_ERRORS)
+  que el de Linux; `become: false`, sin NTP. La inspección Windows publica
+  solo la zona horaria (los demás relojes requieren WMI; fuera de fase).
+- **Direccionado de playbook por conexión:** con `connection=winrm` el
+  runner usa los playbooks Windows automáticamente, tanto en la vista
+  previa como en la aplicación.
+
+### Cambiado
+
+- El catálogo declara `platforms` y `actions` por tarea; la validación del
+  formulario bloquea la acción no admitida ("La tarea 'X' no admite la
+  acción TIME.") y las combinaciones tarea↔plataforma ("La tarea 'Hora y
+  zona horaria' no está disponible para el grupo 'Win' (Windows)").
+- `templates/index.html` adapta el formulario a tareas de solo TZ: la
+  política/servidores NTP, la semántica de hora local y las opciones
+  avanzadas (RTC/forzar) solo se muestran en tareas con acción TIME; el
+  resumen y los modales defienden elementos ausentes.
+
+### Infraestructura
+
+- `requirements.txt`: `pywinrm>=0.4.3`.
+- `Dockerfile`: colección `ansible.windows` instalada en
+  `/app/ansible/collections` con `ansible-galaxy` y
+  `ANSIBLE_COLLECTIONS_PATH` configurada como ENV de imagen.
+- Pruebas: 10 nuevas (`tests/test_windows.py`), total 174. No hay hosts
+  Windows reales disponibles: la cobertura winrm es a nivel cmd/payload,
+  catálogo y validación de app; la prueba contra una estación real queda
+  pendiente de usuario con red.
+
 ## [Operación del bloque A] — 2026-11-04
 
 ### Añadido

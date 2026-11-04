@@ -145,7 +145,24 @@ TEMP_DIR = SECRETS_DIR / ".tmp"
 ANSIBLE_DIR = BASE_DIR / "ansible"
 PLAYBOOK_FILE = ANSIBLE_DIR / "cambiar_hora.yml"
 INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "estado_hora.yml"
+# Playbooks equivalentes para hosts Windows (conexión winrm, colección
+# ansible.windows). Se auto-disponen cuando el grupo de inventario es Windows.
+WINDOWS_APPLY_PLAYBOOK_FILE = ANSIBLE_DIR / "win_cambiar_zona.yml"
+WINDOWS_INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "win_estado_zona.yml"
 ANSIBLE_CFG = ANSIBLE_DIR / "ansible.cfg"
+
+# ---------------------------------------------------------------------------
+# Windows vía WinRM
+# ---------------------------------------------------------------------------
+# El transporte por defecto es ``ntlm`` (estaciones en dominio o con usuario
+# local; sin TLS explícito). ``basic`` requiere el mismo usuario local pero
+# suele necesitar LocalAccountTokenFilterPolicy en workgroup.
+WINRM_PORT = _env_int("ACC_WINRM_PORT", 5985, minimum=1, maximum=65535)
+WINRM_TRANSPORT = (
+    os.environ.get("ACC_WINRM_TRANSPORT", "ntlm").strip().lower() or "ntlm"
+)
+if WINRM_TRANSPORT not in {"basic", "ntlm", "credssp"}:
+    WINRM_TRANSPORT = "ntlm"
 
 BIN_ANSIBLE = _find_binary("ansible", "ACC_ANSIBLE_BIN")
 BIN_ANSIBLE_PLAYBOOK = _find_binary("ansible-playbook", "ACC_ANSIBLE_PLAYBOOK_BIN")

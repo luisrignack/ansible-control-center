@@ -11,6 +11,7 @@ Añadir una tarea nueva = añadir una entrada aquí (+ su playbook en
 from typing import Any, Dict, List, Optional
 
 TASK_ID_HORA = "hora"
+TASK_ID_ZONA_ALL = "zona-todas"
 TASK_ID_KASPERSKY = "kaspersky"
 TASK_ID_CONTRASENA = "contrasena"
 TASK_ID_TAPIZ = "tapiz"
@@ -34,7 +35,31 @@ TASK_CATALOG: List[Dict[str, Any]] = [
         "status": STATUS_ACTIVE,
         "min_role": "operator",
         "destructive": False,
+        # Plataformas soportadas: los grupos Windows no pueden ejecutar esta
+        # tarea (su playbook es de Linux).
+        "platforms": ["linux"],
+        # Acciones que admite la tarea; el formulario no ofrece el resto.
+        "actions": ["TZ", "TIME"],
         "chips": ["Operativa", "Acción TZ / TIME", "254 hosts"],
+        "steps": [],
+    },
+    {
+        "id": TASK_ID_ZONA_ALL,
+        "name": "Zona horaria (Linux y Windows)",
+        "icon": "bi-globe-americas",
+        "tone": "blue",
+        "summary": (
+            "Aplica la zona horaria indicada (por defecto America/Caracas) en "
+            "estaciones Linux (timedatectl) y Windows (win_timezone), con "
+            "vista previa y verificación por host."
+        ),
+        "playbook": "cambiar_hora.yml",
+        "status": STATUS_ACTIVE,
+        "min_role": "operator",
+        "destructive": False,
+        "platforms": ["linux", "windows"],
+        "actions": ["TZ"],
+        "chips": ["Operativa", "Solo TZ", "Linux + Windows"],
         "steps": [],
     },
     {
@@ -50,6 +75,8 @@ TASK_CATALOG: List[Dict[str, Any]] = [
         "status": STATUS_PLANNED,
         "min_role": "admin",
         "destructive": True,
+        "platforms": ["linux"],
+        "actions": ["TZ", "TIME"],
         "chips": ["En preparación", "2 pasos", "Seguridad"],
         "steps": [
             "Desinstalar la versión en vigor de KES en cada host.",
@@ -70,6 +97,8 @@ TASK_CATALOG: List[Dict[str, Any]] = [
         "status": STATUS_PLANNED,
         "min_role": "admin",
         "destructive": True,
+        "platforms": ["linux"],
+        "actions": ["TZ", "TIME"],
         "chips": ["En preparación", "Credenciales", "Rotación"],
         "steps": [
             "Validar la contraseña candidata contra un host de muestra.",
@@ -90,6 +119,8 @@ TASK_CATALOG: List[Dict[str, Any]] = [
         "status": STATUS_PLANNED,
         "min_role": "operator",
         "destructive": False,
+        "platforms": ["linux"],
+        "actions": ["TZ", "TIME"],
         "chips": ["En preparación", "Escritorio", "Plantilla"],
         "steps": [
             "Copiar la imagen del tapiz a cada host y fijar permisos.",

@@ -1,0 +1,25 @@
+---
+# Playbook de inspección para hosts Windows (conexión WinRM).
+#
+# Salida esperada en stdout (igual que el de Linux, pero solo zona):
+#   HORA_STATE_B64=<base64 del JSON de estado>
+#
+# ``estado_hora`` de Linux lee epoch/NTP/RTC, que en Windows requieren
+# PowerShell y WMI; en esta fase la inspección Windows publica solo la zona
+# horaria, suficiente para la vista previa de la acción TZ.
+- name: Inspeccionar la zona horaria (Windows)
+  hosts: all
+  become: false
+  gather_facts: false
+
+  tasks:
+    - name: Leer la zona horaria actual (tzutil)
+      ansible.windows.win_shell: tzutil /g
+      register: _win_tz_actual
+      changed_when: false
+
+    - name: Publicar el estado
+      ansible.builtin.debug:
+        msg: >-
+          HORA_STATE_B64={{ {'timezone': _win_tz_actual.stdout | trim}
+          | to_json | b64encode }}

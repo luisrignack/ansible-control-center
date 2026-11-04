@@ -489,7 +489,6 @@ def _parse_operation_form(
 
     errors: List[str] = []
 
-    # Tarea del catálogo: determina permisos y si es destructiva.
     # Tarea del catálogo: determina permisos y si es destructiva. Para no
     # romper envíos anteriores (que no enviaban el campo oculto), si falta se
     # asume la tarea operativa por defecto del catálogo.
@@ -503,8 +502,11 @@ def _parse_operation_form(
     task = get_task(task_id) if task_id else None
     if task is None or task.get("status") != "active":
         errors.append("Selecciona una tarea activa del catálogo.")
-    elif task.get("action") and action not in {"TZ", "TIME"}:
-        errors.append("Acción no válida.")
+    elif action not in (task.get("actions") or ["TZ", "TIME"]):
+        errors.append(
+            f"La tarea '{task.get('name', task_id)}' no admite la acción "
+            f"{action}."
+        )
 
     if mode not in {"preview", "execute"}:
         errors.append("Modo de operación no válido.")
@@ -538,6 +540,18 @@ def _parse_operation_form(
                 errors.append(
                     f"El grupo '{group.name}' tiene {group.host_count} hosts "
                     f"y el máximo es {MAX_HOSTS}."
+                )
+            # Compatibilidad tarea/plataforma: la tarea declara qué SO admite
+            # y el grupo declara qué SO es.
+            if (
+                task is not None
+                and task.get("platforms")
+                and group.os_flavor not in task.get("platforms")
+            ):
+                errors.append(
+                    f"La tarea '{task.get('name', task_id)}' no está "
+                    f"disponible para el grupo '{group.name}' "
+                    f"({'Windows' if group.os_flavor == 'windows' else 'Linux'})."
                 )
         # El objetivo real se resuelve en caliente al ejecutar (los hosts del
         # grupo pueden cambiar entre el envío y el disparo del lote).
@@ -1411,8 +1425,7 @@ def inventario():
                 HostGroup.create(
                     request.form.get("name", ""),
                     description=request.form.get("description", ""),
-                    os_flavor="linux",
-                    connection="ssh",
+                    os_flavor=request.form.get("os_flavor", "linux"),
                     db_path=db_path,
                 )
                 flash("Grupo creado.", "success")
@@ -1465,6 +1478,12 @@ def inventario():
             uploaded = request.files.get("ssh_key")
             if group is None:
                 flash("El grupo no existe.", "warning")
+            elif group.os_flavor == "windows":
+                flash(
+                    "Los grupos Windows se autentican por usuario/contraseña "
+                    "winrm, no admiten clave SSH.",
+                    "warning",
+                )
             elif uploaded is None or not uploaded.filename:
                 flash("Selecciona el fichero de clave privada (.pem).", "warning")
             else:
@@ -2153,6 +2172,7 @@ def _run_preview_batch(
     target_epoch: Optional[int] = None,
     cancel_event: Optional[threading.Event] = None,
     private_key: str = "",
+    connection: str = "ssh",
 ) -> None:
     """Inspecciona todos los hosts sin cambiar nada y registra el lote.
 
@@ -2221,6 +2241,7 @@ def _run_preview_batch(
                     force_real=True,
                     cancel_event=cancel_event,
                     private_key=private_key or None,
+                    connection=connection or "ssh",
                 )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_error = str(exc)
@@ -2343,6 +2364,7 @@ def _run_apply_batch(
     requiere_ntp_off: bool = True,
     cancel_event: Optional[threading.Event] = None,
     private_key: str = "",
+    connection: str = "ssh",
 ) -> None:
     """Aplica el cambio en todos los hosts (best-effort) y registra cada uno.
 
@@ -2424,6 +2446,7 @@ def _run_apply_batch(
                     password=candidate,
                     cancel_event=cancel_event,
                     private_key=private_key or None,
+                    connection=connection or "ssh",
                 )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_auth_error = str(exc)
@@ -2486,6 +2509,7 @@ def _run_apply_batch(
                     line_callback=line_callback,
                     cancel_event=cancel_event,
                     private_key=private_key or None,
+                    connection=connection or "ssh",
                 )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_apply_error = str(exc)
@@ -2675,6 +2699,7 @@ def execute_with_progress(
         private_key = ""
         target_display = ti
         inv_errors: List[str] = []
+        connection = "ssh"
         if ti.startswith("inventory:"):
             try:
                 inv_group_id = int(ti.split(":", 1)[1])
@@ -2699,6 +2724,9 @@ def execute_with_progress(
                 )
                 return
             target_display = f"Inventario: {inv_group.name}"
+            connection = inv_group.connection or "ssh"
+            if connection == "winrm":
+                private_key = ""  # Windows: autenticación por contraseña
             hosts = []
             for inv_host in HostGroup.hosts_of(inv_group.id, db_path=db_path):
                 pinned_inv, inv_error = pin_target(inv_host.address)
@@ -2864,6 +2892,7 @@ def execute_with_progress(
                 target_epoch=target_epoch,
                 cancel_event=cancel_event,
                 private_key=private_key,
+                connection=connection,
             )
         else:
             outcome = _run_apply_batch(
@@ -2890,6 +2919,7 @@ def execute_with_progress(
                 requiere_ntp_off=TIME_REQUIRE_NTP_OFF,
                 cancel_event=cancel_event,
                 private_key=private_key,
+                connection=connection,
             )
 
         if cancel_event is not None and cancel_event.is_set():

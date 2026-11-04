@@ -12,6 +12,8 @@ from config import (
     CONNECT_TIMEOUT,
     DRY_RUN,
     PING_TIMEOUT,
+    WINRM_PORT,
+    WINRM_TRANSPORT,
 )
 from models.password import PasswordRecord
 from services.ansible_runner import (
@@ -147,13 +149,15 @@ def test_ansible_ping(
     timeout: int = None,
     cancel_event=None,
     private_key: str = None,
+    connection: str = "ssh",
 ) -> Dict[str, Any]:
     """Ejecuta ``ansible -m ping`` con la contraseña candidata.
 
     La contraseña se pasa en un fichero temporal 0600 mediante
     ``--extra-vars @fichero``, no como argumento de línea de comandos.
     Con ``private_key``, la autenticación SSH usa la clave y la contraseña
-    queda solo para el become (sudo).
+    queda solo para el become (sudo). Con ``connection == "winrm"`` se usa el
+    módulo ``win_ping`` y las variables de conexión de WinRM.
     """
     result: Dict[str, Any] = {"success": False, "host": host, "error": ""}
 
@@ -174,9 +178,20 @@ def test_ansible_ping(
         result["error"] = "No se proporcionó contraseña ni clave SSH."
         return result
 
+    module = "win_ping" if connection == "winrm" else "ping"
+    connection_vars: Dict[str, Any] = {}
+    if connection == "winrm":
+        connection_vars = {
+            "ansible_connection": "winrm",
+            "ansible_port": str(WINRM_PORT),
+            "ansible_winrm_transport": WINRM_TRANSPORT,
+            "ansible_winrm_server_cert_validation": "ignore",
+        }
+
     try:
         with secure_temp_file(
-            json.dumps({"ansible_password": password} | (
+            json.dumps({"ansible_password": password} |
+                       connection_vars | (
                 {"ansible_ssh_private_key_file": private_key}
                 if private_key else {}
             )),
@@ -194,7 +209,7 @@ def test_ansible_ping(
                 "-i",
                 f"{host},",
                 "-m",
-                "ping",
+                module,
                 "-u",
                 user,
                 "-T",

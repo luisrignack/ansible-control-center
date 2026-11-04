@@ -1,0 +1,99 @@
+---
+# Playbook de zona horaria para hosts Windows (conexión WinRM).
+#
+# Contrato con la aplicación (idéntico al playbook de Linux):
+#   * Variables de entrada (via --extra-vars @fichero 0600):
+#       accion:   "TZ" (única acción soportada en Windows por ahora)
+#       valor:    zona IANA, traducida por el mapa ``iana_to_windows``
+#       force:    aplicar aunque la zona ya coincida
+#   * Marcadores de salida que la app interpreta:
+#       HORA_BEFORE_B64 / HORA_STATE_B64  estado previo y posterior (JSON)
+#       HORA_CHANGED=true|false           si hubo cambio
+#       HORA_VERIFIED=true|false          verificación del playbook
+#       HORA_ERRORS / HORA_WARNINGS       texto plano con problemas
+#
+# La única acción soportada es TZ: el cambio de zona no toca NTP ni la hora
+# exacta (w32tm queda fuera de esta fase). Con ``Timezone`` de ansible.windows
+# el cambio es idempotente y valida que la zona exista.
+- name: Configurar la zona horaria (Windows)
+  hosts: all
+  become: false
+  gather_facts: false
+
+  # Mapa IANA -> nombre de zona de Windows (formato tzutil). Para añadir una
+  # zona nueva basta añadir una entrada; ``America/Caracas`` es UTC-4 sin DST.
+  vars:
+    iana_to_windows:
+      "America/Caracas": "SA Pacific Standard Time"
+
+  tasks:
+    - name: Validar la acción solicitada (solo TZ en Windows)
+      ansible.builtin.assert:
+        that:
+          - accion == 'TZ'
+        fail_msg: >-
+          En Windows solo se soporta la acción TZ. Para cambiar la hora exacta
+          o NTP, usa la tarea de Linux o amplía este playbook de forma
+          consciente.
+
+    - name: Validar la zona pedida contra el mapa IANA->Windows
+      ansible.builtin.assert:
+        that:
+          - valor in (iana_to_windows.keys() | list)
+        fail_msg: >-
+          No existe equivalencia en el playbook para la zona "{{ valor }}".
+          Añádela al mapa ``iana_to_windows`` con su tzutil correcto.
+
+    - name: Leer la zona horaria actual (tzutil)
+      ansible.windows.win_shell: tzutil /g
+      register: _win_tz_antes
+      changed_when: false
+
+    - name: Publicar el estado inicial (HORA_BEFORE)
+      ansible.builtin.debug:
+        msg: >-
+          HORA_BEFORE_B64={{ {'timezone': _win_tz_antes.stdout | trim}
+          | to_json | b64encode }}
+
+    - name: Registrar si la zona ya coincide
+      ansible.builtin.assert:
+        that:
+          - (_win_tz_antes.stdout | trim) == (iana_to_windows[valor])
+        fail_msg: "La zona actual difiere del objetivo: se cambiará."
+        success_msg: "La zona ya coincide con el objetivo."
+      register: _win_tz_ok
+      ignore_errors: true
+
+    - name: Cambiar la zona horaria (idempotente)
+      ansible.windows.win_timezone:
+        timezone: "{{ iana_to_windows[valor] }}"
+      register: _win_tz_cambio
+      when: force | default(false) | bool
+            or _win_tz_ok is failed
+
+    - name: Publicar si hubo cambio (HORA_CHANGED)
+      ansible.builtin.debug:
+        msg: >-
+          HORA_CHANGED={{ 'true' if (_win_tz_cambio is defined
+          and _win_tz_cambio.changed) else 'false' }}
+
+    - name: Verificar la zona final (tzutil)
+      ansible.windows.win_shell: tzutil /g
+      register: _win_tz_despues
+      changed_when: false
+
+    - name: Publicar el estado final (HORA_STATE)
+      ansible.builtin.debug:
+        msg: >-
+          HORA_STATE_B64={{ {'timezone': _win_tz_despues.stdout | trim}
+          | to_json | b64encode }}
+
+    - name: Publicar la verificación y los errores
+      ansible.builtin.debug:
+        msg: >-
+          HORA_VERIFIED={{ 'true' if ((_win_tz_despues.stdout | trim)
+          == (iana_to_windows[valor])) else 'false' }}{{
+          ('' if ((_win_tz_despues.stdout | trim)
+          == (iana_to_windows[valor])) else 'HORA_ERRORS=La zona final ('
+          ~ (_win_tz_despues.stdout | trim) ~ ') no coincide con
+          ' ~ iana_to_windows[valor]) }}

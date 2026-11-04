@@ -175,22 +175,26 @@
                     </div>
 
                     <!-- Acción -->
-                    <div class="col-md-6">
+                    <div class="col-md-6" {% if selected_task.actions | length < 2 %}hidden{% endif %}>
                         <label for="action" class="form-label fw-medium">
                             <i class="bi bi-list me-2"></i> Acción
                         </label>
                         <select class="form-select" id="action" name="action">
+                            {% if 'TZ' in selected_task.actions %}
                             <option value="TZ" {% if prefill.get('action') == 'TZ' %}selected{% endif %}>
                                 Zona Horaria (TZ)
                             </option>
+                            {% endif %}
+                            {% if 'TIME' in selected_task.actions %}
                             <option value="TIME" {% if prefill.get('action') == 'TIME' %}selected{% endif %}>
                                 Hora Exacta (TIME)
                             </option>
+                            {% endif %}
                         </select>
                     </div>
 
-                    <!-- Semántica de la hora -->
-                    <div class="col-md-6" id="timeModeField">
+                    <!-- Semántica de la hora (solo tareas con acción TIME) -->
+                    <div class="col-md-6 {% if 'TIME' not in selected_task.actions %}d-none{% endif %}" id="timeModeField">
                         <label for="timeMode" class="form-label fw-medium">
                             <i class="bi bi-clock-history me-2"></i> Semántica de la hora
                         </label>
@@ -254,8 +258,12 @@
                         {% endfor %}
                     </datalist>
 
+                    {% if selected_task.actions | length < 2 %}
+                    <input type="hidden" name="ntp_policy" value="keep">
+                    <input type="hidden" name="ntp_servers" value="">
+                    {% else %}
                     <!-- Política NTP -->
-                    <div class="col-md-6">
+                    <div class="col-md-6" id="ntpPolicyField">
                         <label for="ntpPolicy" class="form-label fw-medium">
                             <i class="bi bi-arrow-repeat me-2"></i> Política NTP
                         </label>
@@ -290,8 +298,10 @@
                             Solo se usa con la política “Configurar servidores NTP”.
                         </div>
                     </div>
+                    {% endif %}
 
-                    <!-- Opciones avanzadas -->
+                    <!-- Opciones avanzadas (RTC y forzar cambio: solo tareas con TIME) -->
+                    {% if 'TIME' in selected_task.actions %}
                     <div class="col-12">
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" value="1"
@@ -310,6 +320,7 @@
                             </label>
                         </div>
                     </div>
+                    {% endif %}
 
                     <!-- Botones -->
                     <div class="col-12">
@@ -621,8 +632,8 @@ function updateSummary() {
 
     const ntp = document.getElementById('ntpPolicy');
     const ntpEl = document.getElementById('sumNtp');
-    if (ntp && ntpEl) {
-        ntpEl.textContent = ntp.options[ntp.selectedIndex].text;
+    if (ntpEl) {
+        ntpEl.textContent = ntp ? ntp.options[ntp.selectedIndex].text : 'sin cambios (keep)';
     }
 
     const origin = document.getElementById('passwordOrigin');
@@ -662,7 +673,7 @@ function updateNtpFields(policy) {
     const field = document.getElementById('ntpServersField');
     const input = document.getElementById('ntpServers');
     const configure = policy === 'configure';
-    field.classList.toggle('d-none', !configure);
+    if (field) field.classList.toggle('d-none', !configure);
     if (input) {
         input.required = configure;
         if (configure && !input.value) input.value = defaultNtpServers;
@@ -672,19 +683,28 @@ function updateNtpFields(policy) {
 
 function updateTimeModeField(action) {
     const field = document.getElementById('timeModeField');
+    if (!field) return; // Tareas de solo TZ no publican el campo hora local
     field.classList.toggle('d-none', action !== 'TIME');
     updateLocalFields();
 }
 
 function updateLocalFields() {
+    const timeModeElement = document.getElementById('timeMode');
+    const timeZoneElement = document.getElementById('timeZone');
+    const timeZoneField = document.getElementById('timeZoneField');
+    const timeFoldField = document.getElementById('timeFoldField');
+    if (!timeModeElement || !timeModeFieldExists()) return;
     const action = document.getElementById('action').value;
-    const mode = document.getElementById('timeMode').value;
+    const mode = timeModeElement.value;
     const show = action === 'TIME' && mode === 'local';
-    document.getElementById('timeZoneField').classList.toggle('d-none', !show);
-    document.getElementById('timeFoldField').classList.toggle('d-none', !show);
-    const zone = document.getElementById('timeZone');
-    if (zone) zone.required = show;
+    timeZoneField.classList.toggle('d-none', !show);
+    timeFoldField.classList.toggle('d-none', !show);
+    if (timeZoneElement) timeZoneElement.required = show;
     updateSummary();
+}
+
+function timeModeFieldExists() {
+    return !!document.getElementById('timeZoneField');
 }
 
 function updateValueField(action, currentValue) {
@@ -747,7 +767,7 @@ execForm.addEventListener('submit', (event) => {
             (valueInput && valueInput.value) || '—';
         const ntp = document.getElementById('ntpPolicy');
         document.getElementById('confirmNtp').textContent =
-            ntp.options[ntp.selectedIndex].text;
+            ntp ? ntp.options[ntp.selectedIndex].text : 'sin cambios (keep)';
         document.getElementById('confirmMode').textContent = dryRunEnabled
             ? 'DRY RUN (simulación, sin cambios reales)'
             : 'Ejecución real';
@@ -781,7 +801,9 @@ execForm.addEventListener('submit', (event) => {
     const action = document.getElementById('action');
     const valueInput = document.getElementById('actionValue');
     const ntp = document.getElementById('ntpPolicy');
-    const ntpText = ntp.options[ntp.selectedIndex].text;
+    const ntpText = ntp
+        ? ntp.options[ntp.selectedIndex].text
+        : 'sin cambios (keep)';
 
     document.getElementById('confirmHosts').textContent = target.includes('/')
         ? 'todos los hosts del CIDR ' + target
@@ -815,7 +837,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     updateValueField(actionSelect.value, prefill.value || '');
     updatePasswordFields(originSelect.value);
-    updateNtpFields(ntpSelect.value);
+    updateNtpFields(ntpSelect ? ntpSelect.value : 'keep');
     updateTimeModeField(actionSelect.value);
     updateTargetModeFields();
 
@@ -828,11 +850,16 @@ document.addEventListener('DOMContentLoaded', () => {
         updateTimeModeField(event.target.value);
     });
 
-    ntpSelect.addEventListener('change', (event) => {
-        updateNtpFields(event.target.value);
-    });
+    if (ntpSelect) {
+        ntpSelect.addEventListener('change', (event) => {
+            updateNtpFields(event.target.value);
+        });
+    }
 
-    document.getElementById('timeMode').addEventListener('change', updateLocalFields);
+    const timeModeSelect = document.getElementById('timeMode');
+    if (timeModeSelect) {
+        timeModeSelect.addEventListener('change', updateLocalFields);
+    }
 
     const summaryForm = document.getElementById('execForm');
     if (summaryForm) {

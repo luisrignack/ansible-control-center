@@ -32,6 +32,10 @@ from config import (
     PLAYBOOK_FILE,
     PLAYBOOK_TIMEOUT,
     TIME_VERIFY_TOLERANCE,
+    WINRM_PORT,
+    WINRM_TRANSPORT,
+    WINDOWS_APPLY_PLAYBOOK_FILE,
+    WINDOWS_INSPECT_PLAYBOOK_FILE,
 )
 from services.job_queue import JobCancelled
 from services.secure_temp import secure_temp_file
@@ -119,6 +123,7 @@ def _invoke_playbook(
     line_callback: Optional[Callable[[str], None]] = None,
     cancel_event: Optional[threading.Event] = None,
     private_key: Optional[str] = None,
+    connection: Optional[str] = None,
 ) -> subprocess.CompletedProcess:
     """Ejecuta ``ansible-playbook`` con las credenciales en un fichero 0600.
 
@@ -134,6 +139,14 @@ def _invoke_playbook(
         # La clave se pasa por variables de conexión, no por línea de
         # comandos, para que no aparezca en ``ps`` ni en el historial.
         payload["ansible_ssh_private_key_file"] = private_key
+    if connection == "winrm":
+        # Windows: la conexión es WinRM (también por variables, nunca por
+        # línea de comandos). El playbook define ``become: false`` porque el
+        # escalamiento sudo no aplica a WinRM.
+        payload["ansible_connection"] = "winrm"
+        payload["ansible_port"] = str(WINRM_PORT)
+        payload["ansible_winrm_transport"] = WINRM_TRANSPORT
+        payload["ansible_winrm_server_cert_validation"] = "ignore"
 
     with secure_temp_file(
         json.dumps(payload), prefix=".ansible-vars-", suffix=".json"
@@ -333,6 +346,7 @@ def run_ansible_playbook(
     line_callback: Optional[Callable[[str], None]] = None,
     cancel_event: Optional[threading.Event] = None,
     private_key: Optional[str] = None,
+    connection: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Ejecuta el playbook de configuración de hora contra un host.
 
@@ -398,6 +412,7 @@ def run_ansible_playbook(
             line_callback=line_callback,
             cancel_event=cancel_event,
             private_key=private_key,
+            connection=connection,
         )
     except FileNotFoundError:
         return _result(
@@ -461,17 +476,25 @@ def inspect_host(
     force_real: bool = False,
     cancel_event: Optional[threading.Event] = None,
     private_key: Optional[str] = None,
+    connection: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Lee el estado de hora/zona horaria/NTP de un host sin cambiar nada.
 
     Devuelve ``state`` con el diccionario publicado por el playbook o ``None``
     si no se pudo obtener.
 
+    Con ``connection == "winrm"`` inspecciona un host Windows con su playbook
+    equivalente (solo soporta la zona horaria de momento).
+
     La inspección es de solo lectura, así que la vista previa la ejecuta de
     verdad incluso en ``DRY_RUN`` (``force_real=True``). Simularla haría que
     hosts inalcanzables aparecieran como inspeccionados correctamente.
     """
-    path = str(INSPECT_PLAYBOOK_FILE)
+    path = str(
+        WINDOWS_INSPECT_PLAYBOOK_FILE
+        if connection == "winrm"
+        else INSPECT_PLAYBOOK_FILE
+    )
 
     if not os.path.exists(path):
         return _missing_playbook(host, path)
@@ -509,6 +532,7 @@ def inspect_host(
             line_callback=line_callback,
             cancel_event=cancel_event,
             private_key=private_key,
+            connection=connection,
         )
     except FileNotFoundError:
         return _result(
@@ -574,6 +598,7 @@ def apply_host(
     ntp_settle: int = 0,
     target_epoch: Optional[int] = None,
     cancel_event: Optional[threading.Event] = None,
+    connection: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Aplica el cambio en un host y verifica el resultado.
 
@@ -581,8 +606,12 @@ def apply_host(
     ``verified``, ``warnings`` y ``deviation``. La verificación se considera
     parte del éxito: un playbook que termina pero no deja el estado esperado
     se reporta como fallo.
+
+    Con ``connection == "winrm"`` aplica el playbook de Windows (equivalente).
     """
-    path = str(PLAYBOOK_FILE)
+    path = str(
+        WINDOWS_APPLY_PLAYBOOK_FILE if connection == "winrm" else PLAYBOOK_FILE
+    )
 
     if not os.path.exists(path):
         return _missing_playbook(host, path)
@@ -651,6 +680,7 @@ def apply_host(
             line_callback=line_callback,
             cancel_event=cancel_event,
             private_key=private_key,
+            connection=connection,
         )
     except FileNotFoundError:
         return _result(

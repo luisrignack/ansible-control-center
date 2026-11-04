@@ -19,6 +19,25 @@ from typing import Any, Dict, List, Optional, Tuple
 from models.db import get_connection
 
 
+class OSFlavor:
+    """Sistemas operativos soportados por el inventario."""
+    LINUX = "linux"
+    WINDOWS = "windows"
+
+
+# Mantener el orden estable para listas en UI/mensajes.
+OS_FLAVORS = (OSFlavor.LINUX, OSFlavor.WINDOWS)
+
+
+class OSConnection:
+    """Tipos de conexión de Ansible por plataforma."""
+    SSH = "ssh"
+    WINRM = "winrm"
+
+
+OS_CONNECTIONS = (OSConnection.SSH, OSConnection.WINRM)
+
+
 def _default_db_path() -> str:
     from config import resolve_db_path
 
@@ -125,17 +144,24 @@ class HostGroup:
         name: str,
         description: str = "",
         os_flavor: str = "linux",
-        connection: str = "ssh",
+        connection: str = "",
         db_path: str = None,
     ) -> "HostGroup":
         if db_path is None:
             db_path = _default_db_path()
         name = (name or "").strip()
+        os_flavor = (os_flavor or "linux").strip().lower()
         if not name or len(name) > 80:
             raise ValueError("El nombre del grupo es obligatorio (máx. 80).")
-        if os_flavor not in {"linux"}:
+        if os_flavor not in OS_FLAVORS:
             raise ValueError("Plataforma no soportada.")
-        if connection not in {"ssh"}:
+        # La conexión se deriva de la plataforma salvo que se fuerce.
+        connection = (connection or "").strip().lower()
+        if not connection:
+            connection = (
+                "winrm" if os_flavor == OSFlavor.WINDOWS else "ssh"
+            )
+        if connection not in OS_CONNECTIONS:
             raise ValueError("Tipo de conexión no soportado.")
         with get_connection(db_path) as conn:
             cursor = conn.execute(
