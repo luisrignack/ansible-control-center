@@ -368,7 +368,9 @@ administrador desactiva el interruptor **Simulación** de la barra superior
 
 ### Acciones
 
-- **TZ**: cambia la zona horaria con `timedatectl set-timezone`.
+- **TZ**: cambia la zona horaria con `timedatectl set-timezone`. Antes del
+  cambio guarda el archivo actual en `/etc/timezone.bak` (si ya existe, no lo
+  sobrescribe).
 - **TIME**: fija la hora con `date -s @<epoch>`.
   - `time_mode=utc`: el valor se interpreta como UTC; mismo instante en todos.
   - `time_mode=local`: el valor se interpreta en la zona IANA seleccionada

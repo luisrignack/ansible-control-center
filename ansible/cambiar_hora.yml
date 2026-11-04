@@ -88,6 +88,23 @@
     # ------------------------------------------------------------------
     # Zona horaria
     # ------------------------------------------------------------------
+    - name: Comprobar el archivo /etc/timezone
+      ansible.builtin.stat:
+        path: /etc/timezone
+      register: _hora_tz_file
+
+    - name: Guardar copia de seguridad de /etc/timezone
+      ansible.builtin.copy:
+        src: /etc/timezone
+        dest: /etc/timezone.bak
+        remote_src: true
+        mode: preserve
+        force: false
+      when:
+        - accion == 'TZ'
+        - _hora_tz_file.stat.exists
+        - force | bool or (hora_antes.timezone | default('')) != valor
+
     - name: Configurar la zona horaria
       ansible.builtin.command:
         argv: [timedatectl, set-timezone, "{{ valor }}"]

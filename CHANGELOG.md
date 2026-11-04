@@ -7,6 +7,17 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ---
 
+## [Copia de seguridad de /etc/timezone] — 2026-11-04
+
+### Añadido
+
+- **Backup antes de cambiar la zona horaria:** el playbook copia
+  `/etc/timezone` a `/etc/timezone.bak` antes de ejecutar
+  `timedatectl set-timezone`. Si el backup ya existe se conserva, para no
+  perder la versión original.
+
+---
+
 ## [Origen manual automático] — 2026-11-04
 
 ### Cambiado
