@@ -5,6 +5,40 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Informe PDF, "Acerca de" y favicon] — 2026-11-04
+
+### Añadido
+
+- **Informe PDF de la última ejecución**: botón "Descargar informe" en cada
+  vista de tarea. La ruta `GET /tarea/<task_id>/informe.pdf` genera un PDF A4
+  con el resumen de la última corrida de esa tarea (tarea, acción, objetivo,
+  operador, credenciales, tipo de corrida, inicio/fin, resultado global) y la
+  tabla de estaciones con estado y **motivo breve** (estación apagada o sin
+  conexión, credenciales rechazadas, verificación no confirmada, etc.),
+  fallidas primero. Culpa por host a partir del texto técnico del error con
+  un clasificador (`services/pdf_report.REASON_PATTERNS`); el error original
+  sigue disponible en el historial.
+- **Generador PDF sin dependencias**: se construye el PDF a mano con fuentes
+  base Helvetica y WinAnsiEncoding (acentos y Ñ) — no se añaden librerías de
+  pip, así que la imagen sigue construyéndose **sin acceso a red**. Los
+  streams van sin comprimir para inspección y pruebas. Paginación, aprontado
+  zebra, pies con el organismo y la fecha de generación (hora del servidor).
+- **Vínculo lote↔tarea del catálogo**: columna nueva `task_id` en
+  `execution_batches` (migración v9 no destructiva); la ruta del informe
+  busca la última corrida de esa tarea y, si no existe ninguna (lotes
+  anteriores a la migración), recurre a la última corrida global.
+- **Página "Acerca de"** (`GET /acerca-de`): muestrea el texto institucional
+  *Grupo de Migración a Código Abierto / DCTI - ETECSA* con la **fecha del
+  host** (formateada en español, hora local del servidor). Enlace nuevo en
+  la barra lateral (sección "Sistema"), visible para todos los roles.
+- **Favicon de Ansible**: `static/img/ansible-{48,96}.png` (iconos de
+  Icons8) enlazados en el `<head>` (firefox/chrome, apple-touch-icon).
+
+### Cambiado
+
+- `ExecutionBatch.create_batch()` acepta `task_id`; `handle_execution`,
+  `_run_scheduler_tick` y `execute_with_progress` la propagan.
+
 ## [Multiplataforma Windows/Linux (bloque B)] — 2026-11-04
 
 ### Añadido

@@ -365,6 +365,9 @@
             </div>
         </div>
         <div class="sum-actions">
+            <a class="btn btn-secondary" href="{{ url_for('task_report_pdf', task_id=selected_task.id) }}">
+                <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Descargar informe
+            </a>
             <a class="btn btn-secondary" href="{{ url_for('history') }}">
                 <i class="bi bi-clock-history" aria-hidden="true"></i> Historial de lotes
             </a>

@@ -140,6 +140,10 @@ from services.csrf import csrf_protect, generate_csrf_token, rotate_csrf_token
 from services.host_resolver import pin_target, resolve_target
 from services.job_queue import JobQueue, JobQueueFull
 from services.password_tester import test_ansible_ping
+from services.pdf_report import (
+    build_execution_report,
+    format_spanish_datetime,
+)
 from services.rate_limiter import LIMITER
 import services.notifier as notifier
 import services.scheduler as scheduler
@@ -1383,6 +1387,49 @@ def task_view(task_id):
     )
 
 
+@app.route("/tarea/<task_id>/informe.pdf", methods=["GET"])
+@login_required
+def task_report_pdf(task_id: str):
+    """Informe PDF de la última corrida de una tarea del catálogo."""
+    task = get_task(task_id)
+    if task is None:
+        abort(404)
+
+    db_path = get_db_path()
+    batch = ExecutionBatch.get_latest_by_task(task_id, db_path=db_path)
+    if batch is None:
+        # Lotes anteriores a la migración v9 no guardan task_id: en ese caso
+        # el informe recurre a la última corrida registrada en general (el
+        # PDF indica tarea y objetivo reales, así que nunca resulta ambiguo).
+        batches = ExecutionBatch.get_batches(limit=1, db_path=db_path)
+        batch = batches[0] if batches else None
+    if batch is None:
+        flash(
+            "Esta tarea aún no tiene ejecuciones registradas: lanza una "
+            "corrida para poder generar el informe.",
+            "info",
+        )
+        return redirect(url_for("task_view", task_id=task_id))
+
+    host_results = ExecutionBatch.get_host_results(
+        batch.batch_id, db_path=db_path
+    )
+    pdf_bytes = build_execution_report(
+        batch,
+        host_results,
+        task_name=task["name"],
+    )
+    filename = f"informe-{task_id}-{batch.batch_id[:8]}.pdf"
+    return Response(
+        pdf_bytes,
+        mimetype="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @app.route("/preview", methods=["POST"])
 @roles_required("operator")
 def preview_execution():
@@ -1832,6 +1879,7 @@ def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
             sync_rtc=bool(params.get("sync_rtc")),
             force=bool(params.get("force")),
             operator=f"agenda:{schedule['name']}",
+            task_id=schedule["task_id"],
         )
     except JobQueueFull as exc:
         remove_task(tid)
@@ -2007,6 +2055,7 @@ def handle_execution(default_mode: str = "execute"):
             sync_rtc=form["sync_rtc"],
             force=form["force"],
             operator=operator,
+            task_id=form["task_id"],
         )
     except JobQueueFull as exc:
         remove_task(tid)
@@ -2666,6 +2715,7 @@ def execute_with_progress(
     sync_rtc: bool = False,
     force: bool = False,
     operator: str = "",
+    task_id: str = "",
     cancel_event: Optional[threading.Event] = None,
 ) -> None:
     """Ejecuta una vista previa o un lote completo sobre todos los hosts.
@@ -2849,6 +2899,7 @@ def execute_with_progress(
             force=force,
             local_fold=time_fold,
             time_zone=time_zone,
+            task_id=task_id or "",
             db_path=db_path,
         )
         update_task(
@@ -3301,6 +3352,14 @@ def history():
     batches = ExecutionBatch.get_batches(limit=50, db_path=get_db_path())
     stats = ExecutionBatch.get_stats(db_path=get_db_path())
     return render_template("history.html", batches=batches, stats=stats)
+
+
+@app.route("/acerca-de", methods=["GET"])
+@login_required
+def acerca_de():
+    """Página institucional con la fecha del host (hora local del servidor)."""
+    host_date = format_spanish_datetime(datetime.now(), with_time=True)
+    return render_template("about.html", host_date=host_date)
 
 
 @app.route("/audit")

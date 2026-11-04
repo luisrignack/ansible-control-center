@@ -171,6 +171,7 @@ class ExecutionBatch:
         force: bool = False,
         local_fold: Optional[int] = None,
         time_zone: str = "",
+        task_id: str = "",
     ):
         self.id = id
         self.batch_id = batch_id
@@ -197,6 +198,8 @@ class ExecutionBatch:
         self.force = bool(force)
         self.local_fold = local_fold
         self.time_zone = time_zone or ""
+        # Tarea del catálogo que lanzó el lote ("zona-todas", "hora", ...).
+        self.task_id = task_id or ""
 
     @property
     def processed_count(self) -> int:
@@ -247,6 +250,7 @@ class ExecutionBatch:
             "force": self.force,
             "local_fold": self.local_fold,
             "time_zone": self.time_zone,
+            "task_id": self.task_id,
         }
 
     # ------------------------------------------------------------------
@@ -288,6 +292,33 @@ class ExecutionBatch:
                 (limit, offset),
             ).fetchall()
         return [_row_to_batch(row) for row in rows]
+
+    @staticmethod
+    def get_latest_by_task(
+        task_id: str, db_path: str = None
+    ) -> Optional["ExecutionBatch"]:
+        """Último lote lanzado por una tarea del catálogo.
+
+        Los lotes anteriores a la migración v9 no guardan ``task_id``
+        (queda como cadena vacía); en ese caso esta consulta no los
+        encuentra, y el llamante puede recurrir al último lote global.
+        """
+        if not task_id:
+            return None
+        if db_path is None:
+            db_path = _default_db_path()
+
+        with get_connection(db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM execution_batches
+                WHERE task_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (task_id,),
+            ).fetchone()
+        return _row_to_batch(row) if row else None
 
     @staticmethod
     def get_host_results(
@@ -395,6 +426,7 @@ class ExecutionBatch:
         force: bool = False,
         local_fold: Optional[int] = None,
         time_zone: str = "",
+        task_id: str = "",
         db_path: str = None,
     ) -> "ExecutionBatch":
         if db_path is None:
@@ -409,8 +441,8 @@ class ExecutionBatch:
                     (batch_id, created_at, operator, action, value, target,
                      time_mode, ntp_policy, status, total_hosts, dry_run,
                      admin_user, password_origin, ntp_servers, sync_rtc, force,
-                     local_fold, time_zone)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     local_fold, time_zone, task_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     batch_id,
@@ -431,6 +463,7 @@ class ExecutionBatch:
                     1 if force else 0,
                     int(local_fold) if local_fold in (0, 1) else None,
                     time_zone or "",
+                    task_id or "",
                 ),
             )
 
@@ -668,6 +701,7 @@ def _row_to_batch(row) -> ExecutionBatch:
         force=bool(row["force"]),
         local_fold=row["local_fold"],
         time_zone=row["time_zone"],
+        task_id=row["task_id"] if "task_id" in row.keys() else "",
     )
 
 

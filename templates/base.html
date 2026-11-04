@@ -9,6 +9,9 @@
     <link href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='img/ansible-48.png') }}" rel="icon" type="image/png" sizes="48x48">
+    <link href="{{ url_for('static', filename='img/ansible-96.png') }}" rel="icon" type="image/png" sizes="96x96">
+    <link href="{{ url_for('static', filename='img/ansible-48.png') }}" rel="apple-touch-icon">
 </head>
 <body class="{% if current_user.is_authenticated %}has-shell{% else %}auth-body{% endif %}">
 <a class="skip-link" href="#main">Saltar al contenido</a>
@@ -73,6 +76,12 @@
                 <i class="bi bi-shield-check icon" aria-hidden="true"></i> Auditoría
             </a>
             {% endif %}
+            <div class="nav-label">Sistema</div>
+            <a class="nav-item {% if endpoint == 'acerca_de' %}is-active{% endif %}"
+               href="{{ url_for('acerca_de') }}"
+               {% if endpoint == 'acerca_de' %}aria-current="page"{% endif %}>
+                <i class="bi bi-info-circle icon" aria-hidden="true"></i> Acerca de
+            </a>
         </nav>
 
         <div class="sidebar-footer">

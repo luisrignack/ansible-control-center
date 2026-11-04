@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Acerca de{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div>
+        <div class="eyebrow">Sistema</div>
+        <h1>Acerca de</h1>
+        <p class="sub">Identidad organizacional del servicio y datos del host que lo ejecuta.</p>
+    </div>
+</div>
+
+<div class="card fade-in">
+    <div class="card-body p-5 text-center">
+        <p class="eyebrow mb-3">Ansible Control Center</p>
+        <h2 class="mb-4">
+            <i class="bi bi-people me-2" aria-hidden="true"></i>
+            Grupo de Migración a Código Abierto / DCTI - ETECSA
+        </h2>
+        <p class="text-secondary mb-4">
+            Consola de automatización para la operación de estaciones
+            (hora y zona horaria, por grupos de inventario) con vista
+            previa, verificación por host, inventario persistente,
+            programaciones y auditoría.
+        </p>
+        <div class="d-inline-block text-start">
+            <div class="sum-row"><span class="k">Fecha del host</span><span class="v">{{ host_date }}</span></div>
+            <div class="sum-row"><span class="k">Entorno</span><span class="v">{{ 'Producción (DRY RUN activo)' if dry_run else 'Producción' if is_production else 'Desarrollo' }}</span></div>
+        </div>
+    </div>
+</div>
+{% endblock %}

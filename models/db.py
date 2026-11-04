@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 def _secure_sqlite_files(path: str) -> None:
@@ -407,6 +407,16 @@ def _migrate_v8(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v9(conn: sqlite3.Connection) -> None:
+    """Vincula cada lote con la tarea del catálogo que lo lanzó (informes)."""
+    _ensure_column(
+        conn,
+        "execution_batches",
+        "task_id",
+        "task_id TEXT NOT NULL DEFAULT ''",
+    )
+
+
 def init_schema(db_path: str) -> None:
     """Crea o migra el esquema de forma idempotente y no destructiva.
 
@@ -434,6 +444,7 @@ def init_schema(db_path: str) -> None:
         _migrate_v6(conn)
         _migrate_v7(conn)
         _migrate_v8(conn)
+        _migrate_v9(conn)
         # No se rebaja la versión de una base creada por una versión más nueva.
         if version < SCHEMA_VERSION:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
