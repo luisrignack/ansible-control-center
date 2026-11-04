@@ -365,11 +365,17 @@ contraseña maestra esperada.
 
 ## 7. Retención y limpieza
 
-`ACC_JOB_RETENTION_HOURS` (24) se aplica al arrancar: las instantáneas
-de tareas más antiguas se borran de `task_state`. `ACC_HISTORY_DAYS`
-(180) sigue pendiente de un job de purga; la retención de lotes es manual.
+`ACC_JOB_RETENTION_HOURS` (24), `ACC_HISTORY_DAYS` (180) y
+`ACC_AUTH_EVENT_DAYS` (365) se aplican al arrancar: se borran las
+instantáneas de tareas, los lotes y los eventos de acceso más antiguos.
+`task_state` también se recorta a `ACC_MAX_TASK_STATE_ROWS`. No hay un
+temporizador periódico; para forzar la limpieza sin reiniciar, usa el
+procedimiento manual de §7.1.
 
-### 7.1. Borrar lotes antiguos
+### 7.1. Borrar lotes antiguos manualmente
+
+La purga automática ya se ejecuta al arrancar; este procedimiento sirve para
+forzarla sin reiniciar el servicio.
 
 `execution_hosts` tiene `ON DELETE CASCADE`, así que basta borrar el lote:
 
@@ -416,7 +422,7 @@ sudo systemctl start ansible-control-center
 ```
 
 `init-db` es idempotente y aplica migraciones no destructivas. El esquema
-actual es `PRAGMA user_version = 5`.
+actual es `PRAGMA user_version = 7`.
 
 ### 8.2. Rotar la contraseña del administrador
 
@@ -504,8 +510,8 @@ desactives la verificación salvo decisión consciente y documentada.
   dentro del lote ni reintento selectivo. Los intentos por host y el
   presupuesto de tiempo del lote están acotados.
 - Sin rollback automático.
-- Retención automática de lotes, instantáneas y eventos de acceso; `task_state`
-  se recorta por número de filas.
+- Retención automática al arrancar de lotes, instantáneas y eventos de acceso;
+  `task_state` se recorta por número de filas.
 - Estado de tareas en memoria; SSE depende del proceso.
 - `TIME` + `keep` se rechaza en ejecución (la vista previa avisa) porque NTP
   puede revertir el cambio.

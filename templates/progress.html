@@ -232,10 +232,12 @@
     });
 
     source.addEventListener('timeout', (event) => {
+        // El stream SSE está acotado a 5 minutos, pero un lote puede durar
+        // hasta una hora. Al cerrarse el stream se sigue consultando el
+        // estado persistido en lugar de dejar la página congelada.
         renderTask(JSON.parse(event.data));
-        progressMessage.textContent += ' (tiempo de espera agotado)';
         source.close();
-        stopPolling();
+        startPolling();
     });
 
     source.addEventListener('error', () => {

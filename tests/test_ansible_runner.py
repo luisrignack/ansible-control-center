@@ -13,7 +13,12 @@ import pytest
 from services import ansible_runner, password_tester
 
 
-def _capture_vars_file(captured, cmd, **kwargs):
+def _capture_vars_file(
+    captured,
+    cmd,
+    stdout="PLAY ok\nHORA_VERIFIED=true\n",
+    **kwargs,
+):
     index = cmd.index("--extra-vars")
     argument = cmd[index + 1]
     assert argument.startswith("@")
@@ -23,9 +28,7 @@ def _capture_vars_file(captured, cmd, **kwargs):
     captured["vars_path"] = vars_path
     captured["cmd"] = cmd
     captured["kwargs"] = kwargs
-    return subprocess.CompletedProcess(
-        cmd, 0, stdout="PLAY ok\nHORA_VERIFIED=true\n", stderr=""
-    )
+    return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
 
 def test_dry_run_does_not_invoke_ansible(monkeypatch):
@@ -116,7 +119,12 @@ def test_ping_uses_extra_vars_and_cleans_up(monkeypatch):
     captured = {}
 
     def fake_run(cmd, **kwargs):
-        return _capture_vars_file(captured, cmd, **kwargs)
+        return _capture_vars_file(
+            captured,
+            cmd,
+            stdout='10.0.0.2 | SUCCESS => {"ping": "pong"}\n',
+            **kwargs,
+        )
 
     monkeypatch.setattr(password_tester.subprocess, "run", fake_run)
     result = password_tester.test_ansible_ping(
@@ -127,6 +135,53 @@ def test_ping_uses_extra_vars_and_cleans_up(monkeypatch):
     assert captured["vars"]["ansible_password"] == "clave-ping"
     assert "clave-ping" not in " ".join(captured["cmd"])
     assert not os.path.exists(captured["vars_path"])
+
+
+def test_ping_uses_explicit_inventory_and_supported_timeout(monkeypatch):
+    """La CLI ad-hoc necesita -i y -T; --connect-timeout no es válido."""
+    monkeypatch.setattr(password_tester, "DRY_RUN", False)
+    captured = {}
+
+    def fake_run(cmd, **_kwargs):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            stdout='10.0.0.2 | SUCCESS => {"ping": "pong"}\n',
+            stderr="",
+        )
+
+    monkeypatch.setattr(password_tester.subprocess, "run", fake_run)
+    result = password_tester.test_ansible_ping(
+        host="10.0.0.2", user="ubuntu", password="clave-ping"
+    )
+
+    assert result["success"] is True
+    cmd = captured["cmd"]
+    assert cmd[cmd.index("-i") + 1] == "10.0.0.2,"
+    assert cmd[cmd.index("-T") + 1] == str(password_tester.CONNECT_TIMEOUT)
+    assert "--connect-timeout" not in cmd
+
+
+def test_ping_zero_exit_without_success_marker_is_failure(monkeypatch):
+    """Un código 0 sin SUCCESS no confirma que el host fuera alcanzable."""
+    monkeypatch.setattr(password_tester, "DRY_RUN", False)
+
+    def fake_run(cmd, **_kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            stdout="[WARNING]: Could not match supplied host pattern\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(password_tester.subprocess, "run", fake_run)
+    result = password_tester.test_ansible_ping(
+        host="10.0.0.4", user="ubuntu", password="clave"
+    )
+
+    assert result["success"] is False
+    assert "Could not match" in result["error"]
 
 
 def test_ping_nonzero_exit_is_failure(monkeypatch):

@@ -177,14 +177,21 @@ def test_ansible_ping(
             prefix=".ansible-ping-",
             suffix=".json",
         ) as vars_file:
+            # ``ansible`` ad-hoc necesita un inventario explícito para un
+            # host que no esté en un fichero de inventario; sin ``-i`` solo
+            # existe el localhost implícito y el patrón no coincide con nada.
+            # El timeout de conexión de la CLI es ``-T``; ``--connect-timeout``
+            # no existe en la CLI de Ansible.
             cmd = [
                 BIN_ANSIBLE,
                 host,
+                "-i",
+                f"{host},",
                 "-m",
                 "ping",
                 "-u",
                 user,
-                "--connect-timeout",
+                "-T",
                 str(CONNECT_TIMEOUT),
                 "-o",
                 "--extra-vars",
@@ -209,9 +216,17 @@ def test_ansible_ping(
         result["error"] = str(exc)
         return result
 
-    if process.returncode == 0:
+    if process.returncode == 0 and "SUCCESS" in process.stdout.upper():
         result["success"] = True
         result["output"] = process.stdout
+    elif process.returncode == 0:
+        # Un código 0 sin un host marcado como SUCCESS no confirma que el
+        # ping se haya ejecutado (por ejemplo, si el patrón no coincide).
+        result["error"] = (
+            process.stderr.strip()
+            or process.stdout.strip()
+            or "El ping no confirmó ningún host alcanzable."
+        )
     else:
         # Un código de salida distinto de cero NUNCA es un éxito.
         result["error"] = (

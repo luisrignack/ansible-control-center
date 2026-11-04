@@ -13,8 +13,9 @@ verificación posterior, idempotencia, lotes auditables e historial en SQLite.
 
 ## Estado actual
 
-Fases **P0–P4, P4.1 y P4.2 completadas**. Suite de pruebas: **88 tests**.
-Incluye empaquetado Docker con Nginx y TLS.
+Fases **P0–P4, P4.1 y P4.2 completadas**. Suite de pruebas: **136 tests
+(135 en verde y 1 integración SSH opcional omitida por defecto)**. Incluye
+empaquetado Docker con Nginx y TLS.
 
 | Fase | Contenido |
 |---|---|
@@ -336,12 +337,6 @@ Estas variables las lee `gunicorn.conf.py`, no `config.py`:
 | `ACC_GUNICORN_TIMEOUT` | `330` | Timeout del worker (s), mayor que el SSE |
 | `ACC_GUNICORN_GRACEFUL_TIMEOUT` | `30` | Espera de parada ordenada (s) |
 
-### Reservadas (definidas, aún no aplicadas)
-
-| Variable | Por defecto | Nota |
-|---|---|---|
-| `ACC_HISTORY_DAYS` | `180` | Retención de historial; pendiente de job de purga |
-
 > Copia `.env.example` a `.env` y ajusta los valores. En producción usa HTTPS,
 > `ACC_COOKIE_SECURE=1`, `ACC_HSTS=1` y un usuario de servicio
 > sin privilegios.
@@ -440,7 +435,7 @@ Resultados: `success`, `failure`, `skipped`, `error`, `preview`.
 `users`, `passwords`, `executions`, `execution_summaries`. El historial
 principal es el lote; `executions` se conserva por compatibilidad.
 
-Esquema actual: `PRAGMA user_version = 5`.
+Esquema actual: `PRAGMA user_version = 7`.
 
 ---
 
@@ -531,11 +526,12 @@ Define `hora_estado` con: `timezone`, `ntp`, `ntp_synchronized`,
 - **Solo Ubuntu/systemd**: no hay soporte para RHEL, Windows o dispositivos de
   red.
 - **Sin programación ni notificaciones**.
-- **Retención parcial**: las instantáneas de tareas se purgan según
+- **Retención al arrancar**: las instantáneas de tareas se purgan según
   `ACC_JOB_RETENTION_HOURS`, el historial de lotes según
   `ACC_HISTORY_DAYS`, los eventos de acceso según
   `ACC_AUTH_EVENT_DAYS` y `task_state` se recorta a
-  `ACC_MAX_TASK_STATE_ROWS`.
+  `ACC_MAX_TASK_STATE_ROWS`. No hay un temporizador periódico: la purga se
+  aplica al iniciar el proceso.
 - **Sin API/CLI de ejecución**: solo endpoints internos de la interfaz.
 - **IPv6**: `ipaddress` lo acepta, pero el flujo con Ansible no está probado.
 

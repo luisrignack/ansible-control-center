@@ -607,6 +607,11 @@ let pendingSubmitter = null;
 
 const execForm = document.getElementById('execForm');
 const confirmModalElement = document.getElementById('confirmModal');
+// El modal está dentro de .app-shell, que crea un stacking context
+// (z-index: 1). Bootstrap añade el backdrop directamente al body con
+// z-index 1050, por lo que el backdrop quedaría por encima del modal y
+// bloquearía sus botones. Moverlo al body lo saca de ese contexto.
+document.body.appendChild(confirmModalElement);
 const confirmModal = new bootstrap.Modal(confirmModalElement);
 
 execForm.addEventListener('submit', (event) => {
