@@ -105,6 +105,20 @@
         - _hora_tz_file.stat.exists
         - force | bool or (hora_antes.timezone | default('')) != valor
 
+    # La copia queda en la PC del usuario operador: el directorio lo envía la
+    # app en ``acc_backup_dir`` (volumen /data del servidor, subcarpeta por
+    # lote). ``fetch`` conserva la ruta <dest>/<hostname de la estación>/...
+    - name: Enviar la copia de /etc/timezone al servidor del operador
+      ansible.builtin.fetch:
+        src: /etc/timezone.bak
+        dest: "{{ acc_backup_dir | default('') }}/"
+        flat: false
+      when:
+        - acc_backup_dir is defined
+        - (acc_backup_dir | default('')) | length > 0
+        - _hora_tz_file.stat.exists
+        - force | bool or (hora_antes.timezone | default('')) != valor
+
     - name: Configurar la zona horaria
       ansible.builtin.command:
         argv: [timedatectl, set-timezone, "{{ valor }}"]
@@ -113,6 +127,18 @@
         - force | bool or (hora_antes.timezone | default('')) != valor
       register: _hora_tz_cambio
       changed_when: _hora_tz_cambio.rc == 0
+
+    # ``timedatectl set-timezone`` escribe /etc/timezone y el symlink de
+    # /etc/localtime: ambos sobreviven al reinicio. Si por alguna deriba se
+    # pierdiera la escritura de /etc/timezone, el fallo aparece aquí.
+    - name: Comprobar que /etc/timezone persiste con la zona aplicada
+      ansible.builtin.command: "cat /etc/timezone"
+      changed_when: false
+      register: _hora_tz_persistida
+      failed_when: (_hora_tz_persistida.stdout | trim) != valor
+      when:
+        - accion == 'TZ'
+        - _hora_tz_file.stat.exists
 
     - name: Registrar el cambio de zona horaria
       ansible.builtin.set_fact:

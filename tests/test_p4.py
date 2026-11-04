@@ -299,7 +299,7 @@ def test_preview_inspects_without_applying_changes(client, monkeypatch):
     assert hosts[0].after_state["would_change"] is True
 
 
-def test_time_mode_and_ntp_policy_reach_ansible(client, monkeypatch):
+def test_time_mode_and_ntp_policy_reach_ansible(client, monkeypatch, task_hora_multiaccion):
     _login(client)
     db_path = app_module.get_db_path()
     received = {}
@@ -631,7 +631,7 @@ def test_restore_does_not_add_net_ntp_change():
 
 
 def test_preview_warns_about_time_with_keep_and_active_ntp(
-    client, monkeypatch
+    client, monkeypatch, task_hora_multiaccion
 ):
     _login(client)
     monkeypatch.setattr(
@@ -734,7 +734,7 @@ def test_reconcile_orphan_running_batches(tmp_path):
     assert ExecutionBatch.reconcile_orphans(db_path=db_path) == 0
 
 
-def test_duplicate_submission_is_idempotent(client, monkeypatch):
+def test_duplicate_submission_is_idempotent(client, monkeypatch, task_hora_multiaccion):
     import re
 
     _login(client)
@@ -750,7 +750,7 @@ def test_duplicate_submission_is_idempotent(client, monkeypatch):
         app_module, "apply_host", lambda host, **_kwargs: _ok(host)
     )
 
-    page = client.get("/tarea/hora")
+    page = client.get("/tarea/zona-todas")
     match = re.search(
         rb'name="operation_id" value="([0-9a-f]+)"', page.data
     )
@@ -824,3 +824,32 @@ def test_healthz_reports_database_status(client):
     assert response.status_code == 200
     assert response.get_json() == {"status": "ok", "database": "ok"}
     assert response.headers["Cache-Control"] == "no-store"
+
+
+@pytest.fixture()
+def task_hora_multiaccion(monkeypatch):
+    """Tarea TIME/NTP temporal para cubrir el motor no expuesto en catálogo.
+
+    La tarjeta visible es solo la de zona horaria fija; el motor de hora
+    exacta/NTP sigue vivo en ``cambiar_hora.yml`` y se valida aquí con una
+    tarea equivalente que solo existe dentro de cada prueba.
+    """
+    import services.task_catalog as catalog
+
+    task = {
+        "id": "hora",
+        "name": "Hora y zona horaria (test)",
+        "icon": "bi-clock",
+        "tone": "blue",
+        "summary": "Acción TIME y NTP para pruebas del moteur horario.",
+        "playbook": "cambiar_hora.yml",
+        "status": catalog.STATUS_ACTIVE,
+        "min_role": "operator",
+        "destructive": False,
+        "platforms": ["linux"],
+        "actions": ["TZ", "TIME"],
+        "chips": ["Test"],
+        "steps": [],
+    }
+    catalog._register_test_task(task, monkeypatch)
+    return task

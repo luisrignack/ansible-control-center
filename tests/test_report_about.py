@@ -13,6 +13,7 @@ import app as app_module
 from models.batch import ExecutionBatch
 from services.pdf_report import classify_failure_reason
 from models.user import User
+from pathlib import Path
 
 
 @pytest.fixture()
@@ -50,10 +51,11 @@ def _login(client):
     return response
 
 
-def _create_batch(task_id: str = "hora", operator: str = "admin", target: str = "10.42.0.10",
+def _create_batch(task_id: str = "zona-todas", operator: str = "admin", target: str = "10.42.0.10",
                   status: str = "partial", dry_run: bool = False) -> str:
+    import uuid
     batch = ExecutionBatch.create_batch(
-        batch_id=f"b-{task_id}-1"[:36],
+        batch_id=f"b-{task_id or 'legacy'}-{uuid.uuid4().hex[:8]}",
         operator=operator,
         action="TZ",
         value="America/Caracas",
@@ -143,9 +145,9 @@ def test_ping_failure_error_prefers_host_line_over_warnings(monkeypatch):
 # ---------------------------------------------------------------------------
 def test_report_of_last_task_execution(client):
     _login(client)
-    batch_id = _create_batch(task_id="hora")
+    batch_id = _create_batch(task_id="zona-todas")
     _add_results(batch_id)
-    response = client.get("/tarea/hora/informe.pdf")
+    response = client.get("/tarea/zona-todas/informe.pdf")
     assert response.status_code == 200
     assert response.mimetype == "application/pdf"
     data = response.data
@@ -153,7 +155,7 @@ def test_report_of_last_task_execution(client):
     assert b"%%EOF" in data
     # Texto visible del informe (streams sin comprimir, WinAnsi/cp1252).
     text = data.decode("cp1252", errors="replace")
-    assert "Hora y zona horaria" in text
+    assert "Zona horaria" in text
     assert "Estación" in text and "Motivo" in text
     assert "Estación apagada o sin conexión" in text
     assert "Credenciales rechazadas" in text
@@ -162,9 +164,9 @@ def test_report_of_last_task_execution(client):
 
 def test_report_header_and_footer_brands(client):
     _login(client)
-    batch_id = _create_batch(task_id="hora")
+    batch_id = _create_batch(task_id="zona-todas")
     _add_results(batch_id)
-    response = client.get("/tarea/hora/informe.pdf")
+    response = client.get("/tarea/zona-todas/informe.pdf")
     text = response.data.decode("cp1252", errors="replace")
     assert "Grupo de Migración a Código Abierto / DCTI - ETECSA" in text
     assert "Informe generado el" in text
@@ -173,20 +175,20 @@ def test_report_header_and_footer_brands(client):
 
 def test_report_uses_task_batch_not_global(client):
     _login(client)
-    hora_id = _create_batch(task_id="hora", target="10.42.0.10")
+    viejo_id = _create_batch(task_id="zona-todas", target="10.42.0.10")
     ExecutionBatch.add_host_result(
-        hora_id, "10.42.0.10", "failure",
+        viejo_id, "10.42.0.10", "failure",
         error="UNREACHABLE", db_path=app_module.get_db_path(),
     )
-    otra_id = _create_batch(task_id="zona-todas", target="Inventario: Estaciones")
+    nuevo_id = _create_batch(task_id="zona-todas", target="Inventario: Estaciones")
     ExecutionBatch.add_host_result(
-        otra_id, "10.42.0.90", "failure",
+        nuevo_id, "10.42.0.90", "failure",
         error="Permission denied.", db_path=app_module.get_db_path(),
     )
-    text = client.get("/tarea/hora/informe.pdf").data.decode("cp1252", errors="replace")
-    # El informe de "hora" refleja su propio lote, no el último global.
-    assert "10.42.0.90" not in text
-    assert "10.42.0.10" in text
+    text = client.get("/tarea/zona-todas/informe.pdf").data.decode("cp1252", errors="replace")
+    # El informe de la tarea refleja su ÚLTIMA corrida (la nueva), no la previa.
+    assert "10.42.0.90" in text
+    assert "10.42.0.10" not in text
 
 
 def test_report_falls_back_to_last_batch_without_task_id(client):
@@ -203,14 +205,14 @@ def test_report_falls_back_to_last_batch_without_task_id(client):
 
 def test_report_without_batches_redirects_with_message(client):
     _login(client)
-    response = client.get("/tarea/hora/informe.pdf", follow_redirects=True)
+    response = client.get("/tarea/zona-todas/informe.pdf", follow_redirects=True)
     body = response.get_data(as_text=True)
     assert response.status_code == 200
     assert "aún no tiene ejecuciones registradas" in body
 
 
 def test_report_requires_login(client):
-    response = client.get("/tarea/hora/informe.pdf")
+    response = client.get("/tarea/zona-todas/informe.pdf")
     assert response.status_code == 302
 
 
@@ -219,7 +221,7 @@ def test_report_requires_login(client):
 # ---------------------------------------------------------------------------
 def test_task_view_has_download_report_button(client):
     _login(client)
-    response = client.get("/tarea/hora")
+    response = client.get("/tarea/zona-todas")
     assert response.status_code == 200
     assert "Descargar informe" in response.get_data(as_text=True)
 
@@ -266,3 +268,98 @@ def test_favicon_linked_in_base_template(client):
     body = response.get_data(as_text=True)
     assert "img/ansible-48.png" in body
     assert 'rel="icon"' in body
+
+
+# ---------------------------------------------------------------------------
+# Backup de /etc/timezone en el servidor de operación
+# ---------------------------------------------------------------------------
+def test_apply_host_linux_sends_backup_dir(tmp_path, monkeypatch):
+    """Linux: acc_backup_dir va en el payload y el directorio se crea."""
+    import types
+
+    import services.ansible_runner as runner
+
+    seen = {}
+
+    def fake_invoke(host, user, password, playbook_path, extra_vars, **kw):
+        seen["extra_vars"] = dict(extra_vars)
+        seen["connection"] = kw.get("connection")
+        fake = types.SimpleNamespace(
+            returncode=0,
+            stdout=(
+                "HORA_BEFORE_B64=e30=\nHORA_CHANGED=false\nHORA_VERIFIED=true\n"
+                "HORA_STATE_B64=e30=\n"
+            ),
+            stderr="",
+        )
+        return fake
+
+    monkeypatch.setattr(runner, "_invoke_playbook", fake_invoke)
+    monkeypatch.setattr(runner, "DRY_RUN", False)
+
+    backup_dir = tmp_path / "timezone_backups" / "batch-1"
+    result = runner.apply_host(
+        "10.42.0.7", "admin", "TZ", "America/Caracas",
+        password="clave", connection="ssh",
+        backup_dir=str(backup_dir),
+    )
+    assert result["success"], result
+    assert seen["extra_vars"]["acc_backup_dir"] == str(backup_dir)
+    assert backup_dir.is_dir()
+
+
+def test_apply_host_windows_has_no_backup_dir(tmp_path, monkeypatch):
+    """Windows: no existe /etc/timezone, no se envía acc_backup_dir."""
+    import types
+
+    import services.ansible_runner as runner
+
+    seen = {}
+
+    def fake_invoke(host, user, password, playbook_path, extra_vars, **kw):
+        seen["extra_vars"] = dict(extra_vars)
+        return types.SimpleNamespace(
+            returncode=0,
+            stdout=(
+                "HORA_BEFORE_B64=e30=\nHORA_CHANGED=false\nHORA_VERIFIED=true\n"
+                "HORA_STATE_B64=e30=\n"
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(runner, "_invoke_playbook", fake_invoke)
+    monkeypatch.setattr(runner, "DRY_RUN", False)
+
+    result = runner.apply_host(
+        "10.42.0.7", "admin", "TZ", "America/Caracas",
+        password="clave", connection="winrm",
+        backup_dir=str(tmp_path / "timezone_backups"),
+    )
+    assert result["success"], result
+    assert "acc_backup_dir" not in seen["extra_vars"]
+    assert not (tmp_path / "timezone_backups").exists()
+
+
+def test_linux_playbook_fetches_backup_and_checks_persistence():
+    import yaml
+
+    playbook = yaml.safe_load(
+        Path("ansible/cambiar_hora.yml").read_text(encoding="utf-8")
+    )
+    tasks = playbook[0]["tasks"]
+    names = [t["name"] for t in tasks]
+
+    assert any("Enviar la copia de /etc/timezone al servidor" in n for n in names)
+    assert any("/etc/timezone persiste" in n for n in names)
+
+    fetch_task = next(
+        t for t in tasks if "Enviar la copia de /etc/timezone" in t["name"]
+    )
+    assert "acc_backup_dir" in (fetch_task["when"][0] + fetch_task["when"][1])
+    assert fetch_task["ansible.builtin.fetch"]["src"] == "/etc/timezone.bak"
+
+    persist_task = next(
+        t for t in tasks if "/etc/timezone persiste" in t["name"]
+    )
+    assert "failed_when" in persist_task
+    assert persist_task["when"][-1] == "_hora_tz_file.stat.exists"

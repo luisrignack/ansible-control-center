@@ -248,7 +248,21 @@
 
                     <!-- Valor dinámico -->
                     <div id="valueField" class="col-12">
+                        {% if selected_task.fixed_value %}
+                        <label for="actionValue" class="form-label fw-medium">
+                            <i class="bi bi-globe-americas me-2"></i> Zona a aplicar
+                        </label>
+                        <input type="text" class="form-control" id="actionValue"
+                            name="value" value="{{ selected_task.fixed_value }}"
+                            readonly aria-readonly="true" data-fixed="true">
+                        <div class="form-text">
+                            Zona única de esta tarea: UTC-4. El cambio es
+                            <strong>permanente</strong>: sobrevive al reinicio
+                            de la estación.
+                        </div>
+                        {% else %}
                         <!-- Se llenará dinámicamente por JS -->
+                        {% endif %}
                     </div>
 
                     <!-- Opciones de zona horaria (datalist estático para el navegador) -->
@@ -712,6 +726,12 @@ function timeModeFieldExists() {
 
 function updateValueField(action, currentValue) {
     const valueField = document.getElementById('valueField');
+    const existing = document.getElementById('actionValue');
+    // Las tareas con valor fijo (p. ej. America/Caracas) no cambian el campo.
+    if (existing && existing.dataset.fixed) {
+        updateSummary();
+        return;
+    }
     valueField.innerHTML = '';
 
     if (action === 'TZ') {

@@ -121,20 +121,17 @@ def test_windows_group_rejects_ssh_key(client):
 
 
 # ---------------------------------------------------------------------------
-# Plataforma incompatible al operar
+# Tareas retiradas y valor fijo
 # ---------------------------------------------------------------------------
-def test_hora_task_rejects_windows_group(client):
+def test_retired_task_rejected_with_clear_message(client):
+    """La tarjeta antigua 'hora' ya no es operativa desde el catálogo."""
     _login(client)
-    db_path = app_module.get_db_path()
-    group = HostGroup.create("Win", os_flavor="windows", db_path=db_path)
-    InventoryHost.add(group.id, "10.55.0.1", db_path=db_path)
     response = _post(
         client,
         "/",
         data={
             "task": "hora",
-            "target_mode": "group",
-            "target_group": group.id,
+            "target_ip": "10.55.0.1",
             "admin_user": "admin",
             "password_origin": "temporal",
             "action": "TZ",
@@ -145,8 +142,24 @@ def test_hora_task_rejects_windows_group(client):
         content_type="multipart/form-data",
         follow_redirects=True,
     )
-    assert "no está disponible para el grupo" in _body_text(response)
-    assert "(Windows)" in _body_text(response)
+    assert "Selecciona una tarea activa del catálogo" in _body_text(response)
+
+
+def test_zona_task_single_active_and_fixed_value():
+    from services.task_catalog import TASK_CATALOG
+
+    active = [t for t in TASK_CATALOG if t["status"] == "active"]
+    assert [t["id"] for t in active] == ["zona-todas"]
+    assert active[0]["fixed_value"] == "America/Caracas"
+    assert set(active[0]["platforms"]) == {"linux", "windows"}
+
+
+def test_zona_task_form_renders_fixed_value(client):
+    _login(client)
+    body = client.get("/tarea/zona-todas").get_data(as_text=True)
+    assert 'name="value" value="America/Caracas"' in body
+    assert 'data-fixed="true"' in body
+    assert "permanente" in body.lower()
 
 
 def test_zona_todas_accepts_windows_group(client, monkeypatch):

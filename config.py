@@ -152,6 +152,13 @@ WINDOWS_APPLY_PLAYBOOK_FILE = ANSIBLE_DIR / "win_cambiar_zona.yml"
 WINDOWS_INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "win_estado_zona.yml"
 ANSIBLE_CFG = ANSIBLE_DIR / "ansible.cfg"
 
+# Copias de seguridad del archivo /etc/timezone. La carpeta vive en el
+# volumen de datos de la máquina donde corre el servicio (la PC del usuario
+# operador): el playbook trae el .bak de cada estación con ``fetch`` justo
+# antes de cambiar la zona. En Windows no existe ese archivo (el estado
+# previo queda guardado en la base de datos, columna before_state).
+TIMEZONE_BACKUP_DIR = DATA_DIR / "timezone_backups"
+
 # ---------------------------------------------------------------------------
 # Windows vía WinRM
 # ---------------------------------------------------------------------------

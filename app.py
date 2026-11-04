@@ -68,6 +68,7 @@ from config import (
     HISTORY_RETENTION_DAYS,
     HSTS_ENABLED,
     HSTS_MAX_AGE,
+    TIMEZONE_BACKUP_DIR,
     IS_PRODUCTION,
     JOB_MAX_WORKERS,
     JOB_QUEUE_SIZE,
@@ -2559,6 +2560,7 @@ def _run_apply_batch(
                     cancel_event=cancel_event,
                     private_key=private_key or None,
                     connection=connection or "ssh",
+                    backup_dir=str(TIMEZONE_BACKUP_DIR / str(batch_id)),
                 )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_apply_error = str(exc)

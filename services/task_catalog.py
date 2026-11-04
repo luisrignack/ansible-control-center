@@ -9,49 +9,31 @@ Añadir una tarea nueva = añadir una entrada aquí (+ su playbook en
 ``ansible/`` y su página de configuración cuando esté operativa).
 """
 from typing import Any, Dict, List, Optional
+import sys
 
-TASK_ID_HORA = "hora"
 TASK_ID_ZONA_ALL = "zona-todas"
 TASK_ID_KASPERSKY = "kaspersky"
 TASK_ID_CONTRASENA = "contrasena"
 TASK_ID_TAPIZ = "tapiz"
 
-DEFAULT_TASK_ID = TASK_ID_HORA
+# Tarea por defecto cuando el formulario no envía el campo ``task``.
+DEFAULT_TASK_ID = TASK_ID_ZONA_ALL
 
 STATUS_ACTIVE = "active"
 STATUS_PLANNED = "planned"
 
 TASK_CATALOG: List[Dict[str, Any]] = [
     {
-        "id": TASK_ID_HORA,
-        "name": "Hora y zona horaria",
-        "icon": "bi-clock",
-        "tone": "blue",
-        "summary": (
-            "Configura hora, zona horaria, NTP y RTC en un grupo de equipos "
-            "Ubuntu. Incluye vista previa, idempotencia y verificación."
-        ),
-        "playbook": "cambiar_hora.yml",
-        "status": STATUS_ACTIVE,
-        "min_role": "operator",
-        "destructive": False,
-        # Plataformas soportadas: los grupos Windows no pueden ejecutar esta
-        # tarea (su playbook es de Linux).
-        "platforms": ["linux"],
-        # Acciones que admite la tarea; el formulario no ofrece el resto.
-        "actions": ["TZ", "TIME"],
-        "chips": ["Operativa", "Acción TZ / TIME", "254 hosts"],
-        "steps": [],
-    },
-    {
         "id": TASK_ID_ZONA_ALL,
-        "name": "Zona horaria (Linux y Windows)",
+        "name": "Zona horaria",
         "icon": "bi-globe-americas",
         "tone": "blue",
         "summary": (
-            "Aplica la zona horaria indicada (por defecto America/Caracas) en "
-            "estaciones Linux (timedatectl) y Windows (tzutil por WinRM), con "
-            "vista previa y verificación por host."
+            "Establece la zona horaria America/Caracas (UTC-4) en las "
+            "estaciones: Linux (Ubuntu y derivadas de Debian, via "
+            "timedatectl, permanente tras reiniciar) y Windows (tzutil por "
+            "WinRM). Antes de cambiar, guarda una copia del archivo "
+            "/etc/timezone anterior en el servidor de operación."
         ),
         "playbook": "cambiar_hora.yml",
         "status": STATUS_ACTIVE,
@@ -59,7 +41,15 @@ TASK_CATALOG: List[Dict[str, Any]] = [
         "destructive": False,
         "platforms": ["linux", "windows"],
         "actions": ["TZ"],
-        "chips": ["Operativa", "Solo TZ", "Linux + Windows"],
+        # Valor fijo de esta tarea: America/Caracas (UTC-4). El formulario
+        # lo muestra solo lectura; la app lo revalida igual que siempre.
+        "fixed_value": "America/Caracas",
+        "chips": [
+            "Operativa",
+            "America/Caracas (UTC-4)",
+            "Permanente tras reinicio",
+            "Linux + Windows",
+        ],
         "steps": [],
     },
     {
@@ -133,6 +123,26 @@ TASK_CATALOG: List[Dict[str, Any]] = [
 _CATALOG_INDEX: Dict[str, Dict[str, Any]] = {
     task["id"]: task for task in TASK_CATALOG
 }
+
+
+def _register_test_task(task: Dict[str, Any], monkeypatch) -> None:
+    """Registra una tarea temporal (uso exclusivo de las pruebas).
+
+    Ciertas piezas del motor (acción TIME, políticas NTP, RTC) ya no están
+    expuestas en el catálogo visible tras la tarjeta única de zona horaria;
+    estos tests las cubren registrando una tarea equivalente solo para el
+    test, tocando el índice real y la lista de catálogo (también la copia
+    ligada por valor en ``app``) con ``monkeypatch`` para que se restaure al
+    terminar.
+    """
+    monkeypatch.setitem(_CATALOG_INDEX, task["id"], task)
+    # Se agrega al frente: el fallback del formulario elige la primera
+    # tarea activa de la lista.
+    new_catalog = [task, *TASK_CATALOG]
+    monkeypatch.setattr(sys.modules[__name__], "TASK_CATALOG", new_catalog)
+    app_module = sys.modules.get("app")
+    if app_module is not None and hasattr(app_module, "TASK_CATALOG"):
+        monkeypatch.setattr(app_module, "TASK_CATALOG", new_catalog)
 
 
 def get_task(task_id: Optional[str]) -> Optional[Dict[str, Any]]:

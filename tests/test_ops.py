@@ -254,7 +254,7 @@ def test_schedule_scan_once_triggers_and_advances(client, monkeypatch):
     run_at = datetime.now(timezone.utc) - timedelta(seconds=60)
     Schedule.create(
         "ventana",
-        "hora",
+        "zona-todas",
         run_at,
         {},
         recurrence="daily",

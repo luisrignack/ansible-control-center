@@ -1,9 +1,12 @@
 # Ansible Control Center
 
 Aplicación web Flask + Ansible para configurar **hora, zona horaria, NTP y RTC**
-en grupos de equipos Ubuntu. Incluye autenticación, vault cifrado con
-`ansible-vault`, ejecución best-effort en todos los hosts, vista previa,
-verificación posterior, idempotencia, lotes auditables e historial en SQLite.
+en grupos de equipos Ubuntu y estaciones Windows (WinRM). Incluye
+autenticación, vault cifrado con `ansible-vault`, ejecución best-effort en
+todos los hosts, vista previa, verificación posterior, idempotencia, lotes
+auditables e historial en SQLite. La tarjeta operativa del catálogo aplica la
+zona horaria **America/Caracas (UTC-4)** de forma permanente en Linux y
+Windows, con backup previo de `/etc/timezone`.
 
 > **Uso responsable:** la aplicación prueba credenciales contra hosts y puede
 > cambiar su reloj. Úsala únicamente sobre equipos para los que tengas
@@ -370,7 +373,10 @@ administrador desactiva el interruptor **Simulación** de la barra superior
 
 - **TZ**: cambia la zona horaria con `timedatectl set-timezone`. Antes del
   cambio guarda el archivo actual en `/etc/timezone.bak` (si ya existe, no lo
-  sobrescribe).
+  sobrescribe) y lo copia también al servidor de operación en
+  `ACC_DATA_DIR/timezone_backups/<lote>/<estación>/etc/timezone.bak`
+  (variable extra `acc_backup_dir`). La zona aplicada sobrevive al reinicio:
+  el playbook verifica que `/etc/timezone` quede con la zona nueva.
 - **TIME**: fija la hora con `date -s @<epoch>`.
   - `time_mode=utc`: el valor se interpreta como UTC; mismo instante en todos.
   - `time_mode=local`: el valor se interpreta en la zona IANA seleccionada

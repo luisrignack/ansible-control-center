@@ -599,6 +599,7 @@ def apply_host(
     target_epoch: Optional[int] = None,
     cancel_event: Optional[threading.Event] = None,
     connection: Optional[str] = None,
+    backup_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Aplica el cambio en un host y verifica el resultado.
 
@@ -668,6 +669,12 @@ def apply_host(
         "requiere_ntp_off": bool(requiere_ntp_off),
         "ntp_settle": max(0, int(ntp_settle or 0)),
     }
+    if backup_dir:
+        # Solo Linux: el playbook hace fetch de /etc/timezone.bak. En Windows
+        # no existe ese archivo (el estado previo queda en la base de datos).
+        if connection != "winrm":
+            os.makedirs(backup_dir, exist_ok=True)
+            extra_vars["acc_backup_dir"] = backup_dir
 
     try:
         process = _invoke_playbook(

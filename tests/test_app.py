@@ -78,11 +78,17 @@ def test_login_and_dashboard(client):
 def test_task_detail_routes(client):
     _login(client)
 
-    hora = client.get("/tarea/hora")
-    assert hora.status_code == 200
-    assert b"Formulario de" in hora.data
-    assert b'name="operation_id"' in hora.data
-    assert "Volver al catálogo".encode() in hora.data
+    activa = client.get("/tarea/zona-todas")
+    assert activa.status_code == 200
+    assert b"Formulario de" in activa.data
+    assert b'name="operation_id"' in activa.data
+    assert "Volver al catálogo".encode() in activa.data
+
+    # La tarea 'hora' se retiró del catálogo: la URL antigua deja claro que
+    # la tarea no existe y pide una del catálogo.
+    retirada = client.get("/tarea/hora", follow_redirects=True)
+    assert retirada.status_code == 200
+    assert "no existe en el catálogo".encode() in retirada.data
 
     planned = client.get("/tarea/kaspersky")
     assert planned.status_code == 200

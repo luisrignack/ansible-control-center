@@ -5,6 +5,39 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Tarjeta única "Zona horaria" (America/Caracas)] — 2026-11-04
+
+### Cambiado
+
+- **Un solo tarjeta activa.** Las dos tarjetas anteriores ("Hora y zona
+  horaria" y "Zona horaria (Linux y Windows)") hacían lo mismo a ojos del
+  operador; se fusionan en **"Zona horaria"** (`zona-todas`, Linux + Windows)
+  con valor **fijo `America/Caracas` (UTC-4)**: el formulario muestra el
+  campo de zona en solo lectura y sin opciones NTP/TIME. La tarjeta antigua
+  "Hora y zona horaria" sale del catálogo (motor TIME/NTP intacto en
+  `cambiar_hora.yml`, cubierto por tests con una tarea solo visible dentro
+  de la suite).
+- **Permanencia garantizada tras reiniciar**: `timedatectl set-timezone`
+  escribe `/etc/timezone` y el symlink de `/etc/localtime`, y el playbook
+  además **verifica** que `/etc/timezone` contenga la zona aplicada
+  (`failed_when`): si la escritura se perdiera, el host queda marcado
+  como fallido.
+- **Backup de `/etc/timezone` en la PC del operador**: además del
+  `/etc/timezone.bak` local en la estación (ya existente), el playbook hace
+  `fetch` de la copia al servidor en
+  `ACC_DATA_DIR/timezone_backups/<lote>/<estación>/etc/timezone.bak`
+  (volumen Docker `acc_data`, que en este despliegue vive en tu propia
+  máquina). Solo Linux: en Windows no existe ese archivo (el estado previo
+  queda guardado en la base de datos). `DRY_RUN` no cambia estaciones, y la
+  copia solo se trae cuando la zona realmente va a cambiar.
+
+### Pruebas
+
+- 196 pruebas: se actualizan los tests de la tarjeta nueva y retirada, se
+  cubren el campo fijo del formulario, la propagación de `acc_backup_dir`
+  (Linux sí / Windows no) y el `fetch` + verificación de persistencia del
+  playbook.
+
 ## [Informe PDF, "Acerca de" y favicon] — 2026-11-04
 
 ### Añadido
