@@ -49,7 +49,7 @@ El script:
 3. Crea `/etc/hora-admin/secrets` (0700), `/var/lib/hora-admin` y
    `/var/log/hora-admin`.
 4. Genera `.env` con una `HORA_ADMIN_SECRET_KEY` aleatoria (0600).
-5. Ejecuta `flask --app app init-db` (esquema v5, migración no destructiva).
+5. Ejecuta `flask --app app init-db` (esquema v6, migración no destructiva).
 6. **No crea el usuario administrador**: ejecuta después
    `flask --app app init-admin`.
 
@@ -127,15 +127,27 @@ flask --app app init-admin
 | `HORA_ADMIN_ADMIN_PASSWORD_MIN_LENGTH` | `12` | Longitud mínima del admin |
 | `HORA_ADMIN_MAX_HOSTS` | `256` | Hosts máximos por ejecución |
 | `HORA_ADMIN_MIN_CIDR_PREFIX` | `22` | Prefijo IPv4 mínimo |
-| `HORA_ADMIN_ALLOWED_NETWORKS` | vacío | Allowlist de redes (vacío = sin restricción) |
+| `HORA_ADMIN_ALLOWED_NETWORKS` | vacío | Allowlist de redes. **Obligatoria en producción** (vacío solo en desarrollo) |
+| `HORA_ADMIN_ALLOW_LOOPBACK` | `1` en desarrollo | Permite loopback fuera de producción; en producción siempre se bloquea |
 | `HORA_ADMIN_MAX_PASSWORDS` | `200` | Máximo de candidatas |
 | `HORA_ADMIN_MAX_PASSWORD_LENGTH` | `512` | Longitud máxima de candidata |
 | `HORA_ADMIN_PING_TIMEOUT` | `30` | Timeout de ping (s) |
 | `HORA_ADMIN_PLAYBOOK_TIMEOUT` | `300` | Timeout de playbook (s) |
 | `HORA_ADMIN_CONNECT_TIMEOUT` | `10` | Timeout de conexión SSH (s) |
-| `HORA_ADMIN_TIME_TOLERANCE` | `120` | Tolerancia de verificación de hora (s) |
+| `HORA_ADMIN_TIME_TOLERANCE` | `2` | Tolerancia de verificación de hora (s) |
+| `HORA_ADMIN_TIME_REQUIRE_NTP_OFF` | `1` | Bloquea `TIME` + NTP `keep` en ejecución |
+| `HORA_ADMIN_NTP_SETTLE_SECONDS` | `3` | Espera tras reactivar NTP antes de verificar (s) |
 | `HORA_ADMIN_MAX_PASSWORD_ATTEMPTS` | `3` | Candidatas máximas probadas por host |
 | `HORA_ADMIN_BATCH_TIME_BUDGET` | `3600` | Presupuesto de tiempo del lote (s) |
+| `HORA_ADMIN_JOB_WORKERS` | `2` | Lotes concurrentes |
+| `HORA_ADMIN_JOB_QUEUE_SIZE` | `50` | Tamaño máximo de la cola |
+| `HORA_ADMIN_JOB_SHUTDOWN_GRACE` | `10` | Espera de apagado ordenado (s) |
+| `HORA_ADMIN_MAX_MEMORY_TASKS` | `200` | Instantáneas de tarea en memoria |
+| `HORA_ADMIN_MAX_TASK_STATE_ROWS` | `500` | Filas máximas de `task_state` |
+| `HORA_ADMIN_HISTORY_DAYS` | `180` | Retención del historial (días) |
+| `HORA_ADMIN_AUTH_EVENT_DAYS` | `365` | Retención de auditoría de acceso (días) |
+| `HORA_ADMIN_LOGIN_LOCKOUT_THRESHOLD` | `5` | Fallos antes de bloquear la cuenta |
+| `HORA_ADMIN_LOGIN_LOCKOUT_MINUTES` | `15` | Duración del bloqueo (min) |
 | `HORA_ADMIN_DEFAULT_NTP_SERVERS` | `pool.ntp.org` | Servidores NTP por defecto |
 | `HORA_ADMIN_MAX_NTP_SERVERS` | `8` | Máximo de servidores NTP |
 | `HORA_ADMIN_LOG_LEVEL` | `INFO` | Nivel de log |
@@ -146,7 +158,9 @@ flask --app app init-admin
 | `HORA_ADMIN_ANSIBLE_PLAYBOOK_BIN` | autodetectado | Ruta de `ansible-playbook` |
 | `HORA_ADMIN_ANSIBLE_VAULT_BIN` | autodetectado | Ruta de `ansible-vault` |
 | `HORA_ADMIN_ANSIBLE_GALAXY_BIN` | autodetectado | Ruta de `ansible-galaxy` |
-| `HORA_ADMIN_HISTORY_DAYS` | `180` | **Reservada**: retención sin job de purga |
+| `HORA_ADMIN_HISTORY_DAYS` | `180` | Retención del historial de lotes (purga periódica) |
+| `HORA_ADMIN_AUTH_EVENT_DAYS` | `365` | Retención de eventos de autenticación |
+| `HORA_ADMIN_MAX_TASK_STATE_ROWS` | `500` | Filas máximas de `task_state` |
 | `HORA_ADMIN_JOB_RETENTION_HOURS` | `24` | Retención de instantáneas de tareas |
 
 Variables específicas de Gunicorn (`gunicorn.conf.py`, no de `config.py`):
@@ -176,8 +190,11 @@ usa automáticamente `instance/` y muestra un aviso en el log.
 ```bash
 source .venv/bin/activate
 flask --app app init-admin
-# Usuario por defecto: admin
-# Puedes indicar otro: flask --app app init-admin --username operador
+# Usuario por defecto: admin (rol admin)
+# Puedes indicar otro usuario y rol:
+#   flask --app app init-admin --username operador --role operator
+# Roles: viewer (solo lectura), operator (vista previa/ejecución/vault),
+# admin (todo, incluida /audit).
 ```
 
 La contraseña se guarda como hash Werkzeug en SQLite. Para cambiarla, vuelve a
@@ -185,16 +202,25 @@ ejecutar el comando.
 
 ### Esquema de datos y migración
 
-El esquema actual es `PRAGMA user_version = 5`. `flask --app app init-db`
-aplica migraciones **no destructivas** al arrancar y es idempotente.
+El esquema actual es `PRAGMA user_version = 6`. `flask --app app init-db`
+aplica migraciones **no destructivas** al arrancar y es idempotente. Si la base
+tiene una versión **más nueva** que la soportada, el arranque se aborta para no
+corromperla.
 
 Tablas principales desde P4:
 
 - `execution_batches`: un registro por operación (lote) con `batch_id`,
-  operador, objetivo, acción, valor, `time_mode`, `ntp_policy`, estado global,
-  contadores y fechas.
+  operador, objetivo, acción, valor, `time_mode`, `ntp_policy`, `time_zone`,
+  `local_fold`, `admin_user`, `password_origin`, `ntp_servers`, `sync_rtc`,
+  `force`, estado global, contadores y fechas.
 - `execution_hosts`: un resultado por host con estado previo/posterior, error,
   duración y hash corto de la contraseña usada.
+- `users`: usuarios con `role` (`viewer`/`operator`/`admin`), contador de
+  fallos y bloqueo.
+- `auth_events`: auditoría de login correcto/fallido, bloqueo y accesos a
+  cuentas bloqueadas.
+- `task_state`: instantáneas de progreso; se recorta a
+  `HORA_ADMIN_MAX_TASK_STATE_ROWS` y se purga según retención.
 - `executions`: historial heredado por host; se conserva por compatibilidad.
 
 Haz copia de seguridad antes de actualizar. Si una migración falla, la
@@ -426,8 +452,9 @@ Prueba la restauración periódicamente. El procedimiento completo está en
 - SQLite en modo WAL: al copiar la base de datos en caliente, copia también
   `hora_admin.db-wal` y `hora_admin.db-shm`, o detén el servicio antes.
 - Las migraciones son no destructivas y se aplican al arrancar
-  (`PRAGMA user_version`). Esquema actual: **v5**. Haz copia de seguridad antes
-  de actualizar.
+  (`PRAGMA user_version`). Esquema actual: **v6**. Haz copia de seguridad antes
+  de actualizar. Una base creada por una versión más nueva aborta el arranque
+  en lugar de degradarse.
 - El SSE y la consola se sirven desde memoria, con instantáneas en SQLite para
   sobrevivir a reinicios. Usa un worker o añade un almacén compartido antes de
   escalar. El worker `gthread` con `timeout=330` evita bloqueos.
@@ -441,28 +468,38 @@ Prueba la restauración periódicamente. El procedimiento completo está en
   lote completo tiene un presupuesto de `HORA_ADMIN_BATCH_TIME_BUDGET` segundos
   (3600 por defecto); los hosts pendientes quedan como `skipped`. El estado
   global será `partial` si hubo éxitos y fallos.
-- **Verificación:** el lote solo cuenta un host como éxito si el playbook
-  confirma el estado final (`HORA_VERIFIED`). La tolerancia de hora se ajusta
-  con `HORA_ADMIN_TIME_TOLERANCE`.
+- **Verificación en dos fases:** el lote solo cuenta un host como éxito si el
+  playbook confirma el estado final (`HORA_VERIFIED`) antes y después de
+  reactivar NTP. La tolerancia por defecto es de 2 s
+  (`HORA_ADMIN_TIME_TOLERANCE`).
 - **Idempotencia:** no se cambia la zona horaria ni la hora si ya coinciden;
   la casilla “Forzar” desactiva esa comprobación de forma consciente.
 - **NTP:** la política por defecto es `keep` (no tocar). `off` deja NTP
   desactivado, `restore` lo desactiva/reactiva alrededor del cambio y
   `configure` escribe servidores NTP en chrony o systemd-timesyncd.
-  - `TIME` + `keep` puede ser revertido por NTP: usa `off`, `restore` o
-    `configure` para cambios de hora. La vista previa avisa de esta
-    combinación cuando detecta NTP activo.
+  - `TIME` + `keep` puede ser revertido por NTP: en ejecución se rechaza por
+    defecto (`HORA_ADMIN_TIME_REQUIRE_NTP_OFF=1`); usa `off`, `restore` o
+    `configure`. La vista previa solo avisa.
   - `restore` deja NTP como estaba: solo lo reactiva si estaba activo antes.
+  - Tras reactivar NTP se espera `HORA_ADMIN_NTP_SETTLE_SECONDS` antes de la
+    verificación final para detectar reversiones.
+- **Cola y cancelación:** los lotes se encolan con concurrencia acotada
+  (`HORA_ADMIN_JOB_WORKERS`, `HORA_ADMIN_JOB_QUEUE_SIZE`). Si la cola está
+  llena se devuelve un error claro; cada lote se puede cancelar y el proceso
+  espera `HORA_ADMIN_JOB_SHUTDOWN_GRACE` al apagarse.
 - **Reconciliación al arrancar:** los lotes `running` se marcan como `error` y
   las tareas incompletas se cierran; también existe
   `flask --app app reconcile-batches`.
-- **Retención parcial:** las instantáneas de tareas se purgan al arrancar con
-  `HORA_ADMIN_JOB_RETENTION_HOURS`; `HORA_ADMIN_HISTORY_DAYS` sigue sin job de
-  purga.
+- **Retención:** instantáneas de tareas
+  (`HORA_ADMIN_JOB_RETENTION_HOURS`), historial de lotes
+  (`HORA_ADMIN_HISTORY_DAYS`), eventos de acceso
+  (`HORA_ADMIN_AUTH_EVENT_DAYS`) y recorte de `task_state`
+  (`HORA_ADMIN_MAX_TASK_STATE_ROWS`).
 - **Sin rollback automático:** el estado previo se guarda, pero revertir es
   manual ([docs/OPERACION.md](docs/OPERACION.md#5-rollback)).
-- **Sin RBAC/MFA:** un único rol administrador. La allowlist de redes existe
-  (`HORA_ADMIN_ALLOWED_NETWORKS`) pero es global.
+- **RBAC sin MFA:** roles `viewer`/`operator`/`admin`, bloqueo de cuenta y
+  auditoría en `auth_events`; la autenticación sigue siendo solo
+  usuario/contraseña. La allowlist de red es global.
 
 ---
 

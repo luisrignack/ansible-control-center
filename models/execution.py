@@ -188,6 +188,20 @@ class ExecutionRecord:
             "success_rate": round(success / total, 2) if total else 0.0,
         }
 
+    @staticmethod
+    def purge_old(days: int, db_path: str = None) -> int:
+        """Elimina registros del historial heredado anteriores a ``days``."""
+        if db_path is None:
+            db_path = _default_db_path()
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=max(1, int(days)))
+        ).isoformat()
+        with get_connection(db_path) as conn:
+            cursor = conn.execute(
+                "DELETE FROM executions WHERE timestamp < ?", (cutoff,)
+            )
+            return int(cursor.rowcount or 0)
+
 
 def _row_to_record(row) -> ExecutionRecord:
     """Convierte una fila SQLite en ``ExecutionRecord``."""

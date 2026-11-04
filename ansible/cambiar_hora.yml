@@ -11,6 +11,10 @@
 #   sync_rtc:     sincronizar el reloj hardware con hwclock
 #   force:        aplicar aunque el estado ya coincida
 #   tolerancia:   desviación máxima aceptada al verificar (segundos)
+#   requiere_ntp_off: impedir TIME con NTP activo y política keep
+#   local_fold:   0/1 para desambiguar una hora local repetida (DST); vacío
+#   zona_horaria: zona IANA con la que se interpreta la hora local (DST)
+#   ntp_settle:   segundos de espera tras reactivar NTP antes de verificar
 #
 # El playbook es idempotente: compara el estado inicial con el objetivo y solo
 # cambia lo necesario. Al final vuelve a leer el estado y publica marcadores
@@ -57,6 +61,17 @@
         hora_cambios: []
         hora_errores: []
         hora_advertencias: []
+
+    - name: Impedir TIME con NTP activo y política keep
+      ansible.builtin.assert:
+        that:
+          - not (accion == 'TIME' and ntp_policy == 'keep' and (hora_antes.ntp | bool))
+        fail_msg: >-
+          TIME con NTP activo y política keep: el reloj puede volver a
+          sincronizarse. Usa off, restore o configure, o desactiva
+          HORA_ADMIN_TIME_REQUIRE_NTP_OFF de forma consciente.
+        success_msg: "Política de hora compatible con el estado NTP."
+      when: requiere_ntp_off | default(true) | bool
 
     - name: Avisar de que NTP puede revertir la hora
       ansible.builtin.set_fact:
@@ -128,9 +143,76 @@
     # ------------------------------------------------------------------
     # Hora exacta
     # ------------------------------------------------------------------
+    - name: Validar la hora local frente a cambios de horario (DST)
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import sys
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+
+            value, timezone_name, fold = sys.argv[1], sys.argv[2], sys.argv[3]
+            parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M")
+            tz = ZoneInfo(timezone_name)
+            first = parsed.replace(tzinfo=tz, fold=0)
+            second = parsed.replace(tzinfo=tz, fold=1)
+            roundtrip = (
+                first.astimezone(ZoneInfo("UTC"))
+                .astimezone(tz)
+                .replace(tzinfo=None)
+            )
+            if roundtrip != parsed:
+                print("missing")
+            elif first.utcoffset() != second.utcoffset() and fold not in ("0", "1"):
+                print("ambiguous")
+            else:
+                print("ok")
+          - "{{ valor }}"
+          - "{{ zona_horaria | default(hora_antes.timezone, true) }}"
+          - "{{ local_fold | default('') | string }}"
+      register: _hora_dst
+      changed_when: false
+      failed_when: false
+      when:
+        - accion == 'TIME'
+        - modo_hora == 'local'
+
+    - name: Rechazar una hora local inexistente o ambigua
+      ansible.builtin.assert:
+        that:
+          - _hora_dst.stdout | default('') | trim == 'ok'
+        fail_msg: >-
+          La hora {{ valor }} no es válida en
+          {{ zona_horaria | default(hora_antes.timezone, true) }}:
+          {{ 'no existe por el cambio de horario de verano'
+             if (_hora_dst.stdout | default('') | trim) == 'missing'
+             else 'es ambigua y se repite; indica la primera o la segunda ocurrencia' }}.
+        success_msg: "Hora local válida en {{ zona_horaria | default(hora_antes.timezone, true) }}."
+      when:
+        - accion == 'TIME'
+        - modo_hora == 'local'
+
     - name: Calcular el instante objetivo en modo local
       ansible.builtin.command:
-        argv: [date, -d, "{{ valor | replace('T', ' ') }}", +%s]
+        argv:
+          - python3
+          - -c
+          - |
+            import sys
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+
+            value, timezone_name, fold = sys.argv[1], sys.argv[2], sys.argv[3]
+            parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M")
+            target = parsed.replace(
+                tzinfo=ZoneInfo(timezone_name), fold=int(fold or 0)
+            )
+            print(int(target.timestamp()))
+          - "{{ valor }}"
+          - "{{ zona_horaria | default(hora_antes.timezone, true) }}"
+          - "{{ local_fold | default('0') | string }}"
       register: _hora_objetivo_local
       when:
         - accion == 'TIME'
@@ -139,9 +221,12 @@
 
     - name: Calcular el instante objetivo
       ansible.builtin.set_fact:
+        # La aplicación calcula el epoch con zoneinfo y lo envía en
+        # ``valor_epoch`` para que vista previa y ejecución coincidan. Solo se
+        # recalcula en el host si no llegó ningún valor (compatibilidad).
         hora_objetivo_epoch: >-
-          {{ (valor_epoch | int) if modo_hora == 'utc'
-             else (_hora_objetivo_local.stdout | trim | int) }}
+          {{ (valor_epoch | int) if (valor_epoch | int) != 0
+             else ((_hora_objetivo_local.stdout | trim | int) if modo_hora == 'local' else 0) }}
       when: accion == 'TIME'
 
     - name: Fijar la hora exacta
@@ -176,6 +261,20 @@
         - sync_rtc | bool
         - _hora_rtc_sync.rc != 0
 
+    # Verificación intermedia: comprueba la hora antes de reactivar NTP. Si
+    # NTP corrige el reloj justo después, la verificación final también debe
+    # pasar; así no se reporta éxito por una lectura intermedia engañosa.
+    - name: Leer el estado tras fijar la hora (antes de reactivar NTP)
+      ansible.builtin.import_tasks: tasks/leer_estado.yml
+      when: accion == 'TIME'
+
+    - name: Verificar la hora antes de reactivar NTP
+      ansible.builtin.set_fact:
+        hora_errores: "{{ hora_errores + ['Desviación intermedia de ' ~ (((hora_estado.epoch | int) - (hora_objetivo_epoch | int)) | abs) ~ 's (tolerancia ' ~ tolerancia ~ 's)'] }}"
+      when:
+        - accion == 'TIME'
+        - (((hora_estado.epoch | int) - (hora_objetivo_epoch | default(0) | int)) | abs) > (tolerancia | int)
+
     # ------------------------------------------------------------------
     # Servidores NTP
     # ------------------------------------------------------------------
@@ -190,7 +289,7 @@
 
     - name: Configurar servidores NTP en chrony
       ansible.builtin.copy:
-        dest: /etc/chrony/conf.d/90-hora-admin.sources
+        dest: /etc/chrony/conf.d/90-hora-admin.conf
         content: |
           {% for servidor in ntp_servers | default([]) %}
           server {{ servidor }} iburst
@@ -238,6 +337,14 @@
       ansible.builtin.set_fact:
         hora_cambios: "{{ hora_cambios + ['ntp_on'] }}"
       when: _hora_ntp_on is defined and _hora_ntp_on.changed
+
+    - name: Esperar a que NTP se estabilice
+      ansible.builtin.command:
+        argv: [sleep, "{{ ntp_settle | default(0) | int }}"]
+      when:
+        - ntp_settle | default(0) | int > 0
+        - _hora_ntp_on is defined and _hora_ntp_on.changed
+      changed_when: false
 
     # ------------------------------------------------------------------
     # Verificación posterior

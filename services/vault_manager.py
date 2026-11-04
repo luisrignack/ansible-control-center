@@ -7,10 +7,13 @@
 # ni se registra en logs.
 from __future__ import annotations
 
+import fcntl
 import os
 import subprocess
+import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from config import (
     BIN_ANSIBLE_VAULT,
@@ -23,6 +26,29 @@ from services.secure_temp import secure_temp_file, temporary_directory
 
 VAULT_HEADER = "$ANSIBLE_VAULT"
 VAULT_TIMEOUT = 60
+
+
+@contextmanager
+def _vault_lock(vault_file: str) -> Iterator[None]:
+    """Exclusión mutua entre procesos para las escrituras del vault.
+
+    ``ansible-vault`` reescribe el fichero completo, así que dos operaciones
+    concurrentes (dos peticiones, un CLI y la interfaz) podrían perder
+    contraseñas. El bloqueo se toma sobre un fichero ``.lock`` contiguo para no
+    bloquear las lecturas y sobrevivir a los reemplazos atómicos del vault.
+    """
+    path = Path(vault_file)
+    lock_path = path.with_name(path.name + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
 def _normalize_passwords(passwords: List[str]) -> List[str]:
@@ -97,6 +123,38 @@ class VaultManager:
 
     @staticmethod
     def encrypt_passwords(
+        passwords: List[str],
+        master_password: str,
+        output_file: str = None,
+        origin: str = "manual",
+        append: bool = True,
+        db_path: str = None,
+    ) -> Tuple[bool, str]:
+        """Cifra contraseñas y actualiza el vault de forma atómica y segura.
+
+        La lectura-modificación-escritura se hace bajo un bloqueo de fichero
+        para que dos operaciones concurrentes no se pisen.
+        """
+        if output_file is None:
+            try:
+                output_file = VaultManager.vault_path()
+            except RuntimeError as exc:
+                return False, str(exc)
+        try:
+            with _vault_lock(output_file):
+                return VaultManager._encrypt_passwords_unlocked(
+                    passwords=passwords,
+                    master_password=master_password,
+                    output_file=output_file,
+                    origin=origin,
+                    append=append,
+                    db_path=db_path,
+                )
+        except OSError as exc:
+            return False, f"No se pudo bloquear el vault: {exc}"
+
+    @staticmethod
+    def _encrypt_passwords_unlocked(
         passwords: List[str],
         master_password: str,
         output_file: str = None,
@@ -248,7 +306,10 @@ class VaultManager:
         master_password: str,
         vault_file: str = None,
     ) -> Tuple[bool, str]:
-        """Elimina del vault la contraseña con ese hash completo."""
+        """Elimina del vault la contraseña con ese hash completo.
+
+        La operación se serializa con el resto de escrituras del vault.
+        """
         if not master_password:
             return False, "La contraseña maestra del Vault es obligatoria."
 
@@ -258,6 +319,21 @@ class VaultManager:
             except RuntimeError as exc:
                 return False, str(exc)
 
+        try:
+            with _vault_lock(vault_file):
+                return VaultManager._remove_password_unlocked(
+                    password_hash_full, master_password, vault_file
+                )
+        except OSError as exc:
+            return False, f"No se pudo bloquear el vault: {exc}"
+
+    @staticmethod
+    def _remove_password_unlocked(
+        password_hash_full: str,
+        master_password: str,
+        vault_file: str,
+    ) -> Tuple[bool, str]:
+        """Implementación de ``remove_password`` ya bajo el bloqueo."""
         ok, message, entries = VaultManager.decrypt_vault_file(
             vault_file=vault_file,
             master_password=master_password,

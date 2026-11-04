@@ -3,226 +3,289 @@
 {% block title %}Panel de Control{% endblock %}
 
 {% block content %}
-<div class="row">
-    <div class="col-12 col-md-8 mx-auto">
-        {% if dry_run %}
-        <div class="alert alert-warning d-flex align-items-center gap-2" role="alert">
-            <i class="bi bi-exclamation-triangle-fill"></i>
-            <div>
-                <strong>DRY RUN activo:</strong> los playbooks no se ejecutan en los
-                hosts. Solo se simula el resultado. Desactívalo con
-                <code>HORA_ADMIN_DRY_RUN=0</code>.
-            </div>
+<div class="page-head">
+    <div>
+        <div class="eyebrow">Operación</div>
+        <h1>Nueva operación</h1>
+        <p class="sub">Configura hora, zona horaria y NTP en un grupo de equipos. La vista previa inspecciona sin cambiar nada.</p>
+    </div>
+    <div class="head-actions">
+        <a class="btn btn-secondary" href="{{ url_for('history') }}">
+            <i class="bi bi-clock-history" aria-hidden="true"></i> Ver historial
+        </a>
+        <a class="btn btn-secondary" href="{{ url_for('passwords') }}">
+            <i class="bi bi-key" aria-hidden="true"></i> Credenciales
+        </a>
+    </div>
+</div>
+
+{% if dry_run %}
+<div class="banner banner-warn" role="status">
+    <div class="banner-icon" aria-hidden="true"><i class="bi bi-exclamation-triangle"></i></div>
+    <div>
+        <div class="banner-title">Modo simulación activo</div>
+        <div class="banner-text">Los playbooks no se ejecutan en los hosts: solo se simula el resultado. Desactívalo con <code>HORA_ADMIN_DRY_RUN=0</code>.</div>
+    </div>
+</div>
+{% endif %}
+
+<div class="grid grid-main">
+    <div class="card fade-in">
+        <div class="card-header">
+            <h2 class="card-title"><i class="bi bi-sliders" aria-hidden="true"></i> Formulario de configuración</h2>
+            <span class="badge badge-accent">Paso único</span>
         </div>
-        {% endif %}
-        <div class="card fade-in">
-            <div class="card-header">
-                <h4 class="mb-0"><i class="bi bi-wrench me-2"></i> Formulario de Configuración</h4>
-            </div>
-            <div class="card-body p-4">
-                <form id="execForm" method="POST" action="{{ url_for('index') }}"
-                    enctype="multipart/form-data">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <input type="hidden" name="operation_id" value="{{ prefill.get('operation_id', '') }}">
-                    <div class="row g-3">
-                        <!-- Campo: IP o Rango -->
-                        <div class="col-md-6">
-                            <label for="targetIp" class="form-label fw-medium">
-                                <i class="bi bi-globe me-2"></i> IP o Rango
-                            </label>
-                            <input type="text" class="form-control" id="targetIp" name="target_ip"
-                                value="{{ prefill.get('target_ip', '') }}"
-                                placeholder="192.168.1.10 o 192.168.1.0/24" required>
-                            <div class="form-text">
-                                Se procesarán todos los hosts del rango (best-effort).
-                            </div>
-                        </div>
-
-                        <!-- Campo: Usuario administrador -->
-                        <div class="col-md-6">
-                            <label for="adminUser" class="form-label fw-medium">
-                                <i class="bi bi-person-meet me-2"></i> Usuario Admin
-                            </label>
-                            <input type="text" class="form-control" id="adminUser" name="admin_user"
-                                value="{{ prefill.get('admin_user') or 'ubuntu-admin' }}" required>
-                        </div>
-
-                        <!-- Origen de contraseñas -->
-                        <div class="col-12">
-                            <label for="passwordOrigin" class="form-label fw-medium">
-                                <i class="bi bi-lock me-2"></i> Origen de Contraseñas
-                            </label>
-                            <select class="form-select form-select-lg" id="passwordOrigin" name="password_origin">
-                                <option value="stored">Contraseñas guardadas en el sistema</option>
-                                <option value="temporal">Archivo temporal (.txt plano)</option>
-                            </select>
-                        </div>
-
-                        <!-- Contraseña Maestra del Vault -->
-                        <div id="masterPasswordField" class="col-12">
-                            <label for="masterPassword" class="form-label fw-medium">
-                                <i class="bi bi-shield-lock me-2"></i> Contraseña Maestra del Vault
-                            </label>
-                            <input type="password" class="form-control" id="masterPassword"
-                                name="master_password" placeholder="Ingresa la contraseña maestra"
-                                autocomplete="current-password" required>
-                        </div>
-
-                        <!-- Archivo temporal .txt -->
-                        <div id="temporalFileField" class="col-12" style="display: none;">
-                            <label for="passwordFile" class="form-label fw-medium">
-                                <i class="bi bi-file-earmark-lock me-2"></i> Archivo de contraseñas (.txt)
-                            </label>
-                            <input type="file" class="form-control" id="passwordFile"
-                                name="password_file" accept=".txt">
-                            <div class="form-text">
-                                Una contraseña por línea. Se ignoran líneas vacías y las que
-                                empiezan con <code>#</code>. El archivo se procesa en memoria.
-                            </div>
-                        </div>
-
-                        <!-- Acción -->
-                        <div class="col-md-6">
-                            <label for="action" class="form-label fw-medium">
-                                <i class="bi bi-list me-2"></i> Acción
-                            </label>
-                            <select class="form-select" id="action" name="action">
-                                <option value="TZ" {% if prefill.get('action') == 'TZ' %}selected{% endif %}>
-                                    Zona Horaria (TZ)
-                                </option>
-                                <option value="TIME" {% if prefill.get('action') == 'TIME' %}selected{% endif %}>
-                                    Hora Exacta (TIME)
-                                </option>
-                            </select>
-                        </div>
-
-                        <!-- Semántica de la hora -->
-                        <div class="col-md-6" id="timeModeField">
-                            <label for="timeMode" class="form-label fw-medium">
-                                <i class="bi bi-clock-history me-2"></i> Semántica de la hora
-                            </label>
-                            <select class="form-select" id="timeMode" name="time_mode">
-                                <option value="utc" {% if prefill.get('time_mode', 'utc') != 'local' %}selected{% endif %}>
-                                    UTC (mismo instante en todos los hosts)
-                                </option>
-                                <option value="local" {% if prefill.get('time_mode') == 'local' %}selected{% endif %}>
-                                    Hora local de cada host
-                                </option>
-                            </select>
-                            <div class="form-text">
-                                Solo aplica a “Hora Exacta”. En modo UTC, el valor se
-                                interpreta como UTC y se convierte a epoch.
-                            </div>
-                        </div>
-
-                        <!-- Valor dinámico -->
-                        <div id="valueField" class="col-12">
-                            <!-- Se llenará dinámicamente por JS -->
-                        </div>
-
-                        <!-- Opciones de zona horaria (datalist estático para el navegador) -->
-                        <datalist id="timezoneList">
-                            {% for tz in common_timezones %}
-                            <option value="{{ tz }}">
-                            {% endfor %}
-                        </datalist>
-
-                        <!-- Política NTP -->
-                        <div class="col-md-6">
-                            <label for="ntpPolicy" class="form-label fw-medium">
-                                <i class="bi bi-arrow-repeat me-2"></i> Política NTP
-                            </label>
-                            <select class="form-select" id="ntpPolicy" name="ntp_policy">
-                                {% set selected_policy = prefill.get('ntp_policy') or 'keep' %}
-                                {% for policy in ntp_policies %}
-                                <option value="{{ policy }}" {% if policy == selected_policy %}selected{% endif %}>
-                                    {% if policy == 'keep' %}Mantener NTP sin cambios
-                                    {% elif policy == 'off' %}Desactivar NTP (queda desactivado)
-                                    {% elif policy == 'restore' %}Desactivar, fijar hora y restaurar el estado previo de NTP
-                                    {% else %}Configurar servidores NTP y activar{% endif %}
-                                </option>
-                                {% endfor %}
-                            </select>
-                            <div class="form-text">
-                                Con “Hora Exacta” y NTP activo, el reloj puede
-                                volver a sincronizarse; usa <code>off</code>,
-                                <code>restore</code> o <code>configure</code>.
-                                <code>restore</code> devuelve NTP a su estado previo.
-                            </div>
-                        </div>
-
-                        <!-- Servidores NTP -->
-                        <div class="col-md-6" id="ntpServersField">
-                            <label for="ntpServers" class="form-label fw-medium">
-                                <i class="bi bi-hdd-network me-2"></i> Servidores NTP
-                            </label>
-                            <input type="text" class="form-control" id="ntpServers" name="ntp_servers"
-                                value="{{ prefill.get('ntp_servers') or default_ntp_servers }}"
-                                placeholder="pool.ntp.org, time.cloudflare.com">
-                            <div class="form-text">
-                                Solo se usa con la política “Configurar servidores NTP”.
-                            </div>
-                        </div>
-
-                        <!-- Opciones avanzadas -->
-                        <div class="col-12">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" value="1"
-                                    id="syncRtc" name="sync_rtc">
-                                <label class="form-check-label" for="syncRtc">
-                                    Sincronizar el reloj hardware (RTC) con <code>hwclock --systohc</code>
-                                </label>
-                            </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" value="1"
-                                    id="forceChange" name="force">
-                                <label class="form-check-label" for="forceChange">
-                                    Forzar el cambio aunque el estado ya coincida (rompe idempotencia)
-                                </label>
-                            </div>
-                        </div>
-
-                        <!-- Botones -->
-                        <div class="col-12">
-                            <div class="d-flex flex-column flex-md-row gap-2">
-                                <button type="submit" name="mode" value="preview"
-                                    class="btn btn-outline-info w-100 py-3 fw-bold" id="previewButton">
-                                    <i class="bi bi-search me-2"></i> Vista previa (no cambia nada)
-                                </button>
-                                <button type="submit" name="mode" value="execute"
-                                    class="btn btn-acento w-100 py-3 fw-bold" id="execButton">
-                                    <i class="bi bi-play-circle me-2"></i> Ejecutar en todos los hosts
-                                </button>
-                            </div>
-                            <div class="form-text mt-2">
-                                La vista previa inspecciona cada host y muestra su estado actual
-                                antes de aplicar el cambio.
-                            </div>
+        <div class="card-body p-4">
+            <form id="execForm" method="POST" action="{{ url_for('index') }}"
+                enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="operation_id" value="{{ prefill.get('operation_id', '') }}">
+                <div class="row g-3">
+                    <!-- Campo: IP o Rango -->
+                    <div class="col-md-6">
+                        <label for="targetIp" class="form-label fw-medium">
+                            <i class="bi bi-globe me-2"></i> IP o rango CIDR
+                        </label>
+                        <input type="text" class="form-control" id="targetIp" name="target_ip"
+                            value="{{ prefill.get('target_ip', '') }}"
+                            placeholder="192.168.1.10 o 192.168.1.0/24" required>
+                        <div class="form-text">
+                            Se procesarán todos los hosts del rango (best-effort).
                         </div>
                     </div>
-                </form>
-            </div>
+
+                    <!-- Campo: Usuario administrador -->
+                    <div class="col-md-6">
+                        <label for="adminUser" class="form-label fw-medium">
+                            <i class="bi bi-person-meet me-2"></i> Usuario Admin
+                        </label>
+                        <input type="text" class="form-control" id="adminUser" name="admin_user"
+                            value="{{ prefill.get('admin_user') or 'ubuntu-admin' }}" required>
+                    </div>
+
+                    <!-- Origen de contraseñas -->
+                    <div class="col-12">
+                        <label for="passwordOrigin" class="form-label fw-medium">
+                            <i class="bi bi-lock me-2"></i> Origen de Contraseñas
+                        </label>
+                        <select class="form-select form-select-lg" id="passwordOrigin" name="password_origin">
+                            <option value="stored">Contraseñas guardadas en el sistema</option>
+                            <option value="temporal">Archivo temporal (.txt plano)</option>
+                        </select>
+                    </div>
+
+                    <!-- Contraseña Maestra del Vault -->
+                    <div id="masterPasswordField" class="col-12">
+                        <label for="masterPassword" class="form-label fw-medium">
+                            <i class="bi bi-shield-lock me-2"></i> Contraseña Maestra del Vault
+                        </label>
+                        <input type="password" class="form-control" id="masterPassword"
+                            name="master_password" placeholder="Ingresa la contraseña maestra"
+                            autocomplete="current-password" required>
+                    </div>
+
+                    <!-- Archivo temporal .txt -->
+                    <div id="temporalFileField" class="col-12 d-none">
+                        <label for="passwordFile" class="form-label fw-medium">
+                            <i class="bi bi-file-earmark-lock me-2"></i> Archivo de contraseñas (.txt)
+                        </label>
+                        <input type="file" class="form-control" id="passwordFile"
+                            name="password_file" accept=".txt">
+                        <div class="form-text">
+                            Una contraseña por línea. Se ignoran líneas vacías y las que
+                            empiezan con <code>#</code>. El archivo se procesa en memoria.
+                        </div>
+                    </div>
+
+                    <!-- Acción -->
+                    <div class="col-md-6">
+                        <label for="action" class="form-label fw-medium">
+                            <i class="bi bi-list me-2"></i> Acción
+                        </label>
+                        <select class="form-select" id="action" name="action">
+                            <option value="TZ" {% if prefill.get('action') == 'TZ' %}selected{% endif %}>
+                                Zona Horaria (TZ)
+                            </option>
+                            <option value="TIME" {% if prefill.get('action') == 'TIME' %}selected{% endif %}>
+                                Hora Exacta (TIME)
+                            </option>
+                        </select>
+                    </div>
+
+                    <!-- Semántica de la hora -->
+                    <div class="col-md-6" id="timeModeField">
+                        <label for="timeMode" class="form-label fw-medium">
+                            <i class="bi bi-clock-history me-2"></i> Semántica de la hora
+                        </label>
+                        <select class="form-select" id="timeMode" name="time_mode">
+                            <option value="utc" {% if prefill.get('time_mode', 'utc') != 'local' %}selected{% endif %}>
+                                UTC (mismo instante en todos los hosts)
+                            </option>
+                            <option value="local" {% if prefill.get('time_mode') == 'local' %}selected{% endif %}>
+                                Hora local de cada host
+                            </option>
+                        </select>
+                        <div class="form-text">
+                            Solo aplica a “Hora Exacta”. En modo UTC, el valor se
+                            interpreta como UTC y se convierte a epoch.
+                        </div>
+                    </div>
+
+                    <!-- Zona y desambiguación para hora local -->
+                    <div class="col-md-6 d-none" id="timeZoneField">
+                        <label for="timeZone" class="form-label fw-medium">
+                            <i class="bi bi-globe2 me-2"></i> Zona horaria de la hora local
+                        </label>
+                        <input list="timezoneList" type="text" class="form-control" id="timeZone"
+                            name="time_zone" value="{{ prefill.get('time_zone', '') }}"
+                            placeholder="Ej: Europe/Madrid" autocomplete="off">
+                        <div class="form-text">
+                            Obligatoria para calcular el instante cuando la hora es local.
+                        </div>
+                    </div>
+                    <div class="col-md-6 d-none" id="timeFoldField">
+                        <label for="timeFold" class="form-label fw-medium">
+                            <i class="bi bi-signpost-split me-2"></i> Hora repetida (DST)
+                        </label>
+                        <select class="form-select" id="timeFold" name="time_fold">
+                            <option value="auto" {% if prefill.get('time_fold', 'auto') == 'auto' %}selected{% endif %}>
+                                Automático (rechazar si es ambigua)
+                            </option>
+                            <option value="0" {% if prefill.get('time_fold') == '0' %}selected{% endif %}>
+                                Primera ocurrencia
+                            </option>
+                            <option value="1" {% if prefill.get('time_fold') == '1' %}selected{% endif %}>
+                                Segunda ocurrencia
+                            </option>
+                        </select>
+                        <div class="form-text">
+                            Solo se usa si la hora local existe dos veces por el cambio de horario.
+                        </div>
+                    </div>
+
+                    <!-- Valor dinámico -->
+                    <div id="valueField" class="col-12">
+                        <!-- Se llenará dinámicamente por JS -->
+                    </div>
+
+                    <!-- Opciones de zona horaria (datalist estático para el navegador) -->
+                    <datalist id="timezoneList">
+                        {% for tz in common_timezones %}
+                        <option value="{{ tz }}">
+                        {% endfor %}
+                    </datalist>
+
+                    <!-- Política NTP -->
+                    <div class="col-md-6">
+                        <label for="ntpPolicy" class="form-label fw-medium">
+                            <i class="bi bi-arrow-repeat me-2"></i> Política NTP
+                        </label>
+                        <select class="form-select" id="ntpPolicy" name="ntp_policy">
+                            {% set selected_policy = prefill.get('ntp_policy') or 'keep' %}
+                            {% for policy in ntp_policies %}
+                            <option value="{{ policy }}" {% if policy == selected_policy %}selected{% endif %}>
+                                {% if policy == 'keep' %}Mantener NTP sin cambios
+                                {% elif policy == 'off' %}Desactivar NTP (queda desactivado)
+                                {% elif policy == 'restore' %}Desactivar, fijar hora y restaurar el estado previo de NTP
+                                {% else %}Configurar servidores NTP y activar{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">
+                            Con “Hora Exacta” y NTP activo, el reloj puede
+                            volver a sincronizarse; usa <code>off</code>,
+                            <code>restore</code> o <code>configure</code>.
+                            <code>restore</code> devuelve NTP a su estado previo.
+                        </div>
+                    </div>
+
+                    <!-- Servidores NTP -->
+                    <div class="col-md-6" id="ntpServersField">
+                        <label for="ntpServers" class="form-label fw-medium">
+                            <i class="bi bi-hdd-network me-2"></i> Servidores NTP
+                        </label>
+                        <input type="text" class="form-control" id="ntpServers" name="ntp_servers"
+                            value="{{ prefill.get('ntp_servers') or default_ntp_servers }}"
+                            placeholder="pool.ntp.org, time.cloudflare.com">
+                        <div class="form-text">
+                            Solo se usa con la política “Configurar servidores NTP”.
+                        </div>
+                    </div>
+
+                    <!-- Opciones avanzadas -->
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="1"
+                                id="syncRtc" name="sync_rtc"
+                                {% if prefill.get('sync_rtc') %}checked{% endif %}>
+                            <label class="form-check-label" for="syncRtc">
+                                Sincronizar el reloj hardware (RTC) con <code>hwclock --systohc</code>
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="1"
+                                id="forceChange" name="force"
+                                {% if prefill.get('force') %}checked{% endif %}>
+                            <label class="form-check-label" for="forceChange">
+                                Forzar el cambio aunque el estado ya coincida (rompe idempotencia)
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Botones -->
+                    <div class="col-12">
+                        <div class="d-flex flex-column flex-md-row gap-2">
+                            <button type="submit" name="mode" value="preview"
+                                class="btn btn-outline-info w-100 py-3 fw-bold" id="previewButton">
+                                <i class="bi bi-search me-2"></i> Vista previa (no cambia nada)
+                            </button>
+                            <button type="submit" name="mode" value="execute"
+                                class="btn btn-acento w-100 py-3 fw-bold" id="execButton">
+                                <i class="bi bi-play-circle me-2"></i> Ejecutar en todos los hosts
+                            </button>
+                        </div>
+                        <div class="form-text mt-2">
+                            La vista previa inspecciona cada host y muestra su estado actual
+                            antes de aplicar el cambio.
+                        </div>
+                    </div>
+                </div>
+            </form>
         </div>
     </div>
-</div>
 
-<!-- Sección de progreso (hidden por defecto) -->
-<div id="progressSection" class="mt-4" style="display: none;">
-    <div class="card">
-        <div class="card-header">
-            <h5 class="mb-0"><i class="bi bi-arrow-repeat me-2"></i> Progreso</h5>
+    <aside class="card summary fade-in" aria-label="Resumen de la operación">
+        <div class="summary-head">
+            <strong><i class="bi bi-clipboard-check" aria-hidden="true"></i> Resumen</strong>
+            <span class="badge badge-accent" id="sumRisk">Listo</span>
         </div>
-        <div class="card-body">
-            <div class="progress mb-3">
-                <div class="progress-bar" role="progressbar" style="width: 0%" aria-valuenow="0"
-                    aria-valuemin="0" aria-valuemax="100"></div>
+        <div class="summary-body">
+            <div class="sum-row"><span class="k">Destinos</span><span class="v" id="sumTarget">—</span></div>
+            <div class="sum-row"><span class="k">Operación</span><span class="v" id="sumAction">—</span></div>
+            <div class="sum-row"><span class="k">Valor</span><span class="v" id="sumValue">—</span></div>
+            <div class="sum-row"><span class="k">NTP</span><span class="v" id="sumNtp">—</span></div>
+            <div class="sum-row"><span class="k">Credenciales</span><span class="v" id="sumCreds">—</span></div>
+            <div class="sum-row"><span class="k">Modo</span><span class="v" id="sumMode">—</span></div>
+        </div>
+        <div class="summary-body">
+            <div class="sum-note">
+                <strong>Vista previa primero</strong>
+                Inspecciona cada host y revisa su estado antes de aplicar el cambio.
+                Un rango CIDR se expande a todos sus hosts.
             </div>
-            <div id="progressMessage" class="small text-muted"></div>
-            <div id="progressLog" style="max-height: 200px; overflow-y: auto; font-size: 0.8rem;"></div>
         </div>
-    </div>
+        <div class="sum-actions">
+            <a class="btn btn-secondary" href="{{ url_for('history') }}">
+                <i class="bi bi-clock-history" aria-hidden="true"></i> Historial de lotes
+            </a>
+            <a class="btn btn-secondary" href="{{ url_for('passwords') }}">
+                <i class="bi bi-shield-lock" aria-hidden="true"></i> Gestionar vault
+            </a>
+        </div>
+    </aside>
 </div>
 
+<!-- Confirmación de ejecución -->
 <div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -264,6 +327,57 @@ const prefill = {{ prefill | tojson }};
 const defaultNtpServers = {{ default_ntp_servers | tojson }};
 const dryRunEnabled = {{ dry_run | tojson }};
 
+function updateSummary() {
+    const target = document.getElementById('targetIp');
+    const targetValue = target ? target.value.trim() : '';
+    const targetEl = document.getElementById('sumTarget');
+    if (targetEl) {
+        targetEl.textContent = targetValue
+            ? (targetValue.includes('/') ? targetValue + ' (rango)' : targetValue)
+            : '—';
+    }
+
+    const action = document.getElementById('action');
+    const actionEl = document.getElementById('sumAction');
+    if (action && actionEl) {
+        actionEl.textContent = action.options[action.selectedIndex].text;
+    }
+
+    const valueInput = document.getElementById('actionValue');
+    let value = valueInput ? valueInput.value : '';
+    const timeMode = document.getElementById('timeMode');
+    const timeZone = document.getElementById('timeZone');
+    if (action && action.value === 'TIME' && timeMode && timeMode.value === 'local'
+            && timeZone && timeZone.value.trim()) {
+        value = (value || '—') + ' · ' + timeZone.value.trim();
+    }
+    const valueEl = document.getElementById('sumValue');
+    if (valueEl) valueEl.textContent = value || '—';
+
+    const ntp = document.getElementById('ntpPolicy');
+    const ntpEl = document.getElementById('sumNtp');
+    if (ntp && ntpEl) {
+        ntpEl.textContent = ntp.options[ntp.selectedIndex].text;
+    }
+
+    const origin = document.getElementById('passwordOrigin');
+    const credsEl = document.getElementById('sumCreds');
+    if (origin && credsEl) {
+        credsEl.textContent = origin.options[origin.selectedIndex].text;
+    }
+
+    const modeEl = document.getElementById('sumMode');
+    if (modeEl) {
+        modeEl.textContent = dryRunEnabled ? 'Simulación (DRY RUN)' : 'Ejecución real';
+    }
+
+    const riskEl = document.getElementById('sumRisk');
+    if (riskEl) {
+        riskEl.textContent = dryRunEnabled ? 'Simulación' : 'Real';
+        riskEl.className = 'badge ' + (dryRunEnabled ? 'badge-accent' : 'bg-warning');
+    }
+}
+
 function updatePasswordFields(origin) {
     const stored = origin === 'stored';
     const masterField = document.getElementById('masterPasswordField');
@@ -271,27 +385,41 @@ function updatePasswordFields(origin) {
     const fileField = document.getElementById('temporalFileField');
     const fileInput = document.getElementById('passwordFile');
 
-    masterField.style.display = stored ? 'block' : 'none';
+    masterField.classList.toggle('d-none', !stored);
     if (masterInput) masterInput.required = stored;
 
-    fileField.style.display = stored ? 'none' : 'block';
+    fileField.classList.toggle('d-none', stored);
     if (fileInput) fileInput.required = !stored;
+    updateSummary();
 }
 
 function updateNtpFields(policy) {
     const field = document.getElementById('ntpServersField');
     const input = document.getElementById('ntpServers');
     const configure = policy === 'configure';
-    field.style.display = configure ? 'block' : 'none';
+    field.classList.toggle('d-none', !configure);
     if (input) {
         input.required = configure;
         if (configure && !input.value) input.value = defaultNtpServers;
     }
+    updateSummary();
 }
 
 function updateTimeModeField(action) {
     const field = document.getElementById('timeModeField');
-    field.style.display = action === 'TIME' ? 'block' : 'none';
+    field.classList.toggle('d-none', action !== 'TIME');
+    updateLocalFields();
+}
+
+function updateLocalFields() {
+    const action = document.getElementById('action').value;
+    const mode = document.getElementById('timeMode').value;
+    const show = action === 'TIME' && mode === 'local';
+    document.getElementById('timeZoneField').classList.toggle('d-none', !show);
+    document.getElementById('timeFoldField').classList.toggle('d-none', !show);
+    const zone = document.getElementById('timeZone');
+    if (zone) zone.required = show;
+    updateSummary();
 }
 
 function updateValueField(action, currentValue) {
@@ -313,6 +441,7 @@ function updateValueField(action, currentValue) {
             document.getElementById('actionValue').value = currentValue;
         }
     }
+    updateSummary();
 }
 
 // Confirmación explícita antes de ejecutar (no para vista previa).
@@ -381,6 +510,15 @@ document.addEventListener('DOMContentLoaded', () => {
     ntpSelect.addEventListener('change', (event) => {
         updateNtpFields(event.target.value);
     });
+
+    document.getElementById('timeMode').addEventListener('change', updateLocalFields);
+
+    const summaryForm = document.getElementById('execForm');
+    if (summaryForm) {
+        summaryForm.addEventListener('input', updateSummary);
+        summaryForm.addEventListener('change', updateSummary);
+    }
+    updateSummary();
 });
 </script>
 {% endblock %}

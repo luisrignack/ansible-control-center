@@ -18,6 +18,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
@@ -32,6 +33,7 @@ from config import (
     PLAYBOOK_TIMEOUT,
     TIME_VERIFY_TOLERANCE,
 )
+from services.job_queue import JobCancelled
 from services.secure_temp import secure_temp_file
 
 logger = logging.getLogger(__name__)
@@ -70,8 +72,36 @@ def _emit_line(
 
 
 def ansible_environment() -> Dict[str, str]:
-    """Entorno para las llamadas a Ansible, sin secretos."""
-    env = os.environ.copy()
+    """Entorno mínimo para las llamadas a Ansible, sin secretos.
+
+    No se hereda ``os.environ`` completo: variables como la clave de sesión,
+    la contraseña maestra o credenciales de nube no deben llegar a un proceso
+    hijo que ejecuta código remoto. Solo se conservan las variables necesarias
+    para localizar binarios, idioma y configuración explícita de Ansible.
+    """
+    allowed = {
+        "PATH",
+        "HOME",
+        "LANG",
+        "LANGUAGE",
+        "TERM",
+        "TMPDIR",
+        "TZ",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "SSH_AUTH_SOCK",
+    }
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key in allowed
+        or key.startswith("ANSIBLE_")
+        or key.startswith("LC_")
+        or key in {"http_proxy", "https_proxy", "no_proxy"}
+    }
     env["ANSIBLE_CONFIG"] = str(ANSIBLE_CFG)
     env["ANSIBLE_NOCOLOR"] = "1"
     # Evita que Ansible intente pedir contraseñas interactivamente.
@@ -87,12 +117,13 @@ def _invoke_playbook(
     extra_vars: Dict[str, Any],
     timeout: Optional[int] = None,
     line_callback: Optional[Callable[[str], None]] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> subprocess.CompletedProcess:
     """Ejecuta ``ansible-playbook`` con las credenciales en un fichero 0600.
 
-    Si se pasa ``line_callback``, la salida se lee línea a línea y se entrega
-    en tiempo real (para la consola de progreso). Sin callback se mantiene la
-    ruta clásica con ``subprocess.run``.
+    Si se pasa ``line_callback`` o ``cancel_event``, la salida se lee línea a
+    línea y el proceso se puede cancelar en caliente. Sin callback se mantiene
+    la ruta clásica con ``subprocess.run``.
     """
     path = str(playbook_path)
     payload = dict(extra_vars)
@@ -115,7 +146,7 @@ def _invoke_playbook(
             str(CONNECT_TIMEOUT),
         ]
         env = ansible_environment()
-        if line_callback is None:
+        if line_callback is None and cancel_event is None:
             return subprocess.run(
                 cmd,
                 capture_output=True,
@@ -123,20 +154,24 @@ def _invoke_playbook(
                 timeout=timeout or PLAYBOOK_TIMEOUT,
                 env=env,
             )
-        return _run_streaming(cmd, env, timeout, line_callback)
+        return _run_streaming(
+            cmd, env, timeout, line_callback, cancel_event
+        )
 
 
 def _run_streaming(
     cmd: List[str],
     env: Dict[str, str],
     timeout: Optional[int],
-    line_callback: Callable[[str], None],
+    line_callback: Optional[Callable[[str], None]],
+    cancel_event: Optional[threading.Event] = None,
 ) -> subprocess.CompletedProcess:
     """Ejecuta un proceso y entrega su salida línea a línea.
 
-    Se usa un hilo lector para no bloquear el pipe si el proceso escribe mucho,
-    y se aplica el timeout sobre ``wait``. Al expirar se mata el proceso y se
-    propaga ``TimeoutExpired`` para que el llamador lo traduzca a un error.
+    Se usa un hilo lector para no bloquear el pipe si el proceso escribe mucho.
+    El proceso se sondea cada 200 ms para poder atender una cancelación sin
+    esperar al timeout completo. Al expirar o cancelarse se mata y se propaga
+    la excepción correspondiente.
     """
     process = subprocess.Popen(
         cmd,
@@ -153,6 +188,8 @@ def _run_streaming(
         try:
             for line in iter(process.stdout.readline, ""):
                 lines.append(line)
+                if line_callback is None:
+                    continue
                 try:
                     line_callback(line.rstrip("\r\n"))
                 except Exception:  # pragma: no cover - salvaguarda
@@ -168,13 +205,23 @@ def _run_streaming(
     )
     reader.start()
 
-    try:
-        returncode = process.wait(timeout=timeout or PLAYBOOK_TIMEOUT)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait()
-        reader.join(timeout=2)
-        raise
+    limit = timeout or PLAYBOOK_TIMEOUT
+    deadline = time.monotonic() + limit
+    returncode: Optional[int] = None
+    while returncode is None:
+        try:
+            returncode = process.wait(timeout=0.2)
+        except subprocess.TimeoutExpired:
+            if cancel_event is not None and cancel_event.is_set():
+                process.kill()
+                process.wait()
+                reader.join(timeout=2)
+                raise JobCancelled("Operación cancelada por el usuario.")
+            if time.monotonic() >= deadline:
+                process.kill()
+                process.wait()
+                reader.join(timeout=2)
+                raise subprocess.TimeoutExpired(cmd, limit)
 
     reader.join(timeout=2)
     return subprocess.CompletedProcess(
@@ -279,6 +326,7 @@ def run_ansible_playbook(
     playbook_path: str = None,
     timeout: int = None,
     line_callback: Optional[Callable[[str], None]] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> Dict[str, Any]:
     """Ejecuta el playbook de configuración de hora contra un host.
 
@@ -335,15 +383,27 @@ def run_ansible_playbook(
                 "force": False,
                 "tolerancia": TIME_VERIFY_TOLERANCE,
                 "target_host": host,
+                "requiere_ntp_off": True,
+                "local_fold": "",
+                "zona_horaria": "",
+                "ntp_settle": 0,
             },
             timeout=timeout,
             line_callback=line_callback,
+            cancel_event=cancel_event,
         )
     except FileNotFoundError:
         return _result(
             host,
             False,
             error="ansible-playbook no encontrado. Verifica la instalación de Ansible.",
+            playbook_path=path,
+        )
+    except JobCancelled:
+        return _result(
+            host,
+            False,
+            error="Operación cancelada por el usuario.",
             playbook_path=path,
         )
     except subprocess.TimeoutExpired:
@@ -392,6 +452,7 @@ def inspect_host(
     timeout: int = None,
     line_callback: Optional[Callable[[str], None]] = None,
     force_real: bool = False,
+    cancel_event: Optional[threading.Event] = None,
 ) -> Dict[str, Any]:
     """Lee el estado de hora/zona horaria/NTP de un host sin cambiar nada.
 
@@ -438,12 +499,20 @@ def inspect_host(
             extra_vars={},
             timeout=timeout,
             line_callback=line_callback,
+            cancel_event=cancel_event,
         )
     except FileNotFoundError:
         return _result(
             host,
             False,
             error="ansible-playbook no encontrado. Verifica la instalación de Ansible.",
+            playbook_path=path,
+        )
+    except JobCancelled:
+        return _result(
+            host,
+            False,
+            error="Operación cancelada por el usuario.",
             playbook_path=path,
         )
     except subprocess.TimeoutExpired:
@@ -489,6 +558,12 @@ def apply_host(
     tolerance: Optional[int] = None,
     timeout: int = None,
     line_callback: Optional[Callable[[str], None]] = None,
+    local_fold: Optional[int] = None,
+    time_zone: str = "",
+    requiere_ntp_off: bool = True,
+    ntp_settle: int = 0,
+    target_epoch: Optional[int] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> Dict[str, Any]:
     """Aplica el cambio en un host y verifica el resultado.
 
@@ -538,7 +613,9 @@ def apply_host(
         "accion": action,
         "valor": value,
         "modo_hora": time_mode,
-        "valor_epoch": _epoch_for(value, time_mode),
+        "valor_epoch": int(target_epoch)
+        if target_epoch is not None
+        else _epoch_for(value, time_mode),
         "ntp_policy": ntp_policy,
         "ntp_servers": list(ntp_servers or []),
         "sync_rtc": bool(sync_rtc),
@@ -547,6 +624,10 @@ def apply_host(
             tolerance if tolerance is not None else TIME_VERIFY_TOLERANCE
         ),
         "target_host": host,
+        "local_fold": "" if local_fold is None else int(local_fold),
+        "zona_horaria": time_zone or "",
+        "requiere_ntp_off": bool(requiere_ntp_off),
+        "ntp_settle": max(0, int(ntp_settle or 0)),
     }
 
     try:
@@ -558,12 +639,20 @@ def apply_host(
             extra_vars=extra_vars,
             timeout=timeout,
             line_callback=line_callback,
+            cancel_event=cancel_event,
         )
     except FileNotFoundError:
         return _result(
             host,
             False,
             error="ansible-playbook no encontrado. Verifica la instalación de Ansible.",
+            playbook_path=path,
+        )
+    except JobCancelled:
+        return _result(
+            host,
+            False,
+            error="Operación cancelada por el usuario.",
             playbook_path=path,
         )
     except subprocess.TimeoutExpired:

@@ -325,6 +325,7 @@ def test_time_mode_and_ntp_policy_reach_ansible(client, monkeypatch):
         action="TIME",
         value="2026-11-03T10:30",
         time_mode="local",
+        time_zone="Europe/Madrid",
         ntp_policy="configure",
         ntp_servers="pool.ntp.org, time.cloudflare.com",
     )
@@ -337,11 +338,15 @@ def test_time_mode_and_ntp_policy_reach_ansible(client, monkeypatch):
         "pool.ntp.org",
         "time.cloudflare.com",
     ]
+    assert received["target_epoch"] is not None
+    assert received["local_fold"] == 0
+    assert received["time_zone"] == "Europe/Madrid"
 
     batch = ExecutionBatch.get_batches(db_path=db_path)[0]
     assert batch.action == "TIME"
     assert batch.time_mode == "local"
     assert batch.ntp_policy == "configure"
+    assert batch.time_zone == "Europe/Madrid"
 
 
 def test_live_console_streams_redacts_and_compacts_markers(
@@ -559,11 +564,12 @@ def test_batch_time_budget_skips_remaining_hosts(client, monkeypatch):
     task_id = _start_execution(client, "execute")
     status = _wait_for_task(client, task_id)
 
-    assert status["overall_result"] == "failure", status
+    assert status["overall_result"] == "incomplete", status
     batch = ExecutionBatch.get_batch(
         status["batch_id"], db_path=app_module.get_db_path()
     )
     assert batch is not None
+    assert batch.status == "incomplete"
     assert batch.total_hosts == 2
     assert batch.skipped_count == 2
     assert batch.success_count == 0

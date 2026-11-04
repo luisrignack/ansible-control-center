@@ -7,7 +7,87 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ---
 
-## [P4.2] — 2026-11-03
+## [Sprint 0/1] — 2026-11-03
+
+Aplicación de las recomendaciones de la revisión técnica del 3 de noviembre:
+contención de red, ciclo de vida de trabajos, corrección DST/NTP, RBAC y
+endurecimiento del empaquetado.
+
+### Seguridad de red
+
+- **Allowlist obligatoria en producción:** `HORA_ADMIN_ALLOWED_NETWORKS` vacía
+  aborta el arranque con `HORA_ADMIN_ENV=production`.
+- **Bloqueo por defecto** de loopback, link-local (incluidos metadatos cloud
+  `169.254.169.254`), multicast, reservadas y no especificadas, aunque la
+  allowlist las incluya.
+- **Fijación de IP:** los hostnames se resuelven una sola vez, se comprueban
+  **todas** sus direcciones y se guarda una IP literal para que Ansible no
+  vuelva a consultar DNS (anti-rebinding).
+- **`TIME` + NTP `keep`:** se rechaza en ejecución con
+  `HORA_ADMIN_TIME_REQUIRE_NTP_OFF=1`; la vista previa solo avisa.
+- **Tolerancia de hora:** valor por defecto reducido de 120 s a **2 s**.
+- **Lock del vault:** escritura serializada con `flock` entre procesos.
+- **Entorno mínimo de Ansible:** solo se heredan variables necesarias
+  (`PATH`, `HOME`, `LANG`, `TMPDIR`, `ANSIBLE_*`, etc.); no se filtran secretos
+  de la aplicación.
+
+### Ciclo de vida y datos
+
+- **Cola acotada de trabajos:** concurrencia y cola máximas, rechazo con error
+  claro al llenarse, cancelación cooperativa y apagado ordenado con gracia.
+- **Nuevos estados de lote:** `incomplete` (presupuesto agotado) y `cancelled`,
+  distintos de `failure`.
+- **Retención y límites:** purga de lotes, instantáneas y eventos de acceso;
+  recorte de `task_state` y de tareas en memoria.
+- **Esquema v6:** roles, bloqueo de cuenta, `auth_events` y columnas de
+  prefill del lote (`admin_user`, `password_origin`, `ntp_servers`,
+  `sync_rtc`, `force`, `local_fold`, `time_zone`). Una base con versión futura
+  aborta el arranque.
+- **RBAC y auditoría:** roles `viewer`, `operator` y `admin`; bloqueo
+  progresivo tras fallos de login; registro de accesos correctos, fallidos y
+  bloqueados en `/audit`. `init-admin` acepta `--role`.
+
+### Hora, DST y NTP
+
+- **Validación real de zona horaria** con `zoneinfo` (rechaza zonas inventadas).
+- **Huecos y solapamientos DST:** se rechazan horas inexistentes y horas
+  ambiguas sin `fold` explícito; `local_fold=0/1` selecciona la ocurrencia.
+- **Instante único:** la app calcula `target_epoch` y lo comparte con el
+  playbook, de modo que vista previa y ejecución coinciden.
+- **Verificación en dos fases** antes y después de reactivar NTP, con espera
+  de asentamiento (`HORA_ADMIN_NTP_SETTLE_SECONDS`).
+- **Inspección de servidores NTP** en la configuración estándar de chrony y
+  systemd-timesyncd; corregida la ruta de chrony a
+  `/etc/chrony/conf.d/90-hora-admin.conf`.
+
+### Interfaz, assets y empaquetado
+
+- **Assets locales:** Bootstrap 5.3.2 e iconos servidos desde
+  `static/vendor/`; sin CDN ni Google Fonts.
+- **CSP estricta:** `default-src 'self'`, nonce para scripts, sin
+  `unsafe-inline`; eliminados los `style=` inline y traducidos los estados.
+- **Accesibilidad y UX:** `<progress>` nativo, botón de cancelación, enlace de
+  prefill del lote ampliado y vistas `403.html` y `audit.html`.
+- **Rediseño visual:** sistema de diseño inspirado en `docs/prototipo-ui.html`
+  con shell de barra lateral, cabecera, tarjetas elevadas, tablas, formularios,
+  banners y páginas de error modernizadas; tema claro/oscuro persistente y
+  resumen dinámico de la operación. Todo el estilo vive en `static/css/app.css`
+  (sin `style=` inline) y se mantienen las restricciones de CSP.
+- **Docker:** `.dockerignore` excluye `dist/`, `*.tar`, `*.tgz` y `*.tar.gz`;
+  `docker/export-images.sh` reconstruye desde HEAD por defecto y registra
+  commit y estado del árbol en `IMAGENES_INFO.txt`.
+
+### Pruebas
+
+- Nueva cobertura en `tests/test_sprint01.py`: allowlist/loopback/metadatos,
+  DNS pinning, DST, formulario, NTP, cola/cancelación, roles/bloqueo/auditoría,
+  CSP/assets, lock del vault, entorno de Ansible, estados de lote y esquema
+  futuro.
+- `tests/test_ssh_container.py`: integración SSH opcional con Docker
+  (`HORA_ADMIN_RUN_SSH_TESTS=1`), omitida por defecto.
+
+---
+
 
 Correcciones de coherencia detectadas en la revisión del proyecto: simulación
 honesta, ejecución acotada y contrato playbook→app más estricto.

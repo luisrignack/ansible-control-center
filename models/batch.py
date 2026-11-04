@@ -7,14 +7,44 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from config import resolve_db_path
 from models.db import get_connection, init_schema
 
-BATCH_STATUSES = {"running", "success", "partial", "failure", "preview", "error"}
+BATCH_STATUSES = {
+    "running",
+    "success",
+    "partial",
+    "failure",
+    "preview",
+    "error",
+    "incomplete",
+    "cancelled",
+}
 HOST_RESULTS = {"success", "failure", "skipped", "error", "preview"}
+
+# Etiquetas legibles para la interfaz. Los estados internos nunca se muestran
+# tal cual al operador.
+STATUS_LABELS = {
+    "running": "En curso",
+    "success": "Correcto",
+    "partial": "Parcial",
+    "failure": "Fallido",
+    "preview": "Vista previa",
+    "error": "Error",
+    "incomplete": "Incompleto",
+    "cancelled": "Cancelado",
+    "pending": "Pendiente",
+}
+HOST_RESULT_LABELS = {
+    "success": "Correcto",
+    "failure": "Fallido",
+    "skipped": "Omitido",
+    "error": "Error",
+    "preview": "Vista previa",
+}
 
 _RESULT_COUNTERS = {
     "success": "success_count",
@@ -134,6 +164,13 @@ class ExecutionBatch:
         error_count: int = 0,
         preview_count: int = 0,
         dry_run: bool = False,
+        admin_user: str = "",
+        password_origin: str = "",
+        ntp_servers: Optional[List[str]] = None,
+        sync_rtc: bool = False,
+        force: bool = False,
+        local_fold: Optional[int] = None,
+        time_zone: str = "",
     ):
         self.id = id
         self.batch_id = batch_id
@@ -153,6 +190,13 @@ class ExecutionBatch:
         self.error_count = int(error_count or 0)
         self.preview_count = int(preview_count or 0)
         self.dry_run = bool(dry_run)
+        self.admin_user = admin_user or ""
+        self.password_origin = password_origin or ""
+        self.ntp_servers = list(ntp_servers or [])
+        self.sync_rtc = bool(sync_rtc)
+        self.force = bool(force)
+        self.local_fold = local_fold
+        self.time_zone = time_zone or ""
 
     @property
     def processed_count(self) -> int:
@@ -196,6 +240,13 @@ class ExecutionBatch:
             "processed_count": self.processed_count,
             "duration_seconds": self.duration_seconds,
             "dry_run": self.dry_run,
+            "admin_user": self.admin_user,
+            "password_origin": self.password_origin,
+            "ntp_servers": self.ntp_servers,
+            "sync_rtc": self.sync_rtc,
+            "force": self.force,
+            "local_fold": self.local_fold,
+            "time_zone": self.time_zone,
         }
 
     # ------------------------------------------------------------------
@@ -337,6 +388,13 @@ class ExecutionBatch:
         total_hosts: int = 0,
         status: str = "running",
         dry_run: bool = False,
+        admin_user: str = "",
+        password_origin: str = "",
+        ntp_servers: Optional[List[str]] = None,
+        sync_rtc: bool = False,
+        force: bool = False,
+        local_fold: Optional[int] = None,
+        time_zone: str = "",
         db_path: str = None,
     ) -> "ExecutionBatch":
         if db_path is None:
@@ -349,8 +407,10 @@ class ExecutionBatch:
                 """
                 INSERT INTO execution_batches
                     (batch_id, created_at, operator, action, value, target,
-                     time_mode, ntp_policy, status, total_hosts, dry_run)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     time_mode, ntp_policy, status, total_hosts, dry_run,
+                     admin_user, password_origin, ntp_servers, sync_rtc, force,
+                     local_fold, time_zone)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     batch_id,
@@ -364,6 +424,13 @@ class ExecutionBatch:
                     status,
                     int(total_hosts or 0),
                     1 if dry_run else 0,
+                    admin_user or "",
+                    password_origin or "",
+                    json.dumps(list(ntp_servers or []), ensure_ascii=False),
+                    1 if sync_rtc else 0,
+                    1 if force else 0,
+                    int(local_fold) if local_fold in (0, 1) else None,
+                    time_zone or "",
                 ),
             )
 
@@ -535,6 +602,20 @@ class ExecutionBatch:
             )
             return int(cursor.rowcount or 0)
 
+    @staticmethod
+    def purge_old(days: int, db_path: str = None) -> int:
+        """Elimina lotes (y sus hosts por cascada) anteriores a ``days``."""
+        if db_path is None:
+            db_path = _default_db_path()
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=max(1, int(days)))
+        ).isoformat()
+        with get_connection(db_path) as conn:
+            cursor = conn.execute(
+                "DELETE FROM execution_batches WHERE created_at < ?", (cutoff,)
+            )
+            return int(cursor.rowcount or 0)
+
 
 def _derive_status(
     success: int,
@@ -551,6 +632,10 @@ def _derive_status(
         return "success"
     if success > 0:
         return "partial"
+    # Un lote cuyos hosts no llegaron a procesarse (presupuesto agotado,
+    # cancelación) es incompleto, no un fallo técnico de los hosts.
+    if processed > 0 and skipped == processed:
+        return "incomplete"
     if errors > 0 and failure == 0 and skipped == 0:
         return "error"
     return "failure"
@@ -576,6 +661,13 @@ def _row_to_batch(row) -> ExecutionBatch:
         error_count=row["error_count"],
         preview_count=row["preview_count"],
         dry_run=bool(row["dry_run"]),
+        admin_user=row["admin_user"],
+        password_origin=row["password_origin"],
+        ntp_servers=json.loads(row["ntp_servers"] or "[]"),
+        sync_rtc=bool(row["sync_rtc"]),
+        force=bool(row["force"]),
+        local_fold=row["local_fold"],
+        time_zone=row["time_zone"],
     )
 
 

@@ -1,53 +1,65 @@
 {% extends "base.html" %}
 
-{% block title %}Iniciar Sesión{% endblock %}
+{% block title %}Iniciar sesión{% endblock %}
 
 {% block content %}
-<div class="min-vh-100 d-flex align-items-center justify-content-center">
-    <div class="card p-5 fade-in" style="max-width: 400px; width: 100%;">
-        <h3 class="text-center mb-4"><i class="bi bi-lock-fill text-acento-principal me-2"></i> Acceso Administrativo</h3>
-
-        {% if no_admin %}
-        <div class="alert alert-warning small" role="alert">
-            No hay ningún usuario administrador creado. Ejecuta:
-            <code>flask --app app init-admin</code>
+<div class="auth-card">
+    <div class="auth-brand">
+        <span class="brand-mark" aria-hidden="true"><i class="bi bi-clock-history icon"></i></span>
+        <div>
+            <h1>Hora Admin</h1>
+            <p>Consola de tiempo y zona horaria</p>
         </div>
-        {% endif %}
-
-        <form id="loginForm" method="POST" action="{{ url_for('login') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="next" value="{{ request.args.get('next', '') }}">
-            <div class="mb-3">
-                <label for="username" class="form-label fw-medium">
-                    <i class="bi bi-person me-2"></i> Usuario
-                </label>
-                <input type="text" class="form-control" id="username" name="username"
-                       autocomplete="username" required>
-            </div>
-
-            <div class="mb-3">
-                <label for="password" class="form-label fw-medium">
-                    <i class="bi bi-lock me-2"></i> Contraseña
-                </label>
-                <input type="password" class="form-control" id="password" name="password"
-                       autocomplete="current-password" required>
-            </div>
-
-            <div class="form-check mb-4">
-                <input class="form-check-input" type="checkbox" value="1" id="remember" name="remember">
-                <label class="form-check-label small" for="remember">Recordarme</label>
-            </div>
-
-            <button type="submit" class="btn btn-acento w-100 py-2 fw-bold">
-                <i class="bi bi-door-open me-2"></i> Ingresar al Sistema
-            </button>
-        </form>
     </div>
+
+    <h2>Acceso Administrativo</h2>
+    <p class="auth-sub">Identifícate para gestionar la flota.</p>
+
+    {% if no_admin %}
+    <div class="alert alert-warning small" role="alert">
+        No hay ningún usuario administrador creado. Ejecuta:
+        <code>flask --app app init-admin</code>
+    </div>
+    {% endif %}
+
+    <form id="loginForm" method="POST" action="{{ url_for('login') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ request.args.get('next', '') }}">
+
+        <div class="mb-3">
+            <label for="username" class="form-label">
+                <i class="bi bi-person" aria-hidden="true"></i> Usuario
+            </label>
+            <input type="text" class="form-control" id="username" name="username"
+                   autocomplete="username" required>
+        </div>
+
+        <div class="mb-3">
+            <label for="password" class="form-label">
+                <i class="bi bi-lock" aria-hidden="true"></i> Contraseña
+            </label>
+            <input type="password" class="form-control" id="password" name="password"
+                   autocomplete="current-password" required>
+        </div>
+
+        <div class="form-check mb-4">
+            <input class="form-check-input" type="checkbox" value="1" id="remember" name="remember">
+            <label class="form-check-label small" for="remember">Recordarme en este equipo</label>
+        </div>
+
+        <button type="submit" class="btn btn-acento btn-lg w-100">
+            <i class="bi bi-box-arrow-in-right" aria-hidden="true"></i> Entrar
+        </button>
+    </form>
+
+    <p class="auth-footer">
+        <i class="bi bi-shield-lock" aria-hidden="true"></i>
+        Sesión protegida con CSRF y cookies endurecidas.
+    </p>
 </div>
 
 <script nonce="{{ csp_nonce }}">
 document.addEventListener('DOMContentLoaded', () => {
-    // Auto-focus en el campo de usuario
     const usernameInput = document.getElementById('username');
     if (usernameInput) {
         usernameInput.focus();

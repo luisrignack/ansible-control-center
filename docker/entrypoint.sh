@@ -38,12 +38,12 @@ password = os.environ.get("HORA_ADMIN_ADMIN_PASSWORD", "")
 username = os.environ.get("HORA_ADMIN_ADMIN_USERNAME", ADMIN_USERNAME)
 
 if password:
-    if len(password) < ADMIN_PASSWORD_MIN_LENGTH:
-        sys.exit(
-            "[hora-admin] HORA_ADMIN_ADMIN_PASSWORD es demasiado corta "
-            f"(mínimo {ADMIN_PASSWORD_MIN_LENGTH} caracteres)."
-        )
     if User.count(db_path=db_path) == 0:
+        if len(password) < ADMIN_PASSWORD_MIN_LENGTH:
+            sys.exit(
+                "[hora-admin] HORA_ADMIN_ADMIN_PASSWORD es demasiado corta "
+                f"(mínimo {ADMIN_PASSWORD_MIN_LENGTH} caracteres)."
+            )
         User.create_or_update(username, password, db_path=db_path)
         print(f"[hora-admin] Administrador '{username}' creado.")
     else:

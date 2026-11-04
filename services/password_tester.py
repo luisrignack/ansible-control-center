@@ -145,6 +145,7 @@ def test_ansible_ping(
     user: str,
     password: str,
     timeout: int = None,
+    cancel_event=None,
 ) -> Dict[str, Any]:
     """Ejecuta ``ansible -m ping`` con la contraseña candidata.
 
@@ -152,6 +153,10 @@ def test_ansible_ping(
     ``--extra-vars @fichero``, no como argumento de línea de comandos.
     """
     result: Dict[str, Any] = {"success": False, "host": host, "error": ""}
+
+    if cancel_event is not None and cancel_event.is_set():
+        result["error"] = "Operación cancelada por el usuario."
+        return result
 
     if DRY_RUN:
         return {

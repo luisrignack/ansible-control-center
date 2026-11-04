@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Iterator
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def connect(db_path: str) -> sqlite3.Connection:
@@ -221,6 +221,49 @@ def _migrate_v5(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v6(conn: sqlite3.Connection) -> None:
+    """Añade roles, bloqueo/auditoría de login y parámetros de prellenado."""
+    _ensure_column(
+        conn, "users", "role", "role TEXT NOT NULL DEFAULT 'admin'"
+    )
+    _ensure_column(
+        conn, "users", "failed_attempts",
+        "failed_attempts INTEGER NOT NULL DEFAULT 0",
+    )
+    _ensure_column(
+        conn, "users", "locked_until", "locked_until TEXT"
+    )
+
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS auth_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            username TEXT NOT NULL DEFAULT '',
+            ip TEXT NOT NULL DEFAULT '',
+            event TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_auth_events_timestamp
+            ON auth_events (timestamp);
+        CREATE INDEX IF NOT EXISTS idx_auth_events_username
+            ON auth_events (username);
+        """
+    )
+
+    for column, ddl in (
+        ("admin_user", "admin_user TEXT NOT NULL DEFAULT ''"),
+        ("password_origin", "password_origin TEXT NOT NULL DEFAULT ''"),
+        ("ntp_servers", "ntp_servers TEXT NOT NULL DEFAULT ''"),
+        ("sync_rtc", "sync_rtc INTEGER NOT NULL DEFAULT 0"),
+        ("force", "force INTEGER NOT NULL DEFAULT 0"),
+        ("local_fold", "local_fold INTEGER"),
+        ("time_zone", "time_zone TEXT NOT NULL DEFAULT ''"),
+    ):
+        _ensure_column(conn, "execution_batches", column, ddl)
+
+
 def init_schema(db_path: str) -> None:
     """Crea o migra el esquema de forma idempotente y no destructiva.
 
@@ -232,10 +275,20 @@ def init_schema(db_path: str) -> None:
     """
     with get_connection(db_path) as conn:
         version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        if version > SCHEMA_VERSION:
+            raise RuntimeError(
+                f"La base de datos {db_path} usa el esquema v{version}, "
+                f"más nuevo que el soportado por esta aplicación "
+                f"(v{SCHEMA_VERSION}). Actualiza Hora Admin o restaura una "
+                "copia de seguridad compatible."
+            )
         _migrate_v1(conn)
         if version < 2:
             _migrate_v2(conn)
         _migrate_v3(conn)
         _migrate_v4(conn)
         _migrate_v5(conn)
-        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        _migrate_v6(conn)
+        # No se rebaja la versión de una base creada por una versión más nueva.
+        if version < SCHEMA_VERSION:
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

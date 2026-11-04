@@ -3,14 +3,16 @@
 {% block title %}Petición no válida{% endblock %}
 
 {% block content %}
-<div class="row">
-    <div class="col-12 col-md-6 mx-auto text-center py-5">
-        <h1 class="display-4"><i class="bi bi-shield-exclamation"></i> 400</h1>
-        <p class="text-secondary">
+<div class="error-page">
+    <div class="error-card fade-in">
+        <div class="error-icon is-warn" aria-hidden="true"><i class="bi bi-shield-exclamation"></i></div>
+        <div class="error-code">400</div>
+        <h1 class="error-title">Petición no válida</h1>
+        <p class="error-text">
             {{ message | default('La petición no es válida o el token de seguridad ha caducado.') }}
         </p>
         <a href="{{ url_for('index') }}" class="btn btn-acento">
-            <i class="bi bi-arrow-clockwise me-1"></i> Volver e intentar de nuevo
+            <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Volver e intentar de nuevo
         </a>
     </div>
 </div>

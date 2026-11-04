@@ -182,6 +182,7 @@ python -m pip install -r requirements.txt
 # Base de datos y usuario administrador
 flask --app app init-db
 flask --app app init-admin
+# Otros roles: --role viewer | operator | admin
 
 # Servidor de desarrollo (solo 127.0.0.1 por defecto)
 python app.py
@@ -254,17 +255,28 @@ una `HORA_ADMIN_SECRET_KEY` aleatoria.
 | `HORA_ADMIN_HOST_KEY_CHECKING` | `1` | Verificación estricta de clave SSH |
 | `HORA_ADMIN_MAX_HOSTS` | `256` | Máximo de hosts por ejecución |
 | `HORA_ADMIN_MIN_CIDR_PREFIX` | `22` | Prefijo IPv4 mínimo aceptado |
-| `HORA_ADMIN_ALLOWED_NETWORKS` | vacío | Allowlist de redes separadas por comas (vacío = sin restricción) |
+| `HORA_ADMIN_ALLOWED_NETWORKS` | vacío | Allowlist de redes separadas por comas. **Obligatoria en producción**; vacío solo se acepta en desarrollo |
 | `HORA_ADMIN_MAX_PASSWORDS` | `200` | Máximo de contraseñas por vault/archivo |
 | `HORA_ADMIN_MAX_PASSWORD_LENGTH` | `512` | Longitud máxima de una contraseña |
 | `HORA_ADMIN_PING_TIMEOUT` | `30` | Timeout de `ansible -m ping` (s) |
 | `HORA_ADMIN_PLAYBOOK_TIMEOUT` | `300` | Timeout de playbook (s) |
 | `HORA_ADMIN_CONNECT_TIMEOUT` | `10` | Timeout de conexión SSH (s) |
-| `HORA_ADMIN_TIME_TOLERANCE` | `120` | Desviación máxima al verificar hora (s) |
+| `HORA_ADMIN_TIME_TOLERANCE` | `2` | Desviación máxima al verificar hora (s) |
+| `HORA_ADMIN_TIME_REQUIRE_NTP_OFF` | `1` | Rechaza `TIME` + NTP `keep` en ejecución (la vista previa solo avisa) |
+| `HORA_ADMIN_NTP_SETTLE_SECONDS` | `3` | Espera tras reactivar NTP antes de verificar (s) |
 | `HORA_ADMIN_MAX_PASSWORD_ATTEMPTS` | `3` | Candidatas máximas probadas por host |
 | `HORA_ADMIN_BATCH_TIME_BUDGET` | `3600` | Presupuesto de tiempo del lote (s) |
 | `HORA_ADMIN_DEFAULT_NTP_SERVERS` | `pool.ntp.org` | Servidores NTP por defecto |
 | `HORA_ADMIN_MAX_NTP_SERVERS` | `8` | Máximo de servidores NTP |
+| `HORA_ADMIN_JOB_WORKERS` | `2` | Trabajos concurrentes de la cola |
+| `HORA_ADMIN_JOB_QUEUE_SIZE` | `50` | Trabajos en espera antes de rechazar con error |
+| `HORA_ADMIN_JOB_SHUTDOWN_GRACE` | `10` | Espera de apagado ordenado (s) |
+| `HORA_ADMIN_MAX_MEMORY_TASKS` | `200` | Instantáneas de tarea en memoria |
+| `HORA_ADMIN_MAX_TASK_STATE_ROWS` | `500` | Filas máximas de `task_state` |
+| `HORA_ADMIN_HISTORY_DAYS` | `180` | Retención del historial de lotes (días) |
+| `HORA_ADMIN_AUTH_EVENT_DAYS` | `365` | Retención de eventos de autenticación (días) |
+| `HORA_ADMIN_LOGIN_LOCKOUT_THRESHOLD` | `5` | Fallos de login antes de bloquear la cuenta |
+| `HORA_ADMIN_LOGIN_LOCKOUT_MINUTES` | `15` | Duración del bloqueo (min) |
 
 ### Seguridad
 
@@ -395,7 +407,7 @@ CLI:
 
 ```bash
 flask --app app init-db
-flask --app app init-admin [--username USUARIO]
+flask --app app init-admin [--username USUARIO] [--role viewer|operator|admin]
 flask --app app reconcile-batches
 ```
 
@@ -481,6 +493,15 @@ Define `hora_estado` con: `timezone`, `ntp`, `ntp_synchronized`,
 - CSRF activo por defecto.
 - Rate limiting en memoria; con varios workers cada proceso lleva su ventana.
 - Los rangos CIDR se validan y acotan antes de enumerarse.
+- La allowlist de destino es obligatoria en producción y se comprueba contra
+  **todas** las direcciones de un hostname; loopback, link-local (incluido
+  `169.254.169.254`) y rangos reservados se bloquean siempre. El hostname se
+  resuelve una sola vez y se fija una IP literal para evitar DNS rebinding.
+- CSP estricta con nonce, sin CDN ni `unsafe-inline`; Bootstrap e iconos se
+  sirven desde `static/vendor/`.
+- Roles `viewer` (solo lectura), `operator` (vista previa/ejecución/vault) y
+  `admin` (todo, incluida la auditoría). Bloqueo progresivo de cuentas y
+  registro de eventos de acceso en `auth_events`.
 - En producción: HTTPS, `HORA_ADMIN_COOKIE_SECURE=1`, `HORA_ADMIN_HSTS=1`,
   `HORA_ADMIN_TRUST_PROXY=1` solo tras proxy de confianza y usuario de
   servicio sin privilegios.
@@ -496,17 +517,20 @@ Define `hora_estado` con: `timezone`, `ntp`, `ntp_synchronized`,
 - **Consola acotada**: se conservan las últimas 300 líneas y se recorta cada
   línea a 500 caracteres. El snapshot persistido puede perder la última fracción
   de segundo antes de un reinicio.
-- **Ejecución secuencial**: los hosts se procesan uno a uno; no hay
-  paralelismo, cancelación ni reintento selectivo de fallidos. Los intentos
-  por host y el tiempo total del lote sí están acotados.
-- **Sin RBAC/MFA**: un único rol administrador; la allowlist de red es global.
+- **Ejecución secuencial dentro de cada lote**: los hosts se procesan uno a
+  uno. La cola limita cuántos lotes corren a la vez (`HORA_ADMIN_JOB_WORKERS`)
+  y permite cancelar; no hay reintento selectivo de fallidos.
+- **Sin MFA**: hay roles y auditoría de acceso, pero la autenticación es solo
+  usuario/contraseña. La allowlist de red es global.
 - **Sin inventario/CSV/grupos**: solo IP/CIDR.
 - **Solo Ubuntu/systemd**: no hay soporte para RHEL, Windows o dispositivos de
   red.
 - **Sin programación ni notificaciones**.
-- **Retención parcial**: las instantáneas de tareas se purgan al arrancar según
-  `HORA_ADMIN_JOB_RETENTION_HOURS`; `HORA_ADMIN_HISTORY_DAYS` sigue sin job de
-  purga.
+- **Retención parcial**: las instantáneas de tareas se purgan según
+  `HORA_ADMIN_JOB_RETENTION_HOURS`, el historial de lotes según
+  `HORA_ADMIN_HISTORY_DAYS`, los eventos de acceso según
+  `HORA_ADMIN_AUTH_EVENT_DAYS` y `task_state` se recorta a
+  `HORA_ADMIN_MAX_TASK_STATE_ROWS`.
 - **Sin API/CLI de ejecución**: solo endpoints internos de la interfaz.
 - **IPv6**: `ipaddress` lo acepta, pero el flujo con Ansible no está probado.
 
@@ -529,6 +553,11 @@ Módulos:
 - `test_services.py`: resolución y servicios.
 - `test_p4.py`: lotes, todos los hosts, reintento de contraseñas, preview y
   propagación de opciones de hora/NTP.
+- `test_sprint01.py`: allowlist/loopback/metadatos, fijación de IP, DST,
+  cola acotada, roles/bloqueo/auditoría, CSP y assets locales, lock del vault,
+  entorno mínimo de Ansible, estados de lote y guardia de esquema futuro.
+- `test_ssh_container.py`: integración opcional con un contenedor SSH; se
+  omite salvo `HORA_ADMIN_RUN_SSH_TESTS=1` y Docker disponible.
 
 ---
 
@@ -551,9 +580,9 @@ Módulos:
 ### P5 — Operación
 
 - Inventarios, CSV, grupos y exclusiones.
-- Canario, paralelismo, reintentos y cancelación.
+- Canario, paralelismo dentro del lote y reintentos selectivos.
 - Programación y ventanas de mantenimiento.
-- RBAC, MFA, aprobaciones y auditoría en BD.
+- MFA, aprobaciones y exportación de auditoría.
 - API/CLI, webhooks y exportación.
 - Filtros y paginación del historial.
 - Health checks, métricas y logs estructurados.

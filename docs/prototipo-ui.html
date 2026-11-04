@@ -1,0 +1,2331 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hora Admin — Propuesta de interfaz</title>
+<meta name="description" content="Prototipo navegable de la nueva interfaz de Hora Admin.">
+<style>
+/* ============================================================
+   Tokens
+   ============================================================ */
+:root {
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --shadow-sm: 0 1px 2px rgba(3, 8, 20, .25);
+  --shadow: 0 18px 40px -20px rgba(3, 8, 20, .65);
+  --sidebar-w: 264px;
+  --topbar-h: 64px;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+}
+
+html[data-theme="dark"] {
+  --bg: #0a0f1e;
+  --bg-deep: #070b16;
+  --surface: #111830;
+  --surface-2: #17203a;
+  --surface-3: #1d2847;
+  --border: #263354;
+  --border-soft: #1d2844;
+  --text: #e9eefb;
+  --text-2: #c3cde4;
+  --muted: #8e9cbb;
+  --accent: #7c96ff;
+  --accent-strong: #5b7cfa;
+  --accent-soft: rgba(124, 150, 255, .13);
+  --accent-contrast: #ffffff;
+  --teal: #35d6bf;
+  --ok: #3ddc97;
+  --ok-soft: rgba(61, 220, 151, .12);
+  --warn: #f7c45c;
+  --warn-soft: rgba(247, 196, 92, .12);
+  --danger: #ff7d90;
+  --danger-soft: rgba(255, 125, 144, .12);
+  --info: #6fb4ff;
+  --info-soft: rgba(111, 180, 255, .12);
+  --console-bg: #050810;
+  --console-text: #9fb4d8;
+  --grid-line: rgba(124, 150, 255, .05);
+  --topbar-bg: rgba(10, 15, 30, .82);
+}
+
+html[data-theme="light"] {
+  --bg: #f3f6fc;
+  --bg-deep: #e9eef8;
+  --surface: #ffffff;
+  --surface-2: #f4f7fd;
+  --surface-3: #e9effa;
+  --border: #d9e1ef;
+  --border-soft: #e7edf7;
+  --text: #0e1730;
+  --text-2: #33405c;
+  --muted: #5f6d89;
+  --accent: #3d5bf0;
+  --accent-strong: #3049d8;
+  --accent-soft: rgba(61, 91, 240, .09);
+  --accent-contrast: #ffffff;
+  --teal: #0e9f8c;
+  --ok: #0f9d63;
+  --ok-soft: rgba(15, 157, 99, .10);
+  --warn: #a86a00;
+  --warn-soft: rgba(199, 125, 0, .12);
+  --danger: #d0314b;
+  --danger-soft: rgba(208, 49, 75, .10);
+  --info: #1466c9;
+  --info-soft: rgba(20, 102, 201, .09);
+  --console-bg: #0b1222;
+  --console-text: #b9c8e6;
+  --grid-line: rgba(61, 91, 240, .05);
+  --topbar-bg: rgba(243, 246, 252, .85);
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 500px at 12% -10%, rgba(124, 150, 255, .13), transparent 65%),
+    radial-gradient(800px 460px at 100% 0%, rgba(53, 214, 191, .08), transparent 60%),
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: auto, auto, 44px 44px, 44px 44px;
+  z-index: 0;
+}
+::selection { background: var(--selection, var(--accent-soft)); }
+body, button, input, select, textarea { font: inherit; }
+button { color: inherit; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1, h2, h3, h4, p { margin: 0; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.skip-link {
+  position: absolute; left: 16px; top: -60px; z-index: 100;
+  background: var(--accent); color: var(--accent-contrast);
+  padding: 10px 16px; border-radius: var(--radius-sm); font-weight: 700;
+  transition: top .2s var(--ease);
+}
+.skip-link:focus { top: 12px; }
+
+/* Icon system */
+.icon {
+  width: 18px; height: 18px; flex: 0 0 auto;
+  fill: none; stroke: currentColor; stroke-width: 1.75;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.icon-sm { width: 15px; height: 15px; }
+.icon-lg { width: 22px; height: 22px; }
+
+/* ============================================================
+   Shell
+   ============================================================ */
+.app { position: relative; z-index: 1; display: flex; min-height: 100vh; }
+
+.sidebar {
+  position: sticky; top: 0; height: 100vh; width: var(--sidebar-w);
+  flex: 0 0 var(--sidebar-w);
+  display: flex; flex-direction: column; gap: 18px;
+  padding: 20px 16px 16px;
+  background: linear-gradient(180deg, var(--surface) 0%, var(--bg-deep) 100%);
+  border-right: 1px solid var(--border-soft);
+  z-index: 60;
+}
+.brand { display: flex; align-items: center; gap: 11px; padding: 2px 6px; }
+.brand-mark {
+  width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
+  color: #fff; background: linear-gradient(145deg, #5b7cfa, #7c96ff 45%, #35d6bf);
+  box-shadow: 0 8px 22px -8px rgba(91, 124, 250, .9);
+}
+.brand-mark .icon { width: 21px; height: 21px; stroke-width: 2; }
+.brand-name { font-weight: 750; letter-spacing: -.02em; font-size: 15.5px; }
+.brand-sub { font-size: 11px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+
+.env-pill {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 11px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface-2); font-size: 12px; color: var(--text-2);
+}
+.env-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft); }
+.env-pill strong { font-weight: 650; color: var(--text); }
+.env-pill .env-tag { margin-left: auto; font-size: 10px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--muted); }
+
+.nav { display: flex; flex-direction: column; gap: 3px; }
+.nav-label {
+  padding: 4px 12px 6px; font-size: 10.5px; font-weight: 700;
+  letter-spacing: .11em; text-transform: uppercase; color: var(--muted);
+}
+.nav-item {
+  display: flex; align-items: center; gap: 11px;
+  padding: 9px 12px; border: 0; border-radius: 9px; width: 100%;
+  background: transparent; color: var(--muted); text-align: left;
+  font-size: 13.5px; font-weight: 550; cursor: pointer;
+  transition: background .16s, color .16s;
+}
+.nav-item:hover { background: var(--surface-2); color: var(--text); }
+.nav-item.is-active {
+  background: var(--accent-soft); color: var(--text);
+  box-shadow: inset 0 0 0 1px rgba(124, 150, 255, .22);
+}
+.nav-item.is-active .icon { color: var(--accent); }
+.nav-item .badge-count {
+  margin-left: auto; font-size: 10.5px; font-weight: 700; min-width: 20px;
+  padding: 2px 6px; text-align: center; border-radius: 999px;
+  background: var(--surface-3); color: var(--text-2);
+}
+
+.sidebar-footer { margin-top: auto; display: flex; flex-direction: column; gap: 12px; }
+.health-mini {
+  border: 1px solid var(--border-soft); border-radius: 11px;
+  background: var(--surface-2); padding: 11px 12px;
+}
+.health-mini-top { display: flex; justify-content: space-between; align-items: center;
+  font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+.health-mini-top strong { color: var(--text-2); font-size: 11.5px; }
+.health-dots { display: flex; gap: 5px; }
+.health-dots span { width: 18px; height: 5px; border-radius: 3px; background: var(--ok); }
+.health-dots span.warn { background: var(--warn); }
+.health-dots span.off { background: var(--border); }
+
+.user-card {
+  display: flex; align-items: center; gap: 10px; padding: 9px;
+  border-radius: 11px; border: 1px solid var(--border-soft);
+  background: var(--surface-2); cursor: pointer;
+}
+.avatar {
+  width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center;
+  background: linear-gradient(145deg, var(--surface-3), var(--accent-soft));
+  color: var(--text); font-size: 11.5px; font-weight: 750;
+  border: 1px solid var(--border);
+}
+.user-meta { min-width: 0; }
+.user-meta strong { display: block; font-size: 12.5px; font-weight: 650;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-meta span { font-size: 11px; color: var(--muted); }
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+.topbar {
+  position: sticky; top: 0; z-index: 40; height: var(--topbar-h);
+  display: flex; align-items: center; gap: 14px; padding: 0 28px;
+  background: var(--topbar-bg); backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.menu-btn { display: none; }
+.crumbs { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.crumbs .sep { opacity: .5; }
+.crumbs strong { color: var(--text-2); font-weight: 600; }
+.topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 9px; }
+.icon-btn {
+  width: 34px; height: 34px; display: inline-grid; place-items: center;
+  border: 1px solid var(--border); border-radius: 9px; background: var(--surface);
+  color: var(--text-2); cursor: pointer; position: relative;
+  transition: background .16s, color .16s, border-color .16s;
+}
+.icon-btn:hover { background: var(--surface-2); color: var(--text); }
+.icon-btn .presence {
+  position: absolute; top: 7px; right: 8px; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--warn); border: 1px solid var(--surface);
+}
+.topbar-divider { width: 1px; height: 22px; background: var(--border); margin: 0 2px; }
+
+.main-scroll { padding: 28px 32px 64px; width: 100%; max-width: 1280px; margin: 0 auto; }
+.view { display: none; animation: viewIn .28s var(--ease); }
+.view.is-active { display: block; }
+@keyframes viewIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.page-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 18px; margin-bottom: 20px; flex-wrap: wrap;
+}
+.eyebrow {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--accent); margin-bottom: 6px;
+}
+.page-head h1 { font-size: 25px; line-height: 1.2; letter-spacing: -.025em; font-weight: 750; }
+.page-head .sub { margin-top: 6px; color: var(--muted); font-size: 13px; max-width: 620px; }
+.head-actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+
+/* ============================================================
+   Components
+   ============================================================ */
+.card {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 140%);
+  border: 1px solid var(--border-soft); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+.card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--border-soft);
+  flex-wrap: wrap;
+}
+.card-title { font-size: 14px; font-weight: 700; letter-spacing: -.01em;
+  display: flex; align-items: center; gap: 9px; }
+.card-title .icon { color: var(--accent); }
+.card-body { padding: 18px; }
+.card-body.tight { padding: 0; }
+.card-foot {
+  padding: 14px 18px; border-top: 1px solid var(--border-soft);
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 38px; padding: 0 15px; border-radius: 9px; border: 1px solid transparent;
+  background: transparent; font-size: 13px; font-weight: 650; cursor: pointer;
+  white-space: nowrap; transition: transform .12s, background .16s, border-color .16s, box-shadow .16s;
+}
+.btn:active { transform: translateY(1px); }
+.btn-primary {
+  background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+  color: var(--accent-contrast); border-color: rgba(255,255,255,.08);
+  box-shadow: 0 10px 22px -12px rgba(91, 124, 250, .95);
+}
+.btn-primary:hover { filter: brightness(1.06); }
+.btn-secondary {
+  background: var(--surface-2); border-color: var(--border); color: var(--text);
+}
+.btn-secondary:hover { background: var(--surface-3); }
+.btn-ghost { color: var(--muted); }
+.btn-ghost:hover { background: var(--surface-2); color: var(--text); }
+.btn-danger {
+  background: var(--danger-soft); border-color: rgba(255, 125, 144, .35); color: var(--danger);
+}
+.btn-danger:hover { background: rgba(255, 125, 144, .2); }
+.btn-sm { height: 32px; padding: 0 11px; font-size: 12px; border-radius: 8px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; transform: none; filter: none; }
+.btn-block { width: 100%; }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 999px; border: 1px solid transparent;
+  font-size: 11.5px; font-weight: 650; line-height: 1.45; white-space: nowrap;
+}
+.badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.badge-ok { background: var(--ok-soft); color: var(--ok); border-color: rgba(61,220,151,.22); }
+.badge-warn { background: var(--warn-soft); color: var(--warn); border-color: rgba(247,196,92,.24); }
+.badge-danger { background: var(--danger-soft); color: var(--danger); border-color: rgba(255,125,144,.24); }
+.badge-info { background: var(--info-soft); color: var(--info); border-color: rgba(111,180,255,.22); }
+.badge-muted { background: var(--surface-3); color: var(--muted); border-color: var(--border); }
+.badge-accent { background: var(--accent-soft); color: var(--accent); border-color: rgba(124,150,255,.28); }
+
+.banner {
+  display: flex; align-items: flex-start; gap: 12px; padding: 13px 15px;
+  border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--surface-2); margin-bottom: 20px;
+}
+.banner .banner-icon {
+  width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center;
+  background: var(--surface-3); color: var(--accent); flex: 0 0 auto;
+}
+.banner-warn { border-color: rgba(247,196,92,.28); background: linear-gradient(90deg, var(--warn-soft), transparent 70%); }
+.banner-warn .banner-icon { background: var(--warn-soft); color: var(--warn); }
+.banner-danger { border-color: rgba(255,125,144,.28); background: linear-gradient(90deg, var(--danger-soft), transparent 70%); }
+.banner-danger .banner-icon { background: var(--danger-soft); color: var(--danger); }
+.banner-title { font-weight: 680; font-size: 13px; }
+.banner-text { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.banner .btn { margin-left: auto; }
+
+.grid { display: grid; gap: 16px; }
+.grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid-main { grid-template-columns: minmax(0, 1.65fr) minmax(280px, 1fr); align-items: start; }
+.stack { display: flex; flex-direction: column; gap: 16px; }
+
+.kpi { padding: 16px 17px; position: relative; overflow: hidden; }
+.kpi::after {
+  content: ""; position: absolute; right: -30px; top: -40px; width: 110px; height: 110px;
+  border-radius: 50%; background: var(--accent-soft); filter: blur(6px); opacity: .7;
+}
+.kpi-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 13px; }
+.kpi-label { font-size: 11.5px; color: var(--muted); font-weight: 600; letter-spacing: .01em; }
+.kpi-icon {
+  width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+  background: var(--surface-3); color: var(--accent); border: 1px solid var(--border);
+}
+.kpi-value { font-size: 27px; font-weight: 750; letter-spacing: -.035em; line-height: 1; font-variant-numeric: tabular-nums; }
+.kpi-value small { font-size: 13px; font-weight: 600; color: var(--muted); margin-left: 3px; }
+.kpi-foot { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 11.5px; color: var(--muted); }
+.trend { display: inline-flex; align-items: center; gap: 3px; font-weight: 650; color: var(--ok); }
+.trend.down { color: var(--danger); }
+.trend .icon { width: 13px; height: 13px; }
+
+/* Tables */
+.table-wrap { width: 100%; overflow-x: auto; }
+table.data { width: 100%; border-collapse: collapse; font-size: 12.8px; }
+table.data th {
+  text-align: left; padding: 10px 16px; font-size: 10.5px; font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  border-bottom: 1px solid var(--border-soft); white-space: nowrap;
+  background: var(--surface-2);
+}
+table.data td {
+  padding: 12px 16px; border-bottom: 1px solid var(--border-soft);
+  color: var(--text-2); vertical-align: middle;
+}
+table.data tbody tr:last-child td { border-bottom: 0; }
+table.data tbody tr { transition: background .14s; }
+table.data tbody tr:hover { background: var(--surface-2); }
+table.data .strong { color: var(--text); font-weight: 650; }
+table.data .mono { font-family: var(--font-mono); font-size: 11.5px; }
+table.data .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.data .actions { text-align: right; white-space: nowrap; }
+.cell-sub { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+.host-cell { display: flex; align-items: center; gap: 9px; }
+.host-ico {
+  width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center;
+  background: var(--surface-3); color: var(--muted); border: 1px solid var(--border-soft);
+}
+.host-ico .icon { width: 14px; height: 14px; }
+
+/* Forms */
+.form-grid { display: grid; gap: 18px; }
+.field { display: flex; flex-direction: column; gap: 7px; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+label.field-label { font-size: 12.5px; font-weight: 650; color: var(--text-2); }
+.field-hint { font-size: 11.8px; color: var(--muted); }
+.field-hint strong { color: var(--text-2); }
+.input, .select, .textarea {
+  width: 100%; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--surface-2); color: var(--text);
+  padding: 0 12px; height: 40px; font-size: 13px;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.textarea { height: auto; min-height: 110px; padding: 10px 12px; resize: vertical; line-height: 1.55; }
+.input::placeholder, .textarea::placeholder { color: var(--muted); opacity: .8; }
+.input:focus, .select:focus, .textarea:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft); background: var(--surface);
+}
+.select { appearance: none; padding-right: 34px; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 17px) 17px, calc(100% - 12px) 17px;
+  background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+.input-group { display: flex; gap: 8px; }
+.input-group .input { flex: 1; }
+.input-affix { position: relative; }
+.input-affix .icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); width: 16px; height: 16px; }
+.input-affix .input { padding-left: 36px; }
+
+.check { display: flex; align-items: flex-start; gap: 9px; font-size: 12.8px; color: var(--text-2); cursor: pointer; }
+.check input { width: 16px; height: 16px; margin-top: 2px; accent-color: var(--accent); }
+.check strong { display: block; color: var(--text); font-weight: 620; }
+.check span { display: block; color: var(--muted); font-size: 11.5px; margin-top: 1px; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px;
+  border-radius: 7px; background: var(--surface-3); border: 1px solid var(--border-soft);
+  font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums;
+}
+.chip .icon { width: 12px; height: 12px; color: var(--muted); }
+.chip-ok { background: var(--ok-soft); color: var(--ok); border-color: rgba(61,220,151,.2); }
+
+/* Segmented */
+.segmented {
+  display: inline-flex; gap: 3px; padding: 3px; border-radius: 10px;
+  background: var(--surface-2); border: 1px solid var(--border-soft);
+}
+.segmented button {
+  border: 0; background: transparent; color: var(--muted); font-size: 12.5px;
+  font-weight: 620; padding: 7px 15px; border-radius: 7px; cursor: pointer;
+  transition: background .15s, color .15s, box-shadow .15s;
+}
+.segmented button:hover { color: var(--text); }
+.segmented button[aria-pressed="true"] {
+  background: var(--surface); color: var(--text);
+  box-shadow: 0 1px 3px rgba(3,8,20,.35), inset 0 0 0 1px var(--border);
+}
+
+/* Choice cards */
+.choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.choice {
+  position: relative; display: block; padding: 13px 14px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface-2); transition: border-color .15s, background .15s, box-shadow .15s;
+}
+.choice:hover { border-color: var(--surface-3); background: var(--surface-3); }
+.choice input { position: absolute; opacity: 0; pointer-events: none; }
+.choice-top { display: flex; align-items: center; gap: 8px; font-weight: 650; font-size: 12.8px; }
+.choice-top .icon { color: var(--muted); width: 16px; height: 16px; }
+.choice-desc { margin-top: 4px; font-size: 11.5px; line-height: 1.45; color: var(--muted); }
+.choice:has(input:checked) {
+  border-color: var(--accent); background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent), 0 8px 20px -16px var(--accent);
+}
+.choice:has(input:checked) .choice-top .icon { color: var(--accent); }
+.choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.choice .choice-check {
+  position: absolute; top: 11px; right: 11px; width: 16px; height: 16px;
+  border-radius: 50%; border: 1.5px solid var(--border); display: grid; place-items: center;
+}
+.choice:has(input:checked) .choice-check { background: var(--accent); border-color: var(--accent); color: #fff; }
+.choice .choice-check .icon { width: 10px; height: 10px; stroke-width: 3; display: none; }
+.choice:has(input:checked) .choice-check .icon { display: block; }
+
+/* Stepper */
+.stepper {
+  display: flex; align-items: center; gap: 4px; padding: 12px 16px;
+  border: 1px solid var(--border-soft); border-radius: var(--radius);
+  background: var(--surface); margin-bottom: 18px; overflow-x: auto;
+}
+.step {
+  display: flex; align-items: center; gap: 9px; border: 0; background: transparent;
+  color: var(--muted); font-size: 12.5px; font-weight: 620; cursor: pointer;
+  padding: 5px 8px; border-radius: 8px; white-space: nowrap;
+}
+.step:hover { color: var(--text); background: var(--surface-2); }
+.step-num {
+  width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  border: 1.5px solid var(--border); font-size: 11px; font-weight: 700;
+  color: var(--muted); background: var(--surface-2); flex: 0 0 auto;
+}
+.step.is-active { color: var(--text); }
+.step.is-active .step-num { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.step.is-done .step-num { border-color: var(--ok); color: var(--ok); background: var(--ok-soft); }
+.step.is-done { color: var(--text-2); }
+.step-line { height: 1px; flex: 1; min-width: 16px; background: var(--border); }
+
+/* Wizard layout */
+.wizard { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 18px; align-items: start; }
+.wizard-panel { padding: 22px; }
+.wizard-panel .panel-head { margin-bottom: 20px; }
+.wizard-panel h2 { font-size: 17px; letter-spacing: -.02em; }
+.wizard-panel .panel-head p { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
+.step-panel { display: none; }
+.step-panel.is-active { display: block; animation: viewIn .22s var(--ease); }
+.wizard-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border-soft);
+}
+.summary { position: sticky; top: calc(var(--topbar-h) + 18px); overflow: hidden; }
+.summary-head { padding: 14px 16px; border-bottom: 1px solid var(--border-soft);
+  display: flex; align-items: center; justify-content: space-between; }
+.summary-head strong { font-size: 12.5px; }
+.summary-body { padding: 6px 16px 14px; }
+.sum-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px;
+  padding: 9px 0; border-bottom: 1px dashed var(--border-soft); font-size: 12px; }
+.sum-row:last-child { border-bottom: 0; }
+.sum-row .k { color: var(--muted); }
+.sum-row .v { color: var(--text); font-weight: 620; text-align: right; }
+.sum-note { background: var(--surface-2); border: 1px solid var(--border-soft);
+  border-radius: 9px; padding: 10px 11px; font-size: 11.5px; color: var(--muted); margin-top: 10px; }
+.sum-note strong { color: var(--text-2); display: block; margin-bottom: 3px; }
+.sum-actions { padding: 12px 16px; border-top: 1px solid var(--border-soft); display: grid; gap: 8px; }
+
+/* Callout */
+.callout {
+  display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px;
+  border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2);
+  font-size: 12px; color: var(--text-2); line-height: 1.5;
+}
+.callout .icon { margin-top: 1px; }
+.callout-warn { border-color: rgba(247,196,92,.28); background: var(--warn-soft); color: var(--text-2); }
+.callout-warn .icon { color: var(--warn); }
+.callout-info { border-color: rgba(111,180,255,.22); background: var(--info-soft); }
+.callout-info .icon { color: var(--info); }
+.callout-ok { border-color: rgba(61,220,151,.22); background: var(--ok-soft); }
+.callout-ok .icon { color: var(--ok); }
+
+/* Dropzone */
+.dropzone {
+  border: 1.5px dashed var(--border); border-radius: var(--radius);
+  padding: 22px 18px; text-align: center; background: var(--surface-2);
+  transition: border-color .15s, background .15s;
+}
+.dropzone:hover { border-color: var(--accent); background: var(--accent-soft); }
+.dropzone .dz-icon {
+  width: 40px; height: 40px; margin: 0 auto 9px; border-radius: 11px;
+  display: grid; place-items: center; background: var(--surface-3); color: var(--accent);
+}
+.dropzone strong { display: block; font-size: 12.8px; }
+.dropzone span { display: block; font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+.dropzone .btn { margin-top: 11px; }
+
+/* Progress */
+.progress-head-card { overflow: hidden; }
+.progress-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.progress-title-row h2 { font-size: 19px; letter-spacing: -.02em; }
+.progress-title-row .sub { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
+.progress-meta { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 16px; }
+.progress-meta div { font-size: 11.5px; color: var(--muted); }
+.progress-meta strong { display: block; color: var(--text); font-size: 13.5px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.bar { height: 8px; background: var(--surface-3); border-radius: 999px; overflow: hidden; margin-top: 16px; }
+.bar > span { display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-strong), var(--accent), var(--teal));
+  box-shadow: 0 0 14px rgba(124,150,255,.5); }
+.progress-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-top: 10px; font-size: 11.5px; color: var(--muted); flex-wrap: wrap; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; background: var(--ok); }
+.legend i.warn { background: var(--warn); }
+.legend i.danger { background: var(--danger); }
+.legend i.muted { background: var(--muted); }
+
+.console {
+  border: 1px solid var(--border-soft); border-radius: var(--radius);
+  overflow: hidden; background: var(--surface);
+}
+.console summary {
+  display: flex; align-items: center; gap: 9px; padding: 13px 16px; cursor: pointer;
+  font-size: 12.5px; font-weight: 650; list-style: none; user-select: none;
+}
+.console summary::-webkit-details-marker { display: none; }
+.console summary .icon:first-child { color: var(--accent); }
+.console summary .chev { margin-left: auto; transition: transform .2s; color: var(--muted); }
+.console[open] summary .chev { transform: rotate(180deg); }
+.console pre {
+  margin: 0; padding: 15px 17px; background: var(--console-bg); color: var(--console-text);
+  font-family: var(--font-mono); font-size: 11.5px; line-height: 1.7;
+  max-height: 260px; overflow: auto; border-top: 1px solid var(--border-soft);
+}
+.console .log-ok { color: #4ade80; }
+.console .log-warn { color: #fbbf24; }
+.console .log-err { color: #fb7185; }
+.console .log-dim { color: #5f7298; }
+
+/* Filters bar */
+.filters { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; padding: 13px 16px;
+  border-bottom: 1px solid var(--border-soft); background: var(--surface-2); }
+.filters .input, .filters .select { height: 34px; font-size: 12px; background: var(--surface); }
+.filters .search { flex: 1; min-width: 190px; max-width: 300px; }
+.filters .spacer { flex: 1; }
+
+/* Empty / misc */
+.muted { color: var(--muted); }
+.small { font-size: 11.5px; }
+.mono { font-family: var(--font-mono); }
+[hidden] { display: none !important; }
+.divider { height: 1px; background: var(--border-soft); margin: 16px 0; }
+.tag-list { display: flex; gap: 6px; flex-wrap: wrap; }
+.kv { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0;
+  border-bottom: 1px dashed var(--border-soft); font-size: 12px; }
+.kv:last-child { border-bottom: 0; }
+.kv span { color: var(--muted); }
+.kv strong { font-weight: 620; }
+
+/* Toast */
+.toast {
+  position: fixed; right: 22px; bottom: 22px; z-index: 200;
+  display: flex; align-items: center; gap: 10px; max-width: 360px;
+  padding: 12px 15px; border-radius: 11px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); box-shadow: var(--shadow);
+  font-size: 12.5px; opacity: 0; transform: translateY(10px); pointer-events: none;
+  transition: opacity .22s, transform .22s;
+}
+.toast.is-visible { opacity: 1; transform: none; }
+.toast .icon { color: var(--ok); }
+.toast.is-warn .icon { color: var(--warn); }
+
+/* Overlay */
+.overlay { position: fixed; inset: 0; background: rgba(3,8,20,.6); backdrop-filter: blur(2px);
+  z-index: 55; display: none; }
+.overlay.is-visible { display: block; }
+
+/* Review */
+.review-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.review-item {
+  position: relative; padding: 13px 14px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface-2);
+}
+.review-k { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.review-item strong { display: block; font-size: 13.5px; letter-spacing: -.01em; }
+.review-item small { display: block; margin-top: 3px; font-size: 11.5px; color: var(--muted);
+  padding-right: 30px; }
+.review-edit { position: absolute; top: 8px; right: 6px; height: 26px; padding: 0 8px; font-size: 11px; }
+.confirm-box {
+  margin-top: 16px; padding: 14px 15px; border: 1px solid rgba(247,196,92,.3);
+  border-radius: var(--radius); background: var(--warn-soft);
+}
+.confirm-box .input { background: var(--surface); }
+
+/* Pagination */
+.pagination { display: flex; align-items: center; gap: 3px; }
+.page-btn {
+  min-width: 30px; height: 30px; padding: 0 7px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text-2); font-size: 12px; font-weight: 600; cursor: pointer;
+  display: inline-grid; place-items: center;
+}
+.page-btn:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
+.page-btn.is-current { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.page-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+@media (max-width: 1100px) {
+  .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid-main { grid-template-columns: 1fr; }
+  .wizard { grid-template-columns: 1fr; }
+  .summary { position: static; }
+}
+@media (max-width: 900px) {
+  .sidebar {
+    position: fixed; left: 0; top: 0; transform: translateX(-102%);
+    transition: transform .26s var(--ease); box-shadow: var(--shadow);
+  }
+  .sidebar.is-open { transform: none; }
+  .menu-btn { display: inline-grid; }
+  .topbar { padding: 0 16px; }
+  .main-scroll { padding: 20px 16px 52px; }
+  .page-head h1 { font-size: 22px; }
+  .grid-2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .grid-4 { grid-template-columns: 1fr; }
+  .form-row { grid-template-columns: 1fr; }
+  .field-row { grid-template-columns: 1fr; }
+  .choice-grid { grid-template-columns: 1fr; }
+  .review-grid { grid-template-columns: 1fr; }
+  .hide-sm { display: none !important; }
+  .page-head { align-items: flex-start; }
+  .head-actions { width: 100%; }
+  .head-actions .btn { flex: 1; }
+  .stepper { padding: 8px; }
+  .step { padding: 5px 6px; font-size: 11.5px; }
+  .step-line { min-width: 8px; }
+  .wizard-panel { padding: 16px; }
+  .filters .search { max-width: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  html { scroll-behavior: auto; }
+}
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Saltar al contenido</a>
+
+<svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="3.5"/><path d="M10.5 13.5 20 4M15.5 4.5 19 8M17.5 2.5 21 6"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></symbol>
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M11 18l-6-6 6-6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 21V9M7 14l5-5 5 5M5 3h14"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7M21 3v6h-6"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3Z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 7 5 5-5 5M12 17h8"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18l-7 8v6l-4 2v-8L3 5Z"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v5M14 11v5"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 3h7v7M21 3l-9 9M10 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></symbol>
+  <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></symbol>
+</svg>
+
+<div class="overlay" id="overlay"></div>
+
+<div class="app">
+  <aside class="sidebar" id="sidebar" aria-label="Navegación principal">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"><svg class="icon"><use href="#i-clock"/></svg></div>
+      <div>
+        <div class="brand-name">Hora Admin</div>
+        <div class="brand-sub">Consola de tiempo</div>
+      </div>
+    </div>
+
+    <div class="env-pill">
+      <span class="dot" aria-hidden="true"></span>
+      <span>Entorno <strong>Producción</strong></span>
+      <span class="env-tag">v1.4.2</span>
+    </div>
+
+    <nav class="nav" aria-label="Secciones">
+      <div class="nav-label">Operación</div>
+      <button class="nav-item is-active" data-view="panel" aria-current="page">
+        <svg class="icon"><use href="#i-grid"/></svg> Panel
+      </button>
+      <button class="nav-item" data-view="new">
+        <svg class="icon"><use href="#i-plus"/></svg> Nueva operación
+      </button>
+      <button class="nav-item" data-view="progress">
+        <svg class="icon"><use href="#i-activity"/></svg> Progreso
+        <span class="badge-count">1</span>
+      </button>
+      <div class="nav-label" style="margin-top:10px">Registro</div>
+      <button class="nav-item" data-view="history">
+        <svg class="icon"><use href="#i-clock"/></svg> Historial
+      </button>
+      <button class="nav-item" data-view="credentials">
+        <svg class="icon"><use href="#i-key"/></svg> Credenciales
+        <span class="badge-count">48</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="health-mini">
+        <div class="health-mini-top">
+          <strong>Salud del sistema</strong>
+          <span>Operativo</span>
+        </div>
+        <div class="health-dots" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span class="warn"></span>
+        </div>
+        <div class="small muted" style="margin-top:7px">Vault y Ansible conectados · 1 aviso</div>
+      </div>
+      <div class="user-card" role="button" tabindex="0" aria-label="Cuenta de Elena Ruiz">
+        <div class="avatar" aria-hidden="true">ER</div>
+        <div class="user-meta">
+          <strong>Elena Ruiz</strong>
+          <span>Administradora</span>
+        </div>
+        <svg class="icon icon-sm" style="margin-left:auto;color:var(--muted)"><use href="#i-chevron"/></svg>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-btn menu-btn" id="menuBtn" aria-label="Abrir navegación" aria-expanded="false" aria-controls="sidebar">
+        <svg class="icon"><use href="#i-menu"/></svg>
+      </button>
+      <div class="crumbs" aria-label="Ruta de navegación">
+        <span>Hora Admin</span>
+        <span class="sep" aria-hidden="true">/</span>
+        <strong id="crumbCurrent">Panel</strong>
+      </div>
+      <div class="topbar-actions">
+        <span class="badge badge-warn hide-sm" title="Las operaciones no se aplican a los hosts">
+          <svg class="icon icon-sm"><use href="#i-alert"/></svg> Simulación
+        </span>
+        <div class="topbar-divider hide-sm" aria-hidden="true"></div>
+        <button class="icon-btn" id="themeBtn" aria-label="Cambiar tema" title="Tema: oscuro">
+          <svg class="icon"><use href="#i-sun" id="themeIcon"/></svg>
+        </button>
+        <button class="icon-btn" aria-label="Notificaciones (1 sin leer)" title="Notificaciones">
+          <svg class="icon"><use href="#i-bell"/></svg>
+          <span class="presence" aria-hidden="true"></span>
+        </button>
+      </div>
+    </header>
+
+    <main class="main-scroll" id="main">
+      <!-- =====================================================
+           PANEL
+           ===================================================== -->
+      <section class="view is-active" id="view-panel" aria-labelledby="panelTitle">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">Panel de control</div>
+            <h1 id="panelTitle">Buenas tardes, Elena</h1>
+            <p class="sub">Resumen de la flota y de las últimas operaciones de hora, zona horaria y NTP.</p>
+          </div>
+          <div class="head-actions">
+            <button class="btn btn-secondary" data-view="history">
+              <svg class="icon icon-sm"><use href="#i-clock"/></svg> Ver historial
+            </button>
+            <button class="btn btn-primary" data-view="new">
+              <svg class="icon icon-sm"><use href="#i-plus"/></svg> Nueva operación
+            </button>
+          </div>
+        </div>
+
+        <div class="banner banner-warn" role="status">
+          <div class="banner-icon" aria-hidden="true"><svg class="icon"><use href="#i-alert"/></svg></div>
+          <div>
+            <div class="banner-title">Modo simulación activo</div>
+            <div class="banner-text">Las operaciones se validan y registran, pero no se aplican a los equipos. Desactívalo en Ajustes cuando estés listo.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" data-toast="El modo simulación solo se puede desactivar desde Ajustes." data-toast-type="warn">
+            <svg class="icon icon-sm"><use href="#i-settings"/></svg> Gestionar
+          </button>
+        </div>
+
+        <div class="grid grid-4" style="margin-bottom:16px">
+          <article class="card kpi">
+            <div class="kpi-top">
+              <span class="kpi-label">Equipos gestionados</span>
+              <span class="kpi-icon" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-server"/></svg></span>
+            </div>
+            <div class="kpi-value">128</div>
+            <div class="kpi-foot"><span class="trend"><svg class="icon"><use href="#i-arrow-up"/></svg> 4</span> este mes</div>
+          </article>
+          <article class="card kpi">
+            <div class="kpi-top">
+              <span class="kpi-label">Operaciones hoy</span>
+              <span class="kpi-icon" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-activity"/></svg></span>
+            </div>
+            <div class="kpi-value">6</div>
+            <div class="kpi-foot">2 en simulación · 4 reales</div>
+          </article>
+          <article class="card kpi">
+            <div class="kpi-top">
+              <span class="kpi-label">Tasa de éxito</span>
+              <span class="kpi-icon" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-check"/></svg></span>
+            </div>
+            <div class="kpi-value">96,4<small>%</small></div>
+            <div class="kpi-foot"><span class="trend"><svg class="icon"><use href="#i-arrow-up"/></svg> 1,8 pts</span> vs. semana anterior</div>
+          </article>
+          <article class="card kpi">
+            <div class="kpi-top">
+              <span class="kpi-label">Incidencias abiertas</span>
+              <span class="kpi-icon" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-alert"/></svg></span>
+            </div>
+            <div class="kpi-value">2</div>
+            <div class="kpi-foot"><span class="trend down">1 requiere atención</span></div>
+          </article>
+        </div>
+
+        <div class="grid grid-main">
+          <div class="stack">
+            <div class="card">
+              <div class="card-head">
+                <h2 class="card-title"><svg class="icon"><use href="#i-clock"/></svg> Actividad reciente</h2>
+                <button class="btn btn-ghost btn-sm" data-view="history">Ver todo <svg class="icon icon-sm"><use href="#i-arrow-right"/></svg></button>
+              </div>
+              <div class="card-body tight table-wrap">
+                <table class="data">
+                  <thead>
+                    <tr>
+                      <th scope="col">Lote</th>
+                      <th scope="col">Operación</th>
+                      <th scope="col" class="hide-sm">Destinos</th>
+                      <th scope="col">Resultado</th>
+                      <th scope="col" class="hide-sm">Hora local</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td class="mono strong">#4F2A</td>
+                      <td><span class="strong">Zona horaria</span><span class="cell-sub">Europe/Madrid</span></td>
+                      <td class="num hide-sm">24 equipos</td>
+                      <td><span class="badge badge-ok"><span class="dot"></span>Correcto</span></td>
+                      <td class="num hide-sm">12:04<span class="cell-sub">UTC−05:00</span></td>
+                    </tr>
+                    <tr>
+                      <td class="mono strong">#4F28</td>
+                      <td><span class="strong">NTP</span><span class="cell-sub">pool.ntp.org</span></td>
+                      <td class="num hide-sm">8 equipos</td>
+                      <td><span class="badge badge-warn"><span class="dot"></span>Parcial</span></td>
+                      <td class="num hide-sm">11:32<span class="cell-sub">UTC−05:00</span></td>
+                    </tr>
+                    <tr>
+                      <td class="mono strong">#4F21</td>
+                      <td><span class="strong">Hora exacta</span><span class="cell-sub">Modo UTC</span></td>
+                      <td class="num hide-sm">12 equipos</td>
+                      <td><span class="badge badge-danger"><span class="dot"></span>Fallido</span></td>
+                      <td class="num hide-sm">09:18<span class="cell-sub">UTC−05:00</span></td>
+                    </tr>
+                    <tr>
+                      <td class="mono strong">#4F1C</td>
+                      <td><span class="strong">Vista previa</span><span class="cell-sub">America/Bogota</span></td>
+                      <td class="num hide-sm">64 equipos</td>
+                      <td><span class="badge badge-info"><span class="dot"></span>Vista previa</span></td>
+                      <td class="num hide-sm">Ayer 18:40</td>
+                    </tr>
+                    <tr>
+                      <td class="mono strong">#4F18</td>
+                      <td><span class="strong">Hora local</span><span class="cell-sub">Europe/Madrid</span></td>
+                      <td class="num hide-sm">6 equipos</td>
+                      <td><span class="badge badge-ok"><span class="dot"></span>Correcto</span></td>
+                      <td class="num hide-sm">Ayer 16:10</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-head">
+                <h2 class="card-title"><svg class="icon"><use href="#i-activity"/></svg> Flota por estado</h2>
+                <span class="small muted">Últimas 24 h</span>
+              </div>
+              <div class="card-body">
+                <div class="legend" style="margin-bottom:12px">
+                  <span><i></i> Correctos 121</span>
+                  <span><i class="warn"></i> Con avisos 5</span>
+                  <span><i class="danger"></i> Con fallos 2</span>
+                </div>
+                <div class="bar" style="height:10px"><span style="width:94.5%"></span></div>
+                <div class="progress-foot">
+                  <span>121 de 128 equipos sin incidencias</span>
+                  <span><strong style="color:var(--text)">94,5 %</strong> de la flota</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="stack">
+            <div class="card">
+              <div class="card-head">
+                <h2 class="card-title"><svg class="icon"><use href="#i-shield"/></svg> Salud del sistema</h2>
+                <span class="badge badge-ok"><span class="dot"></span>Operativo</span>
+              </div>
+              <div class="card-body" style="padding-top:8px;padding-bottom:8px">
+                <div class="kv"><span>Vault de credenciales</span><strong style="color:var(--ok)">Cifrado · 48</strong></div>
+                <div class="kv"><span>Ansible</span><strong>2.19.15</strong></div>
+                <div class="kv"><span>Huellas SSH conocidas</span><strong>3 de 3</strong></div>
+                <div class="kv"><span>Base de datos</span><strong>12,4 MB</strong></div>
+                <div class="kv"><span>Último lote</span><strong>hace 8 min</strong></div>
+                <div class="kv"><span>Retención</span><strong style="color:var(--warn)">Sin purga</strong></div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-head">
+                <h2 class="card-title"><svg class="icon"><use href="#i-play"/></svg> Acciones rápidas</h2>
+              </div>
+              <div class="card-body" style="display:grid;gap:8px">
+                <button class="btn btn-secondary btn-block" style="justify-content:flex-start" data-view="new">
+                  <svg class="icon icon-sm"><use href="#i-clock"/></svg> Cambiar zona horaria
+                </button>
+                <button class="btn btn-secondary btn-block" style="justify-content:flex-start" data-view="new">
+                  <svg class="icon icon-sm"><use href="#i-activity"/></svg> Sincronizar NTP
+                </button>
+                <button class="btn btn-secondary btn-block" style="justify-content:flex-start" data-view="credentials">
+                  <svg class="icon icon-sm"><use href="#i-key"/></svg> Probar credenciales
+                </button>
+              </div>
+            </div>
+
+            <div class="card" style="border-color:rgba(247,196,92,.25)">
+              <div class="card-body">
+                <div class="badge badge-warn" style="margin-bottom:9px"><svg class="icon icon-sm"><use href="#i-alert"/></svg> Recomendación</div>
+                <div style="font-size:12.5px;line-height:1.55;color:var(--text-2)">
+                  El historial supera los 180 días configurados. Programa una purga para mantener la base de datos ágil.
+                </div>
+                <button class="btn btn-ghost btn-sm" style="margin-top:8px;padding-left:0" data-toast="Purga programada para las 03:00.">Programar purga <svg class="icon icon-sm"><use href="#i-arrow-right"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =====================================================
+           NUEVA OPERACIÓN
+           ===================================================== -->
+      <section class="view" id="view-new" aria-labelledby="newTitle">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">Asistente</div>
+            <h1 id="newTitle">Nueva operación</h1>
+            <p class="sub">Configura hora, zona horaria y NTP en un grupo de equipos, con vista previa antes de aplicar.</p>
+          </div>
+          <div class="head-actions">
+            <button class="btn btn-ghost" data-view="panel">
+              <svg class="icon icon-sm"><use href="#i-x"/></svg> Cancelar
+            </button>
+          </div>
+        </div>
+
+        <div class="stepper" aria-label="Pasos de la operación">
+          <button class="step is-active" data-step-target="1" aria-current="step"><span class="step-num">1</span> Objetivo</button>
+          <span class="step-line" aria-hidden="true"></span>
+          <button class="step" data-step-target="2"><span class="step-num">2</span> Cambio</button>
+          <span class="step-line" aria-hidden="true"></span>
+          <button class="step" data-step-target="3"><span class="step-num">3</span> Credenciales</button>
+          <span class="step-line" aria-hidden="true"></span>
+          <button class="step" data-step-target="4"><span class="step-num">4</span> Revisar</button>
+        </div>
+
+        <div class="wizard">
+          <form class="card wizard-panel" id="wizardForm" novalidate>
+            <!-- Paso 1 -->
+            <div class="step-panel is-active" data-step="1">
+              <div class="panel-head">
+                <h2>¿Sobre qué equipos vas a actuar?</h2>
+                <p>Acepta direcciones IP, rangos CIDR y nombres de host. Puedes pegar una lista completa.</p>
+              </div>
+              <div class="form-grid">
+                <div class="field">
+                  <label class="field-label" for="targets">Destinos</label>
+                  <textarea class="textarea" id="targets" rows="6" spellcheck="false">10.20.0.0/24
+10.20.1.15
+srv-ntp-01.corp.local</textarea>
+                  <div class="field-hint">Un destino por línea. Máximo <strong>256 equipos</strong> por lote y prefijo mínimo <strong>/22</strong>.</div>
+                </div>
+
+                <div class="chips" id="targetChips">
+                  <span class="chip"><svg class="icon"><use href="#i-server"/></svg> 10.20.0.0/24 · 254</span>
+                  <span class="chip"><svg class="icon"><use href="#i-server"/></svg> 10.20.1.15</span>
+                  <span class="chip"><svg class="icon"><use href="#i-server"/></svg> srv-ntp-01</span>
+                  <span class="chip chip-ok" id="targetCount"><svg class="icon"><use href="#i-check"/></svg> 256 equipos detectados</span>
+                </div>
+
+                <div class="callout callout-warn" id="targetWarning" hidden>
+                  <svg class="icon"><use href="#i-alert"/></svg>
+                  <div>El lote supera el límite de 256 equipos. Reduce el rango o divide la operación.</div>
+                </div>
+
+                <div class="field-row">
+                  <div class="field">
+                    <label class="field-label" for="profile">Perfil guardado</label>
+                    <select class="select" id="profile">
+                      <option>Producción · Madrid</option>
+                      <option>Laboratorio · Bogotá</option>
+                      <option>Sin perfil</option>
+                    </select>
+                    <div class="field-hint">Rellena destinos y usuario habituales.</div>
+                  </div>
+                  <div class="field">
+                    <label class="field-label" for="adminUser">Usuario administrador</label>
+                    <input class="input" id="adminUser" value="operador" autocomplete="username">
+                    <div class="field-hint">Debe tener privilegios sudo en los equipos.</div>
+                  </div>
+                </div>
+
+                <label class="check">
+                  <input type="checkbox">
+                  <span><strong>Guardar como perfil reutilizable</strong><span>Podrás repetir esta selección sin volver a escribirla.</span></span>
+                </label>
+              </div>
+              <div class="wizard-foot">
+                <button type="button" class="btn btn-ghost" data-view="panel">Descartar</button>
+                <button type="button" class="btn btn-primary" data-step-next>Continuar <svg class="icon icon-sm"><use href="#i-arrow-right"/></svg></button>
+              </div>
+            </div>
+
+            <!-- Paso 2 -->
+            <div class="step-panel" data-step="2">
+              <div class="panel-head">
+                <h2>¿Qué cambio quieres aplicar?</h2>
+                <p>Elige entre fijar una zona horaria o una hora exacta. La política NTP determina si el reloj puede corregirse después.</p>
+              </div>
+              <div class="form-grid">
+                <div class="field">
+                  <span class="field-label">Tipo de operación</span>
+                  <div class="segmented" role="group" aria-label="Tipo de operación">
+                    <button type="button" aria-pressed="true" data-action="TZ">Zona horaria</button>
+                    <button type="button" aria-pressed="false" data-action="TIME">Hora exacta</button>
+                  </div>
+                </div>
+
+                <div id="tzFields">
+                  <div class="field">
+                    <label class="field-label" for="timezone">Zona horaria</label>
+                    <select class="select" id="timezone">
+                      <option value="Europe/Madrid" data-offset="UTC+01:00">Europe/Madrid — UTC+01:00 (CET)</option>
+                      <option value="America/Bogota" data-offset="UTC−05:00">America/Bogota — UTC−05:00</option>
+                      <option value="America/Mexico_City" data-offset="UTC−06:00">America/Mexico_City — UTC−06:00</option>
+                      <option value="America/Halifax" data-offset="UTC−04:00">America/Halifax — UTC−04:00</option>
+                      <option value="Etc/GMT+4" data-offset="UTC−04:00">Etc/GMT+4 — UTC−04:00 (signo POSIX)</option>
+                      <option value="UTC" data-offset="UTC+00:00">UTC — Tiempo universal coordinado</option>
+                    </select>
+                    <div class="field-hint">Se valida contra la base <code>zoneinfo</code> del servidor; incluye el desplazamiento actual.</div>
+                  </div>
+                  <div class="callout callout-info" style="margin-top:10px">
+                    <svg class="icon"><use href="#i-calendar"/></svg>
+                    <div>Los equipos cambiarán de hora de pared si la zona tiene horario de verano. El reloj de hardware no se modifica salvo que lo indiques.</div>
+                  </div>
+                </div>
+
+                <div id="timeFields" hidden>
+                  <div class="field-row">
+                    <div class="field">
+                      <label class="field-label" for="datetime">Fecha y hora objetivo</label>
+                      <input class="input" type="datetime-local" id="datetime" value="2026-11-03T18:30">
+                    </div>
+                    <div class="field">
+                      <label class="field-label" for="timeMode">Interpretación</label>
+                      <select class="select" id="timeMode">
+                        <option value="utc">UTC (instante absoluto)</option>
+                        <option value="local">Hora local del equipo</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="callout callout-info" style="margin-top:10px">
+                    <svg class="icon"><use href="#i-alert"/></svg>
+                    <div>En modo local, una hora puede no existir o repetirse por el cambio de horario. La aplicación pedirá confirmación si detecta ambigüedad.</div>
+                  </div>
+                </div>
+
+                <div class="field">
+                  <span class="field-label">Política NTP</span>
+                  <div class="choice-grid" id="ntpChoices">
+                    <label class="choice">
+                      <input type="radio" name="ntp" value="keep" checked>
+                      <span class="choice-check"><svg class="icon"><use href="#i-check"/></svg></span>
+                      <span class="choice-top"><svg class="icon"><use href="#i-clock"/></svg> Conservar</span>
+                      <span class="choice-desc">No toca NTP. Con «Hora exacta» el reloj puede revertirse si NTP está activo.</span>
+                    </label>
+                    <label class="choice">
+                      <input type="radio" name="ntp" value="off">
+                      <span class="choice-check"><svg class="icon"><use href="#i-check"/></svg></span>
+                      <span class="choice-top"><svg class="icon"><use href="#i-pause"/></svg> Desactivar</span>
+                      <span class="choice-desc">Detiene la sincronización. Útil para fijar una hora exacta de forma estable.</span>
+                    </label>
+                    <label class="choice">
+                      <input type="radio" name="ntp" value="restore">
+                      <span class="choice-check"><svg class="icon"><use href="#i-check"/></svg></span>
+                      <span class="choice-top"><svg class="icon"><use href="#i-refresh"/></svg> Desactivar y restaurar</span>
+                      <span class="choice-desc">Fija la hora y devuelve NTP a su estado anterior al terminar.</span>
+                    </label>
+                    <label class="choice">
+                      <input type="radio" name="ntp" value="configure">
+                      <span class="choice-check"><svg class="icon"><use href="#i-check"/></svg></span>
+                      <span class="choice-top"><svg class="icon"><use href="#i-settings"/></svg> Configurar servidores</span>
+                      <span class="choice-desc">Define servidores NTP y deja la sincronización activa.</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="callout callout-warn" id="ntpWarning" hidden>
+                  <svg class="icon"><use href="#i-alert"/></svg>
+                  <div><strong>Riesgo de reversión.</strong> Has elegido «Conservar» con NTP activo. La hora objetivo podría corregirse segundos después. Se recomienda «Desactivar y restaurar».</div>
+                </div>
+
+                <details>
+                  <summary class="small muted" style="cursor:pointer;font-weight:620;color:var(--text-2)">Opciones avanzadas</summary>
+                  <div class="form-grid" style="margin-top:12px">
+                    <div class="field">
+                      <label class="field-label" for="ntpServers">Servidores NTP</label>
+                      <input class="input" id="ntpServers" value="pool.ntp.org">
+                      <div class="field-hint">Separados por comas. Solo se usan con la política «Configurar servidores».</div>
+                    </div>
+                    <div class="field-row">
+                      <div class="field">
+                        <label class="field-label" for="tolerance">Tolerancia de verificación (s)</label>
+                        <input class="input" id="tolerance" type="number" value="2" min="0" max="3600">
+                        <div class="field-hint">Para «Hora exacta» se recomienda 2 s. La vista previa muestra la tolerancia efectiva.</div>
+                      </div>
+                      <div class="field" style="justify-content:flex-end;gap:10px">
+                        <label class="check"><input type="checkbox" id="syncRtc"><span><strong>Sincronizar RTC</strong><span>Escribe también el reloj de hardware.</span></span></label>
+                        <label class="check"><input type="checkbox" id="force"><span><strong>Forzar aunque coincida</strong><span>Aplica el cambio sin comprobar idempotencia.</span></span></label>
+                      </div>
+                    </div>
+                  </div>
+                </details>
+              </div>
+              <div class="wizard-foot">
+                <button type="button" class="btn btn-secondary" data-step-prev><svg class="icon icon-sm"><use href="#i-arrow-left"/></svg> Atrás</button>
+                <button type="button" class="btn btn-primary" data-step-next>Continuar <svg class="icon icon-sm"><use href="#i-arrow-right"/></svg></button>
+              </div>
+            </div>
+
+            <!-- Paso 3 -->
+            <div class="step-panel" data-step="3">
+              <div class="panel-head">
+                <h2>¿Cómo autenticamos contra los equipos?</h2>
+                <p>Las contraseñas se inyectan en un fichero temporal y nunca se escriben en la línea de comandos.</p>
+              </div>
+              <div class="form-grid">
+                <div class="choice-grid" id="credChoices">
+                  <label class="choice">
+                    <input type="radio" name="creds" value="vault" checked>
+                    <span class="choice-check"><svg class="icon"><use href="#i-check"/></svg></span>
+                    <span class="choice-top"><svg class="icon"><use href="#i-key"/></svg> Vault cifrado</span>
+                    <span class="choice-desc">48 contraseñas candidatas, ordenadas por uso reciente.</span>
+                  </label>
+                  <label class="choice">
+                    <input type="radio" name="creds" value="file">
+                    <span class="choice-check"><svg class="icon"><use href="#i-check"/></svg></span>
+                    <span class="choice-top"><svg class="icon"><use href="#i-upload"/></svg> Archivo temporal</span>
+                    <span class="choice-desc">Sube un .txt con una contraseña por línea. Se descarta al terminar.</span>
+                  </label>
+                  <label class="choice" style="grid-column:1/-1">
+                    <input type="radio" name="creds" value="manual">
+                    <span class="choice-check"><svg class="icon"><use href="#i-check"/></svg></span>
+                    <span class="choice-top"><svg class="icon"><use href="#i-lock"/></svg> Introducir bajo demanda</span>
+                    <span class="choice-desc">La operación se detendrá si ninguna candidata funciona. Útil para pruebas puntuales.</span>
+                  </label>
+                </div>
+
+                <div class="field">
+                  <label class="field-label" for="masterPassword">Contraseña maestra del vault</label>
+                  <div class="input-affix">
+                    <svg class="icon"><use href="#i-lock"/></svg>
+                    <input class="input" type="password" id="masterPassword" value="••••••••••••••" autocomplete="current-password">
+                  </div>
+                  <div class="field-hint">Solo se mantiene en memoria durante la operación. Nunca se guarda en disco ni en logs.</div>
+                </div>
+
+                <div class="dropzone" id="fileZone" hidden>
+                  <div class="dz-icon"><svg class="icon icon-lg"><use href="#i-upload"/></svg></div>
+                  <strong>Arrastra tu archivo aquí</strong>
+                  <span>o selecciónalo desde el equipo · .txt · máximo 2 MB</span>
+                  <button type="button" class="btn btn-secondary btn-sm" data-toast="Selector de archivos (prototipo)." data-toast-type="warn">Seleccionar archivo</button>
+                </div>
+
+                <div class="callout callout-ok">
+                  <svg class="icon"><use href="#i-shield"/></svg>
+                  <div><strong>Buenas prácticas activas:</strong> comprobación de huella SSH, inyección segura de secretos y bloqueo tras 3 intentos fallidos por host.</div>
+                </div>
+
+                <details>
+                  <summary class="small" style="cursor:pointer;font-weight:620;color:var(--text-2)">¿Qué ocurre si ninguna contraseña funciona?</summary>
+                  <div class="small muted" style="margin-top:8px;line-height:1.6">
+                    El host se marca como fallido sin detener el lote. Puedes reintentarlo desde la pantalla de progreso con otra credencial. No se registra la contraseña, solo el hash y el origen.
+                  </div>
+                </details>
+              </div>
+              <div class="wizard-foot">
+                <button type="button" class="btn btn-secondary" data-step-prev><svg class="icon icon-sm"><use href="#i-arrow-left"/></svg> Atrás</button>
+                <button type="button" class="btn btn-primary" data-step-next>Revisar operación <svg class="icon icon-sm"><use href="#i-arrow-right"/></svg></button>
+              </div>
+            </div>
+
+            <!-- Paso 4 -->
+            <div class="step-panel" data-step="4">
+              <div class="panel-head">
+                <h2>Revisa antes de ejecutar</h2>
+                <p>Comprueba el alcance y los riesgos. Nada se enviará hasta que confirmes.</p>
+              </div>
+
+              <div class="review-grid">
+                <div class="review-item">
+                  <span class="review-k">Destinos</span>
+                  <strong id="revHosts">256 equipos</strong>
+                  <small>10.20.0.0/24 + 2 hosts · usuario operador</small>
+                  <button type="button" class="btn btn-ghost btn-sm review-edit" data-step-target="1">Editar</button>
+                </div>
+                <div class="review-item">
+                  <span class="review-k">Cambio</span>
+                  <strong id="revAction">Zona horaria</strong>
+                  <small id="revValue">Europe/Madrid · UTC+01:00</small>
+                  <button type="button" class="btn btn-ghost btn-sm review-edit" data-step-target="2">Editar</button>
+                </div>
+                <div class="review-item">
+                  <span class="review-k">NTP y verificación</span>
+                  <strong id="revNtp">Conservar</strong>
+                  <small id="revNtpDetail">Sin cambios en la sincronización · tolerancia 2 s</small>
+                  <button type="button" class="btn btn-ghost btn-sm review-edit" data-step-target="2">Editar</button>
+                </div>
+                <div class="review-item">
+                  <span class="review-k">Credenciales</span>
+                  <strong id="revCreds">Vault cifrado</strong>
+                  <small>48 candidatas · 3 intentos por host</small>
+                  <button type="button" class="btn btn-ghost btn-sm review-edit" data-step-target="3">Editar</button>
+                </div>
+              </div>
+
+              <div class="callout callout-warn" style="margin-top:16px">
+                <svg class="icon"><use href="#i-alert"/></svg>
+                <div><strong>Vas a modificar 256 equipos.</strong> La operación se ejecutará en paralelo con 8 trabajadores y un presupuesto máximo de 60 minutos. Los hosts no procesados quedarán como «Omitidos».</div>
+              </div>
+
+              <div class="callout callout-info" style="margin-top:10px">
+                <svg class="icon"><use href="#i-eye"/></svg>
+                <div>Recomendado: ejecuta primero una <strong>simulación</strong>. Verás el estado actual de cada equipo y el cambio propuesto sin tocar nada.</div>
+              </div>
+
+              <div class="confirm-box">
+                <label class="field-label" for="confirmInput">Confirmación de alcance</label>
+                <p class="field-hint" id="confirmLead" style="margin:0 0 8px">Escribe <strong style="color:var(--text)">256</strong> para habilitar la ejecución real.</p>
+                <input class="input" id="confirmInput" inputmode="numeric" autocomplete="off" placeholder="Escribe 256" aria-describedby="confirmHelp">
+                <div class="field-hint" id="confirmHelp">Esta medida evita ejecuciones accidentales sobre lotes grandes.</div>
+              </div>
+
+              <div class="wizard-foot">
+                <button type="button" class="btn btn-secondary" data-step-prev><svg class="icon icon-sm"><use href="#i-arrow-left"/></svg> Atrás</button>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <button type="button" class="btn btn-secondary" data-toast="Vista previa iniciada. Síguela en Progreso.">
+                    <svg class="icon icon-sm"><use href="#i-eye"/></svg> Simular
+                  </button>
+                  <button type="button" class="btn btn-primary" id="executeBtn" disabled data-toast="Operación enviada a la cola. Te llevamos al progreso.">
+                    <svg class="icon icon-sm"><use href="#i-play"/></svg> Ejecutar operación
+                  </button>
+                </div>
+              </div>
+            </div>
+          </form>
+
+          <aside class="card summary" aria-label="Resumen de la operación">
+            <div class="summary-head">
+              <strong>Resumen</strong>
+              <span class="badge badge-accent" id="sumRisk">Riesgo medio</span>
+            </div>
+            <div class="summary-body">
+              <div class="sum-row"><span class="k">Destinos</span><span class="v" id="sumHosts">256 equipos</span></div>
+              <div class="sum-row"><span class="k">Operación</span><span class="v" id="sumAction">Zona horaria</span></div>
+              <div class="sum-row"><span class="k">Valor</span><span class="v" id="sumValue">Europe/Madrid</span></div>
+              <div class="sum-row"><span class="k">NTP</span><span class="v" id="sumNtp">Conservar</span></div>
+              <div class="sum-row"><span class="k">Credenciales</span><span class="v" id="sumCreds">Vault · 48</span></div>
+              <div class="sum-row"><span class="k">Tolerancia</span><span class="v" id="sumTolerance">—</span></div>
+              <div class="sum-note">
+                <strong>¿Qué ocurrirá?</strong>
+                Se inspeccionará cada equipo, se comparará el estado y solo se cambiará lo necesario. Recibirás un resultado por host.
+              </div>
+              <div class="sum-note" style="border-color:rgba(247,196,92,.25)">
+                <strong>Estimación</strong>
+                256 equipos · entre 9 y 14 minutos con 8 ejecuciones en paralelo.
+              </div>
+            </div>
+            <div class="sum-actions">
+              <button class="btn btn-secondary btn-block" data-toast="Vista previa solicitada. Puedes seguirla en Progreso." data-toast-type="ok">
+                <svg class="icon icon-sm"><use href="#i-eye"/></svg> Simular primero
+              </button>
+              <span class="small muted" style="text-align:center">La simulación no modifica los equipos.</span>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- =====================================================
+           PROGRESO
+           ===================================================== -->
+      <section class="view" id="view-progress" aria-labelledby="progressTitle">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">Operación en curso</div>
+            <h1 id="progressTitle">Lote <span class="mono" style="font-size:.88em">#4F2A</span></h1>
+            <p class="sub">Zona horaria · Europe/Madrid · iniciado por Elena Ruiz hace 12 minutos.</p>
+          </div>
+          <div class="head-actions">
+            <span class="badge badge-accent"><span class="dot"></span>En curso</span>
+            <button class="btn btn-secondary" data-toast="Se reintentarán los 4 hosts fallidos.">
+              <svg class="icon icon-sm"><use href="#i-refresh"/></svg> Reintentar fallidos
+            </button>
+            <button class="btn btn-danger" data-toast="Cancelación solicitada. Los hosts en curso terminarán su tarea." data-toast-type="warn">
+              <svg class="icon icon-sm"><use href="#i-x"/></svg> Cancelar
+            </button>
+          </div>
+        </div>
+
+        <div class="card progress-head-card" style="margin-bottom:16px">
+          <div class="card-body">
+            <div class="progress-title-row">
+              <div>
+                <h2>Progreso de la operación</h2>
+                <p class="sub">174 de 256 equipos procesados · 8 en paralelo</p>
+              </div>
+              <div style="text-align:right">
+                <div class="kpi-value" style="font-size:30px">68<small>%</small></div>
+                <div class="small muted">completado</div>
+              </div>
+            </div>
+            <div class="bar" role="progressbar" aria-valuenow="68" aria-valuemin="0" aria-valuemax="100" aria-label="Progreso del lote">
+              <span style="width:68%"></span>
+            </div>
+            <div class="progress-foot">
+              <div class="legend">
+                <span><i></i> 168 correctos</span>
+                <span><i class="danger"></i> 4 fallidos</span>
+                <span><i class="muted"></i> 2 omitidos</span>
+                <span><i style="background:var(--border)"></i> 82 pendientes</span>
+              </div>
+              <span><strong style="color:var(--text)">ETA 5m 50s</strong> · presupuesto 60m</span>
+            </div>
+            <div class="progress-meta">
+              <div>Inicio<strong>12:04:02</strong></div>
+              <div>Transcurrido<strong>12m 40s</strong></div>
+              <div>Velocidad<strong>14,2 hosts/min</strong></div>
+              <div>Siguiente<strong>srv-web-03</strong></div>
+              <div>Operador<strong>Elena Ruiz</strong></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px">
+          <div class="filters">
+            <div class="segmented" role="group" aria-label="Filtrar hosts por resultado">
+              <button type="button" aria-pressed="true" data-host-filter="all">Todos <span class="muted">256</span></button>
+              <button type="button" aria-pressed="false" data-host-filter="success">Correctos 168</button>
+              <button type="button" aria-pressed="false" data-host-filter="failure">Fallidos 4</button>
+              <button type="button" aria-pressed="false" data-host-filter="skipped">Omitidos 2</button>
+            </div>
+            <div class="spacer"></div>
+            <div class="input-affix">
+              <svg class="icon"><use href="#i-search"/></svg>
+              <input class="input search" id="hostSearch" placeholder="Buscar host…" aria-label="Buscar host">
+            </div>
+            <button class="icon-btn" aria-label="Descargar resultados" title="Descargar resultados" data-toast="Resultados exportados a CSV.">
+              <svg class="icon icon-sm"><use href="#i-download"/></svg>
+            </button>
+          </div>
+          <div class="table-wrap">
+            <table class="data" id="hostTable">
+              <thead>
+                <tr>
+                  <th scope="col">Equipo</th>
+                  <th scope="col">Resultado</th>
+                  <th scope="col">Duración</th>
+                  <th scope="col" class="hide-sm">Hora final</th>
+                  <th scope="col">Detalle</th>
+                  <th scope="col" class="actions">Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr data-status="success">
+                  <td><span class="host-cell"><span class="host-ico"><svg class="icon"><use href="#i-server"/></svg></span><span class="strong mono">srv-app-01</span></span></td>
+                  <td><span class="badge badge-ok"><span class="dot"></span>Correcto</span></td>
+                  <td class="num">14 s</td>
+                  <td class="num hide-sm">12:04:16</td>
+                  <td class="muted">Zona horaria aplicada y verificada</td>
+                  <td class="actions"><button class="btn btn-ghost btn-sm" data-toast="Detalle de srv-app-01 abierto.">Ver</button></td>
+                </tr>
+                <tr data-status="success">
+                  <td><span class="host-cell"><span class="host-ico"><svg class="icon"><use href="#i-server"/></svg></span><span class="strong mono">srv-app-02</span></span></td>
+                  <td><span class="badge badge-ok"><span class="dot"></span>Correcto</span></td>
+                  <td class="num">12 s</td>
+                  <td class="num hide-sm">12:04:28</td>
+                  <td class="muted">Zona horaria aplicada y verificada</td>
+                  <td class="actions"><button class="btn btn-ghost btn-sm" data-toast="Detalle de srv-app-02 abierto.">Ver</button></td>
+                </tr>
+                <tr data-status="success">
+                  <td><span class="host-cell"><span class="host-ico"><svg class="icon"><use href="#i-server"/></svg></span><span class="strong mono">srv-db-01</span></span></td>
+                  <td><span class="badge badge-ok"><span class="dot"></span>Correcto</span></td>
+                  <td class="num">28 s</td>
+                  <td class="num hide-sm">12:04:56</td>
+                  <td class="muted">Sin cambios necesarios (idempotente)</td>
+                  <td class="actions"><button class="btn btn-ghost btn-sm" data-toast="Detalle de srv-db-01 abierto.">Ver</button></td>
+                </tr>
+                <tr data-status="failure">
+                  <td><span class="host-cell"><span class="host-ico"><svg class="icon"><use href="#i-server"/></svg></span><span class="strong mono">srv-cache-01</span></span></td>
+                  <td><span class="badge badge-danger"><span class="dot"></span>Fallido</span></td>
+                  <td class="num">22 s</td>
+                  <td class="num hide-sm">12:05:18</td>
+                  <td class="muted">La verificación no coincide · desvío de 4 s</td>
+                  <td class="actions"><button class="btn btn-secondary btn-sm" data-toast="Reintentando srv-cache-01."><svg class="icon icon-sm"><use href="#i-refresh"/></svg> Reintentar</button></td>
+                </tr>
+                <tr data-status="failure">
+                  <td><span class="host-cell"><span class="host-ico"><svg class="icon"><use href="#i-server"/></svg></span><span class="strong mono">srv-edge-01</span></span></td>
+                  <td><span class="badge badge-danger"><span class="dot"></span>Fallido</span></td>
+                  <td class="num">19 s</td>
+                  <td class="num hide-sm">12:05:37</td>
+                  <td class="muted">Autenticación agotada · 3 intentos</td>
+                  <td class="actions"><button class="btn btn-secondary btn-sm" data-toast="Reintentando srv-edge-01."><svg class="icon icon-sm"><use href="#i-refresh"/></svg> Reintentar</button></td>
+                </tr>
+                <tr data-status="skipped">
+                  <td><span class="host-cell"><span class="host-ico"><svg class="icon"><use href="#i-server"/></svg></span><span class="strong mono">srv-ntp-02</span></span></td>
+                  <td><span class="badge badge-muted"><span class="dot"></span>Omitido</span></td>
+                  <td class="num">—</td>
+                  <td class="num hide-sm">—</td>
+                  <td class="muted">Presupuesto de tiempo agotado</td>
+                  <td class="actions"><button class="btn btn-ghost btn-sm" data-toast="srv-ntp-02 se incluirá en el próximo lote.">Incluir</button></td>
+                </tr>
+                <tr data-status="success">
+                  <td><span class="host-cell"><span class="host-ico"><svg class="icon"><use href="#i-server"/></svg></span><span class="strong mono">srv-web-03</span></span></td>
+                  <td><span class="badge badge-ok"><span class="dot"></span>Correcto</span></td>
+                  <td class="num">11 s</td>
+                  <td class="num hide-sm">12:05:48</td>
+                  <td class="muted">Zona horaria aplicada y verificada</td>
+                  <td class="actions"><button class="btn btn-ghost btn-sm" data-toast="Detalle de srv-web-03 abierto.">Ver</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card-foot">
+            <span class="small muted">Mostrando 7 de 256 equipos · actualizado hace 2 s</span>
+            <button class="btn btn-ghost btn-sm" data-toast="Cargando más resultados…">Cargar más</button>
+          </div>
+        </div>
+
+        <details class="console">
+          <summary>
+            <svg class="icon"><use href="#i-terminal"/></svg>
+            Consola de Ansible
+            <span class="badge badge-muted" style="margin-left:4px">últimas 300 líneas</span>
+            <svg class="icon chev"><use href="#i-chevron"/></svg>
+          </summary>
+          <pre><span class="log-dim">PLAY [Configurar hora y zona horaria] *****************************************</span>
+<span class="log-ok">ok: [srv-app-01]</span> → Leer estado actual
+<span class="log-ok">ok: [srv-app-01]</span> → Comparar zona horaria
+<span class="log-warn">changed: [srv-app-01]</span> → Aplicar zona horaria Europe/Madrid
+<span class="log-ok">ok: [srv-app-01]</span> → Verificar resultado (desvío 0,3 s)
+<span class="log-ok">ok: [srv-app-02]</span> → Verificar resultado (desvío 0,1 s)
+<span class="log-ok">ok: [srv-db-01]</span> → Sin cambios necesarios
+<span class="log-err">fatal: [srv-cache-01]</span> → La hora final no coincide (tolerancia 2 s)
+<span class="log-err">fatal: [srv-edge-01]</span> → Permission denied (3 intentos)
+<span class="log-dim">Recap: ok=168 changed=121 unreachable=0 failed=4 skipped=2</span></pre>
+        </details>
+      </section>
+
+      <!-- =====================================================
+           HISTORIAL
+           ===================================================== -->
+      <section class="view" id="view-history" aria-labelledby="histTitle">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">Registro</div>
+            <h1 id="histTitle">Historial</h1>
+            <p class="sub">Todas las operaciones y vistas previas, con estado antes/después por equipo.</p>
+          </div>
+          <div class="head-actions">
+            <button class="btn btn-secondary" data-toast="Exportación CSV generada.">
+              <svg class="icon icon-sm"><use href="#i-download"/></svg> Exportar CSV
+            </button>
+            <button class="btn btn-primary" data-view="new">
+              <svg class="icon icon-sm"><use href="#i-plus"/></svg> Nueva operación
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-4" style="margin-bottom:16px">
+          <article class="card kpi">
+            <div class="kpi-top"><span class="kpi-label">Lotes registrados</span><span class="kpi-icon"><svg class="icon icon-sm"><use href="#i-clock"/></svg></span></div>
+            <div class="kpi-value">342</div>
+            <div class="kpi-foot">Últimos 180 días</div>
+          </article>
+          <article class="card kpi">
+            <div class="kpi-top"><span class="kpi-label">Equipos correctos</span><span class="kpi-icon"><svg class="icon icon-sm"><use href="#i-check"/></svg></span></div>
+            <div class="kpi-value">1.284</div>
+            <div class="kpi-foot"><span class="trend"><svg class="icon"><use href="#i-arrow-up"/></svg> 96,4 %</span> del total</div>
+          </article>
+          <article class="card kpi">
+            <div class="kpi-top"><span class="kpi-label">Fallos</span><span class="kpi-icon"><svg class="icon icon-sm"><use href="#i-alert"/></svg></span></div>
+            <div class="kpi-value">31</div>
+            <div class="kpi-foot"><span class="trend down"><svg class="icon"><use href="#i-arrow-down"/></svg> 12 %</span> menos que el mes anterior</div>
+          </article>
+          <article class="card kpi">
+            <div class="kpi-top"><span class="kpi-label">Simulaciones</span><span class="kpi-icon"><svg class="icon icon-sm"><use href="#i-eye"/></svg></span></div>
+            <div class="kpi-value">57</div>
+            <div class="kpi-foot">No modifican equipos</div>
+          </article>
+        </div>
+
+        <div class="card">
+          <div class="filters">
+            <div class="input-affix">
+              <svg class="icon"><use href="#i-search"/></svg>
+              <input class="input search" id="histSearch" placeholder="Buscar por lote, operador o destino…" aria-label="Buscar en el historial">
+            </div>
+            <select class="select" id="histStatus" aria-label="Filtrar por resultado" style="width:auto;min-width:150px">
+              <option value="all">Todos los resultados</option>
+              <option value="success">Correcto</option>
+              <option value="partial">Parcial</option>
+              <option value="failure">Fallido</option>
+              <option value="preview">Vista previa</option>
+            </select>
+            <select class="select" aria-label="Filtrar por tipo" style="width:auto;min-width:150px">
+              <option>Todos los tipos</option>
+              <option>Zona horaria</option>
+              <option>Hora exacta</option>
+              <option>NTP</option>
+            </select>
+            <div class="spacer"></div>
+            <span class="small muted" id="histCount">6 lotes</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data" id="histTable">
+              <thead>
+                <tr>
+                  <th scope="col">Lote</th>
+                  <th scope="col">Fecha</th>
+                  <th scope="col" class="hide-sm">Operador</th>
+                  <th scope="col">Operación</th>
+                  <th scope="col" class="hide-sm">Destinos</th>
+                  <th scope="col">Resultado</th>
+                  <th scope="col" class="hide-sm">Duración</th>
+                  <th scope="col" class="actions"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr data-hist-status="success" data-view="progress" style="cursor:pointer">
+                  <td class="mono strong">#4F2A</td>
+                  <td><span class="strong">03 nov · 12:04</span><span class="cell-sub">UTC−05:00</span></td>
+                  <td class="hide-sm">Elena Ruiz</td>
+                  <td><span class="strong">Zona horaria</span><span class="cell-sub">Europe/Madrid</span></td>
+                  <td class="num hide-sm">24</td>
+                  <td><span class="badge badge-ok"><span class="dot"></span>Correcto</span></td>
+                  <td class="num hide-sm">2m 18s</td>
+                  <td class="actions"><svg class="icon icon-sm" style="color:var(--muted)"><use href="#i-arrow-right"/></svg></td>
+                </tr>
+                <tr data-hist-status="partial">
+                  <td class="mono strong">#4F28</td>
+                  <td><span class="strong">03 nov · 11:32</span><span class="cell-sub">UTC−05:00</span></td>
+                  <td class="hide-sm">Marco Silva</td>
+                  <td><span class="strong">NTP</span><span class="cell-sub">pool.ntp.org</span></td>
+                  <td class="num hide-sm">8</td>
+                  <td><span class="badge badge-warn"><span class="dot"></span>Parcial</span></td>
+                  <td class="num hide-sm">1m 04s</td>
+                  <td class="actions"><svg class="icon icon-sm" style="color:var(--muted)"><use href="#i-arrow-right"/></svg></td>
+                </tr>
+                <tr data-hist-status="failure">
+                  <td class="mono strong">#4F21</td>
+                  <td><span class="strong">03 nov · 09:18</span><span class="cell-sub">UTC−05:00</span></td>
+                  <td class="hide-sm">Elena Ruiz</td>
+                  <td><span class="strong">Hora exacta</span><span class="cell-sub">Modo UTC</span></td>
+                  <td class="num hide-sm">12</td>
+                  <td><span class="badge badge-danger"><span class="dot"></span>Fallido</span></td>
+                  <td class="num hide-sm">48 s</td>
+                  <td class="actions"><svg class="icon icon-sm" style="color:var(--muted)"><use href="#i-arrow-right"/></svg></td>
+                </tr>
+                <tr data-hist-status="preview">
+                  <td class="mono strong">#4F1C</td>
+                  <td><span class="strong">02 nov · 18:40</span><span class="cell-sub">UTC−05:00</span></td>
+                  <td class="hide-sm">Sistema</td>
+                  <td><span class="strong">Vista previa</span><span class="cell-sub">America/Bogota</span></td>
+                  <td class="num hide-sm">64</td>
+                  <td><span class="badge badge-info"><span class="dot"></span>Vista previa</span></td>
+                  <td class="num hide-sm">1m 22s</td>
+                  <td class="actions"><svg class="icon icon-sm" style="color:var(--muted)"><use href="#i-arrow-right"/></svg></td>
+                </tr>
+                <tr data-hist-status="success">
+                  <td class="mono strong">#4F18</td>
+                  <td><span class="strong">02 nov · 16:10</span><span class="cell-sub">UTC−05:00</span></td>
+                  <td class="hide-sm">Marco Silva</td>
+                  <td><span class="strong">Hora local</span><span class="cell-sub">Europe/Madrid</span></td>
+                  <td class="num hide-sm">6</td>
+                  <td><span class="badge badge-ok"><span class="dot"></span>Correcto</span></td>
+                  <td class="num hide-sm">1m 12s</td>
+                  <td class="actions"><svg class="icon icon-sm" style="color:var(--muted)"><use href="#i-arrow-right"/></svg></td>
+                </tr>
+                <tr data-hist-status="partial">
+                  <td class="mono strong">#4F10</td>
+                  <td><span class="strong">02 nov · 09:05</span><span class="cell-sub">UTC−05:00</span></td>
+                  <td class="hide-sm">Elena Ruiz</td>
+                  <td><span class="strong">Zona horaria</span><span class="cell-sub">Europe/Madrid</span></td>
+                  <td class="num hide-sm">256</td>
+                  <td><span class="badge badge-warn"><span class="dot"></span>Parcial</span></td>
+                  <td class="num hide-sm">22m 41s</td>
+                  <td class="actions"><svg class="icon icon-sm" style="color:var(--muted)"><use href="#i-arrow-right"/></svg></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card-foot">
+            <span class="small muted">Página 1 de 57</span>
+            <div class="pagination">
+              <button class="page-btn" disabled aria-label="Página anterior"><svg class="icon icon-sm"><use href="#i-arrow-left"/></svg></button>
+              <button class="page-btn is-current" aria-current="page">1</button>
+              <button class="page-btn" data-toast="Página 2 (prototipo).">2</button>
+              <button class="page-btn" data-toast="Página 3 (prototipo).">3</button>
+              <button class="page-btn" data-toast="Página siguiente (prototipo)." aria-label="Página siguiente"><svg class="icon icon-sm"><use href="#i-arrow-right"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =====================================================
+           CREDENCIALES
+           ===================================================== -->
+      <section class="view" id="view-credentials" aria-labelledby="credTitle">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">Seguridad</div>
+            <h1 id="credTitle">Credenciales</h1>
+            <p class="sub">Gestiona el vault cifrado y las contraseñas candidatas que se prueban contra los equipos.</p>
+          </div>
+          <div class="head-actions">
+            <button class="btn btn-secondary" data-toast="Se ha descargado una copia cifrada del vault.">
+              <svg class="icon icon-sm"><use href="#i-download"/></svg> Copia de seguridad
+            </button>
+            <button class="btn btn-primary" data-toast="Formulario para añadir credencial (prototipo).">
+              <svg class="icon icon-sm"><use href="#i-plus"/></svg> Añadir credencial
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-2" style="margin-bottom:16px">
+          <div class="card">
+            <div class="card-head">
+              <h2 class="card-title"><svg class="icon"><use href="#i-shield"/></svg> Estado del vault</h2>
+              <span class="badge badge-ok"><span class="dot"></span>Cifrado</span>
+            </div>
+            <div class="card-body">
+              <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
+                <div class="dropzone" style="width:52px;height:52px;padding:0;display:grid;place-items:center;flex:0 0 auto">
+                  <svg class="icon icon-lg" style="color:var(--accent)"><use href="#i-lock"/></svg>
+                </div>
+                <div>
+                  <div style="font-weight:700;font-size:14px">vault.yml · 4,2 KB</div>
+                  <div class="small muted" style="margin-top:2px">Actualizado hace 2 días por Elena Ruiz</div>
+                </div>
+              </div>
+              <div class="kv"><span>Ruta</span><strong class="mono" style="font-size:11px">/etc/hora-admin/secrets/vault.yml</strong></div>
+              <div class="kv"><span>Cifrado</span><strong>ansible-vault · AES256</strong></div>
+              <div class="kv"><span>Candidatas</span><strong>48 de 200</strong></div>
+              <div class="kv"><span>Último acceso</span><strong>hace 8 min</strong></div>
+            </div>
+            <div class="card-foot">
+              <button class="btn btn-ghost btn-sm" data-toast="Rotación de contraseña maestra (prototipo)." data-toast-type="warn">Rotar contraseña maestra</button>
+              <span class="small muted">Se recomienda cada 90 días</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <h2 class="card-title"><svg class="icon"><use href="#i-key"/></svg> Probar acceso</h2>
+              <span class="badge badge-muted">Solo lectura</span>
+            </div>
+            <div class="card-body">
+              <div class="field" style="margin-bottom:12px">
+                <label class="field-label" for="testMaster">Contraseña maestra</label>
+                <div class="input-group">
+                  <div class="input-affix" style="flex:1">
+                    <svg class="icon"><use href="#i-lock"/></svg>
+                    <input class="input" type="password" id="testMaster" value="••••••••••••••" autocomplete="current-password">
+                  </div>
+                  <button class="btn btn-secondary" data-toast="Vault accesible · 48 credenciales legibles.">
+                    <svg class="icon icon-sm"><use href="#i-play"/></svg> Probar
+                  </button>
+                </div>
+              </div>
+              <div class="callout callout-ok" style="margin-bottom:10px">
+                <svg class="icon"><use href="#i-check"/></svg>
+                <div><strong>Vault accesible.</strong> 48 credenciales legibles. Comprobado hace 2 minutos.</div>
+              </div>
+              <div class="callout callout-info">
+                <svg class="icon"><use href="#i-shield"/></svg>
+                <div>La contraseña maestra nunca se guarda en disco ni se escribe en los logs. Solo vive en memoria durante la comprobación.</div>
+              </div>
+            </div>
+            <div class="dropzone" style="margin:0 18px 18px">
+              <div class="dz-icon"><svg class="icon"><use href="#i-upload"/></svg></div>
+              <strong>Importar candidatas</strong>
+              <span>Arrastra un .txt o .yml · una por línea · máximo 2 MB</span>
+              <button class="btn btn-secondary btn-sm" data-toast="Selector de archivos (prototipo)." data-toast-type="warn">Elegir archivo</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2 class="card-title"><svg class="icon"><use href="#i-key"/></svg> Contraseñas candidatas</h2>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span class="badge badge-muted">48 registros</span>
+              <button class="btn btn-ghost btn-sm" data-toast="Ordenando por uso reciente.">
+                <svg class="icon icon-sm"><use href="#i-filter"/></svg> Ordenar
+              </button>
+            </div>
+          </div>
+          <div class="filters">
+            <div class="input-affix">
+              <svg class="icon"><use href="#i-search"/></svg>
+              <input class="input search" placeholder="Buscar por hash u origen…" aria-label="Buscar credencial">
+            </div>
+            <div class="spacer"></div>
+            <span class="small muted">Los hashes son identificadores; no permiten recuperar la contraseña.</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data">
+              <thead>
+                <tr>
+                  <th scope="col">#</th>
+                  <th scope="col">Identificador</th>
+                  <th scope="col">Origen</th>
+                  <th scope="col" class="hide-sm">Añadida</th>
+                  <th scope="col" class="hide-sm">Último uso</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col" class="actions">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="num muted">1</td>
+                  <td class="mono strong">a1b2c3d4e5f6</td>
+                  <td>Importada</td>
+                  <td class="hide-sm">28 oct 2026</td>
+                  <td class="hide-sm">hace 8 min</td>
+                  <td><span class="badge badge-ok"><span class="dot"></span>Verificada</span></td>
+                  <td class="actions">
+                    <button class="icon-btn" aria-label="Ver detalle de la credencial a1b2c3d4e5f6" data-toast="Detalle de credencial (prototipo)."><svg class="icon icon-sm"><use href="#i-eye"/></svg></button>
+                    <button class="icon-btn" aria-label="Eliminar la credencial a1b2c3d4e5f6" data-toast="Credencial eliminada (prototipo)." data-toast-type="warn"><svg class="icon icon-sm"><use href="#i-trash"/></svg></button>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="num muted">2</td>
+                  <td class="mono strong">9f3e2a71bc04</td>
+                  <td>Manual</td>
+                  <td class="hide-sm">02 nov 2026</td>
+                  <td class="hide-sm">hace 2 h</td>
+                  <td><span class="badge badge-ok"><span class="dot"></span>Verificada</span></td>
+                  <td class="actions">
+                    <button class="icon-btn" aria-label="Ver detalle de la credencial 9f3e2a71bc04" data-toast="Detalle de credencial (prototipo)."><svg class="icon icon-sm"><use href="#i-eye"/></svg></button>
+                    <button class="icon-btn" aria-label="Eliminar la credencial 9f3e2a71bc04" data-toast="Credencial eliminada (prototipo)." data-toast-type="warn"><svg class="icon icon-sm"><use href="#i-trash"/></svg></button>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="num muted">3</td>
+                  <td class="mono strong">77c1ee9a2b3d</td>
+                  <td>Importada</td>
+                  <td class="hide-sm">27 oct 2026</td>
+                  <td class="hide-sm">Ayer</td>
+                  <td><span class="badge badge-ok"><span class="dot"></span>Verificada</span></td>
+                  <td class="actions">
+                    <button class="icon-btn" aria-label="Ver detalle de la credencial 77c1ee9a2b3d" data-toast="Detalle de credencial (prototipo)."><svg class="icon icon-sm"><use href="#i-eye"/></svg></button>
+                    <button class="icon-btn" aria-label="Eliminar la credencial 77c1ee9a2b3d" data-toast="Credencial eliminada (prototipo)." data-toast-type="warn"><svg class="icon icon-sm"><use href="#i-trash"/></svg></button>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="num muted">4</td>
+                  <td class="mono strong">3d4f5a6b7c8d</td>
+                  <td>Importada</td>
+                  <td class="hide-sm">20 oct 2026</td>
+                  <td class="hide-sm">Nunca</td>
+                  <td><span class="badge badge-warn"><span class="dot"></span>Sin probar</span></td>
+                  <td class="actions">
+                    <button class="icon-btn" aria-label="Ver detalle de la credencial 3d4f5a6b7c8d" data-toast="Detalle de credencial (prototipo)."><svg class="icon icon-sm"><use href="#i-eye"/></svg></button>
+                    <button class="icon-btn" aria-label="Eliminar la credencial 3d4f5a6b7c8d" data-toast="Credencial eliminada (prototipo)." data-toast-type="warn"><svg class="icon icon-sm"><use href="#i-trash"/></svg></button>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="num muted">5</td>
+                  <td class="mono strong">0be8c7d6a5f4</td>
+                  <td>Manual</td>
+                  <td class="hide-sm">18 oct 2026</td>
+                  <td class="hide-sm">hace 6 días</td>
+                  <td><span class="badge badge-danger"><span class="dot"></span>Falló</span></td>
+                  <td class="actions">
+                    <button class="icon-btn" aria-label="Ver detalle de la credencial 0be8c7d6a5f4" data-toast="Detalle de credencial (prototipo)."><svg class="icon icon-sm"><use href="#i-eye"/></svg></button>
+                    <button class="icon-btn" aria-label="Eliminar la credencial 0be8c7d6a5f4" data-toast="Credencial eliminada (prototipo)." data-toast-type="warn"><svg class="icon icon-sm"><use href="#i-trash"/></svg></button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card-foot">
+            <span class="small muted">Mostrando 5 de 48 · los hashes completos se conservan en SQLite</span>
+            <button class="btn btn-ghost btn-sm" data-toast="Cargando más credenciales…">Cargar más</button>
+          </div>
+        </div>
+      </section>
+
+
+
+    </main>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <svg class="icon"><use href="#i-check"/></svg>
+  <span id="toastText">Listo</span>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+  /* ==========================================================
+     Navegación entre vistas
+     ========================================================== */
+  const viewNames = {
+    panel: "Panel",
+    new: "Nueva operación",
+    progress: "Progreso",
+    history: "Historial",
+    credentials: "Credenciales"
+  };
+
+  const sidebar = $("#sidebar");
+  const overlay = $("#overlay");
+  const menuBtn = $("#menuBtn");
+
+  function openSidebar() {
+    sidebar.classList.add("is-open");
+    overlay.classList.add("is-visible");
+    menuBtn.setAttribute("aria-expanded", "true");
+  }
+  function closeSidebar() {
+    sidebar.classList.remove("is-open");
+    overlay.classList.remove("is-visible");
+    menuBtn.setAttribute("aria-expanded", "false");
+  }
+
+  function showView(name) {
+    const view = $("#view-" + name);
+    if (!view) return;
+    $$(".view").forEach((section) => {
+      section.classList.toggle("is-active", section === view);
+    });
+    $$(".nav-item").forEach((item) => {
+      const active = item.dataset.view === name;
+      item.classList.toggle("is-active", active);
+      if (active) item.setAttribute("aria-current", "page");
+      else item.removeAttribute("aria-current");
+    });
+    $("#crumbCurrent").textContent = viewNames[name] || "Panel";
+    closeSidebar();
+    if (window.history && typeof window.history.replaceState === "function") {
+      try { window.history.replaceState(null, "", "#" + name); } catch (error) { /* file:// */ }
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    if (name === "new") {
+      currentStep = 1;
+      goStep(1);
+    }
+  }
+
+  /* ==========================================================
+     Asistente
+     ========================================================== */
+  let currentStep = 1;
+  const state = { action: "TZ", ntp: "keep", creds: "vault", hosts: 256 };
+
+  const ntpLabels = {
+    keep: "Conservar",
+    off: "Desactivar",
+    restore: "Desactivar y restaurar",
+    configure: "Configurar servidores"
+  };
+  const ntpDetails = {
+    keep: "Sin cambios en la sincronización",
+    off: "NTP desactivado al terminar",
+    restore: "NTP se restaura a su estado anterior",
+    configure: "Se definen servidores NTP y queda activo"
+  };
+  const credLabels = {
+    vault: "Vault · 48 candidatas",
+    file: "Archivo temporal",
+    manual: "Bajo demanda"
+  };
+
+  const targets = $("#targets");
+  const timezone = $("#timezone");
+  const datetime = $("#datetime");
+  const timeMode = $("#timeMode");
+  const tolerance = $("#tolerance");
+  const ntpServers = $("#ntpServers");
+  const confirmInput = $("#confirmInput");
+  const executeBtn = $("#executeBtn");
+
+  function countTargets(raw) {
+    let total = 0;
+    raw.split(/[\n,]+/).forEach((chunk) => {
+      const line = chunk.trim();
+      if (!line) return;
+      const match = line.match(/\/(\d{1,2})$/);
+      if (match) {
+        const prefix = Number(match[1]);
+        if (prefix >= 0 && prefix <= 32) {
+          total += Math.max(Math.pow(2, 32 - prefix) - 2, 1);
+          return;
+        }
+      }
+      total += 1;
+    });
+    return total;
+  }
+
+  function timezoneOffset() {
+    const option = timezone.options[timezone.selectedIndex];
+    return option ? option.dataset.offset || "" : "";
+  }
+
+  function formatLocalDate(value) {
+    if (!value) return "—";
+    const parts = value.split("T");
+    const date = parts[0].split("-").reverse().join("/");
+    return date + (parts[1] ? " · " + parts[1] : "");
+  }
+
+  function currentValue() {
+    if (state.action === "TZ") {
+      return timezone.value + " · " + timezoneOffset();
+    }
+    return formatLocalDate(datetime.value) + " · " + (timeMode.value === "utc" ? "UTC" : "hora local");
+  }
+
+  function riskLevel() {
+    if (state.action === "TIME" && state.ntp === "keep") return "alto";
+    if (state.action === "TIME" || state.ntp === "configure" || state.ntp === "restore") return "medio";
+    return "bajo";
+  }
+
+  function updateRisk() {
+    const level = riskLevel();
+    const badge = $("#sumRisk");
+    badge.textContent = "Riesgo " + level;
+    badge.className = "badge " + (level === "alto" ? "badge-danger" : level === "medio" ? "badge-warn" : "badge-ok");
+  }
+
+  function updateAll() {
+    const hosts = state.hosts;
+    const overLimit = hosts > 256;
+    const targetCount = $("#targetCount");
+    targetCount.classList.toggle("chip-ok", !overLimit);
+    targetCount.innerHTML =
+      '<svg class="icon"><use href="#' + (overLimit ? "i-alert" : "i-check") + '"/></svg> ' +
+      hosts + " equipos detectados";
+    $("#targetWarning").hidden = !overLimit;
+
+    $("#sumHosts").textContent = hosts + " equipos";
+    $("#sumAction").textContent = state.action === "TZ" ? "Zona horaria" : "Hora exacta";
+    $("#sumValue").textContent = currentValue();
+    $("#sumNtp").textContent = ntpLabels[state.ntp];
+    $("#sumCreds").textContent = credLabels[state.creds];
+    $("#sumTolerance").textContent =
+      state.action === "TIME" ? (tolerance.value || "0") + " s" : "—";
+
+    $("#ntpWarning").hidden = !(state.action === "TIME" && state.ntp === "keep");
+
+    $("#revHosts").textContent = hosts + " equipos";
+    $("#revAction").textContent = state.action === "TZ" ? "Zona horaria" : "Hora exacta";
+    $("#revValue").textContent = currentValue();
+    $("#revNtp").textContent = ntpLabels[state.ntp];
+    $("#revNtpDetail").textContent =
+      ntpDetails[state.ntp] +
+      " · " +
+      (state.action === "TIME" ? "tolerancia " + (tolerance.value || "0") + " s" : "solo zona horaria");
+    $("#revCreds").textContent =
+      state.creds === "vault" ? "Vault cifrado" : state.creds === "file" ? "Archivo temporal" : "Bajo demanda";
+
+    const confirmValue = confirmInput.value.trim();
+    executeBtn.disabled = confirmValue !== String(hosts) || overLimit;
+    confirmInput.placeholder = "Escribe " + hosts;
+    $("#confirmLead").innerHTML =
+      'Escribe <strong style="color:var(--text)">' + hosts + "</strong> para habilitar la ejecución real.";
+
+    updateRisk();
+  }
+
+  function goStep(step) {
+    currentStep = Math.min(4, Math.max(1, step));
+    $$(".step-panel").forEach((panel) => {
+      panel.classList.toggle("is-active", Number(panel.dataset.step) === currentStep);
+    });
+    $$(".step[data-step-target]").forEach((button) => {
+      const number = Number(button.dataset.stepTarget);
+      button.classList.toggle("is-active", number === currentStep);
+      button.classList.toggle("is-done", number < currentStep);
+      if (number === currentStep) button.setAttribute("aria-current", "step");
+      else button.removeAttribute("aria-current");
+      const num = button.querySelector(".step-num");
+      if (num) num.textContent = number < currentStep ? "✓" : String(number);
+    });
+    if (currentStep === 4) updateAll();
+  }
+
+  /* ==========================================================
+     Interacciones del asistente
+     ========================================================== */
+  targets.addEventListener("input", () => {
+    state.hosts = countTargets(targets.value);
+    updateAll();
+  });
+
+  timezone.addEventListener("change", updateAll);
+  datetime.addEventListener("input", updateAll);
+  timeMode.addEventListener("change", updateAll);
+  tolerance.addEventListener("input", updateAll);
+  ntpServers.addEventListener("input", updateAll);
+  confirmInput.addEventListener("input", updateAll);
+
+  $$("[data-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.action = button.dataset.action;
+      $$("[data-action]").forEach((other) => {
+        other.setAttribute("aria-pressed", String(other === button));
+      });
+      $("#tzFields").hidden = state.action !== "TZ";
+      $("#timeFields").hidden = state.action !== "TIME";
+      updateAll();
+    });
+  });
+
+  $$('input[name="ntp"]').forEach((radio) => {
+    radio.addEventListener("change", () => {
+      if (!radio.checked) return;
+      state.ntp = radio.value;
+      updateAll();
+    });
+  });
+
+  $$('input[name="creds"]').forEach((radio) => {
+    radio.addEventListener("change", () => {
+      if (!radio.checked) return;
+      state.creds = radio.value;
+      $("#fileZone").hidden = state.creds !== "file";
+      updateAll();
+    });
+  });
+
+  executeBtn.addEventListener("click", () => {
+    if (executeBtn.disabled) return;
+    showView("progress");
+  });
+
+  $("#wizardForm").addEventListener("submit", (event) => event.preventDefault());
+
+  /* ==========================================================
+     Delegación global: vistas, pasos y toasts
+     ========================================================== */
+  document.addEventListener("click", (event) => {
+    const toastTrigger = event.target.closest("[data-toast]");
+    if (toastTrigger) {
+      showToast(toastTrigger.dataset.toast, toastTrigger.dataset.toastType);
+    }
+
+    const nav = event.target.closest("[data-view]");
+    if (nav) {
+      event.preventDefault();
+      showView(nav.dataset.view);
+      return;
+    }
+
+    const stepTarget = event.target.closest("[data-step-target]");
+    if (stepTarget) {
+      event.preventDefault();
+      goStep(Number(stepTarget.dataset.stepTarget));
+      return;
+    }
+
+    const next = event.target.closest("[data-step-next]");
+    if (next) {
+      event.preventDefault();
+      goStep(currentStep + 1);
+      return;
+    }
+
+    const prev = event.target.closest("[data-step-prev]");
+    if (prev) {
+      event.preventDefault();
+      goStep(currentStep - 1);
+    }
+  });
+
+  /* ==========================================================
+     Filtros
+     ========================================================== */
+  const hostFilters = $$("[data-host-filter]");
+  function filterHosts() {
+    const active = hostFilters.find((button) => button.getAttribute("aria-pressed") === "true");
+    const status = active ? active.dataset.hostFilter : "all";
+    const query = ($("#hostSearch").value || "").trim().toLowerCase();
+    $$("#hostTable tbody tr").forEach((row) => {
+      const matchesStatus = status === "all" || row.dataset.status === status;
+      const matchesText = !query || row.textContent.toLowerCase().includes(query);
+      row.hidden = !(matchesStatus && matchesText);
+    });
+  }
+  hostFilters.forEach((button) => {
+    button.addEventListener("click", () => {
+      hostFilters.forEach((other) => other.setAttribute("aria-pressed", String(other === button)));
+      filterHosts();
+    });
+  });
+  $("#hostSearch").addEventListener("input", filterHosts);
+
+  function filterHistory() {
+    const query = ($("#histSearch").value || "").trim().toLowerCase();
+    const status = $("#histStatus").value;
+    let visible = 0;
+    $$("#histTable tbody tr").forEach((row) => {
+      const matchesStatus = status === "all" || row.dataset.histStatus === status;
+      const matchesText = !query || row.textContent.toLowerCase().includes(query);
+      const show = matchesStatus && matchesText;
+      row.hidden = !show;
+      if (show) visible += 1;
+    });
+    $("#histCount").textContent = visible + (visible === 1 ? " lote" : " lotes");
+  }
+  $("#histSearch").addEventListener("input", filterHistory);
+  $("#histStatus").addEventListener("change", filterHistory);
+
+  /* ==========================================================
+     Tema claro / oscuro / sistema
+     ========================================================== */
+  const themeBtn = $("#themeBtn");
+  const themeIcon = $("#themeIcon");
+  const modes = ["dark", "light", "system"];
+  const modeLabel = { dark: "oscuro", light: "claro", system: "sistema" };
+  let themeMode = "dark";
+  try {
+    const saved = localStorage.getItem("hora-admin-theme");
+    if (saved && modes.includes(saved)) themeMode = saved;
+  } catch (error) { /* almacenamiento no disponible */ }
+  const requestedTheme = new URLSearchParams(window.location.search).get("theme");
+  if (requestedTheme && modes.includes(requestedTheme)) themeMode = requestedTheme;
+
+  const media = window.matchMedia ? window.matchMedia("(prefers-color-scheme: light)") : null;
+
+  function applyTheme() {
+    const resolved = themeMode === "system" ? (media && media.matches ? "light" : "dark") : themeMode;
+    document.documentElement.setAttribute("data-theme", resolved);
+    themeBtn.title = "Tema: " + modeLabel[themeMode] + " · clic para cambiar";
+    themeBtn.setAttribute("aria-label", "Cambiar tema. Actual: " + modeLabel[themeMode]);
+    themeIcon.setAttribute("href", resolved === "dark" ? "#i-sun" : "#i-moon");
+  }
+
+  themeBtn.addEventListener("click", () => {
+    themeMode = modes[(modes.indexOf(themeMode) + 1) % modes.length];
+    try { localStorage.setItem("hora-admin-theme", themeMode); } catch (error) { /* ignorar */ }
+    applyTheme();
+    showToast("Tema " + modeLabel[themeMode] + " activado.");
+  });
+
+  if (media) {
+    const onSchemeChange = () => { if (themeMode === "system") applyTheme(); };
+    if (typeof media.addEventListener === "function") media.addEventListener("change", onSchemeChange);
+    else if (typeof media.addListener === "function") media.addListener(onSchemeChange);
+  }
+
+  /* ==========================================================
+     Barra lateral móvil
+     ========================================================== */
+  menuBtn.addEventListener("click", () => {
+    if (sidebar.classList.contains("is-open")) closeSidebar();
+    else openSidebar();
+  });
+  overlay.addEventListener("click", closeSidebar);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeSidebar();
+  });
+
+  /* ==========================================================
+     Toast
+     ========================================================== */
+  let toastTimer = null;
+  function showToast(message, type) {
+    if (!message) return;
+    const toast = $("#toast");
+    $("#toastText").textContent = message;
+    toast.classList.toggle("is-warn", type === "warn");
+    const icon = toast.querySelector("use");
+    icon.setAttribute("href", type === "warn" ? "#i-alert" : "#i-check");
+    toast.classList.add("is-visible");
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => toast.classList.remove("is-visible"), 3400);
+  }
+
+  /* ==========================================================
+     Inicialización
+     ========================================================== */
+  applyTheme();
+  state.hosts = countTargets(targets.value);
+  updateAll();
+  goStep(1);
+  filterHosts();
+  filterHistory();
+
+  const initialView = (window.location.hash || "").replace("#", "");
+  if (viewNames[initialView] && initialView !== "panel") showView(initialView);
+})();
+</script>
+</body>
+</html>

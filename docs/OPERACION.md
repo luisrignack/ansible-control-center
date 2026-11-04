@@ -241,7 +241,7 @@ Síntomas: error de ping, `Permission denied`, `sshpass` ausente, timeout.
   - `hwclock` no disponible en contenedor;
   - zona horaria inexistente o `tzdata` desactualizado;
   - permisos insuficientes para `timedatectl`/`date`.
-- La tolerancia se controla con `HORA_ADMIN_TIME_TOLERANCE` (120 s por defecto).
+- La tolerancia se controla con `HORA_ADMIN_TIME_TOLERANCE` (2 s por defecto).
 
 ### 4.4. `partial`
 
@@ -499,13 +499,17 @@ desactives la verificación salvo decisión consciente y documentada.
 
 ## 11. Limitaciones operativas conocidas
 
-- Sin paralelismo, cancelación ni reintento selectivo. Los intentos por host
-  y el presupuesto de tiempo del lote están acotados.
+- Concurrencia acotada por cola y cancelación cooperativa; sin paralelismo
+  dentro del lote ni reintento selectivo. Los intentos por host y el
+  presupuesto de tiempo del lote están acotados.
 - Sin rollback automático.
-- Sin retención automática.
+- Retención automática de lotes, instantáneas y eventos de acceso; `task_state`
+  se recorta por número de filas.
 - Estado de tareas en memoria; SSE depende del proceso.
-- `TIME` + `keep` puede ser revertido por NTP; la aplicación avisa en el lote.
-- Sin RBAC, MFA ni auditoría independiente.
+- `TIME` + `keep` se rechaza en ejecución (la vista previa avisa) porque NTP
+  puede revertir el cambio.
+- Roles `viewer`/`operator`/`admin`, bloqueo de cuenta y auditoría de acceso;
+  sin MFA.
 - Solo Ubuntu/systemd; IPv6 no probado en el flujo de Ansible.
 
 El análisis detallado y el roadmap están en

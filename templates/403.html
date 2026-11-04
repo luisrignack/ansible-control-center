@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}Acceso denegado{% endblock %}
+
+{% block content %}
+<div class="error-page">
+    <div class="error-card fade-in">
+        <div class="error-icon" aria-hidden="true"><i class="bi bi-shield-lock"></i></div>
+        <div class="error-code">403</div>
+        <h1 class="error-title">Acceso denegado</h1>
+        <p class="error-text">
+            Tu rol no permite realizar esta operación.
+        </p>
+        <a href="{{ url_for('index') }}" class="btn btn-acento">
+            <i class="bi bi-arrow-left" aria-hidden="true"></i> Volver al panel
+        </a>
+    </div>
+</div>
+{% endblock %}

@@ -9,10 +9,13 @@
 #   * Deja una carpeta autocontenida lista para copiar a la PC de destino.
 #
 # Uso:
-#   ./docker/export-images.sh                  # construye si hace falta
-#   ./docker/export-images.sh --build          # fuerza la reconstrucción
+#   ./docker/export-images.sh                  # reconstruye desde HEAD
 #   ./docker/export-images.sh --no-build       # usa las imágenes locales
 #   ./docker/export-images.sh --output /ruta   # cambia la carpeta de salida
+#
+# Por defecto se reconstruyen SIEMPRE las imágenes desde el árbol de trabajo
+# actual (HEAD). Así el paquete no puede contener una imagen anterior al
+# código, como ocurría con el tar de 177 MB de versiones previas.
 #
 # La arquitectura de las imágenes debe coincidir con la de la PC de destino.
 #
@@ -27,6 +30,11 @@ NGINX_IMAGE="hora-admin-nginx:latest"
 BUNDLE_NAME="hora-admin-despliegue"
 BUILD_MODE="auto"
 OUTPUT_DIR=""
+GIT_COMMIT="$(git rev-parse --short=12 HEAD 2>/dev/null || printf 'desconocido')"
+GIT_DIRTY="no"
+if ! git diff --quiet --ignore-submodules HEAD 2>/dev/null; then
+  GIT_DIRTY="sí (árbol de trabajo con cambios sin confirmar)"
+fi
 
 log()  { printf '\033[1;36m[hora-admin]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[hora-admin]\033[0m %s\n' "$*" >&2; }
@@ -37,7 +45,7 @@ while [ $# -gt 0 ]; do
     --build)    BUILD_MODE="force" ;;
     --no-build) BUILD_MODE="never" ;;
     --output)   shift; OUTPUT_DIR="${1:-}" ;;
-    -h|--help)  sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)          die "Opción desconocida: $1 (usa --help)." ;;
   esac
   shift
@@ -79,12 +87,8 @@ case "$BUILD_MODE" in
     log "Usando las imágenes locales."
     ;;
   auto)
-    if have_images; then
-      log "Imágenes ya presentes; no se reconstruyen (usa --build para forzar)."
-    else
-      log "Construyendo imágenes ..."
-      "${COMPOSE[@]}" "${ENV_FILE_ARGS[@]}" build
-    fi
+    log "Construyendo imágenes desde HEAD ($GIT_COMMIT) ..."
+    "${COMPOSE[@]}" "${ENV_FILE_ARGS[@]}" build
     ;;
 esac
 
@@ -163,6 +167,8 @@ Hora Admin - imágenes incluidas
 ===============================
 
 Empaquetado : $(date -u '+%Y-%m-%d %H:%M UTC')
+Commit      : $GIT_COMMIT
+Sin confirmar: $GIT_DIRTY
 Arquitectura: $ARCH
 Tamaño      : $SIZE
 

@@ -9,6 +9,8 @@ verificación e idempotencia (fases P0-P4).
 """
 from __future__ import annotations
 
+import atexit
+import atexit
 import ipaddress
 import json
 import logging
@@ -19,6 +21,7 @@ import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from functools import wraps
 from typing import Any, Dict, List, Optional
 
 import click
@@ -49,6 +52,7 @@ from config import (
     ADMIN_PASSWORD_MIN_LENGTH,
     ADMIN_USERNAME,
     ALLOWED_PASSWORD_EXTENSIONS,
+    AUTH_EVENT_RETENTION_DAYS,
     BATCH_TIME_BUDGET_SECONDS,
     COMMON_TIMEZONES,
     CSP_ENABLED,
@@ -59,28 +63,40 @@ from config import (
     DRY_RUN,
     EXEC_RATE_LIMIT,
     EXEC_RATE_WINDOW,
+    HISTORY_RETENTION_DAYS,
     HSTS_ENABLED,
     HSTS_MAX_AGE,
+    IS_PRODUCTION,
+    JOB_MAX_WORKERS,
+    JOB_QUEUE_SIZE,
     JOB_RETENTION_HOURS,
+    JOB_SHUTDOWN_GRACE_SECONDS,
+    LOGIN_LOCKOUT_MINUTES,
+    LOGIN_LOCKOUT_THRESHOLD,
     LOGIN_RATE_LIMIT,
     LOGIN_RATE_WINDOW,
     MAX_CONTENT_LENGTH,
     MAX_HOSTS,
+    MAX_MEMORY_TASKS,
     MAX_NTP_SERVERS,
     MAX_PASSWORDS,
     MAX_PASSWORD_ATTEMPTS,
     MAX_PASSWORD_LENGTH,
+    MAX_TASK_STATE_ROWS,
     NTP_POLICIES,
+    NTP_SETTLE_SECONDS,
     PERMANENT_SESSION_LIFETIME_SECONDS,
     RATE_LIMIT_ENABLED,
     REMEMBER_COOKIE_HTTPONLY,
     REMEMBER_COOKIE_SAMESITE,
     REMEMBER_COOKIE_SECURE,
     REMEMBER_COOKIE_DURATION_SECONDS,
+    ROLES,
     SECURITY_HEADERS_ENABLED,
     SESSION_COOKIE_HTTPONLY,
     SESSION_COOKIE_SAMESITE,
     SESSION_COOKIE_SECURE,
+    TIME_REQUIRE_NTP_OFF,
     TIME_VERIFY_TOLERANCE,
     TRUST_PROXY,
     VAULT_RATE_LIMIT,
@@ -90,18 +106,32 @@ from config import (
     resolve_db_path,
     resolve_vault_file,
     setup_logging,
+    validate_security_config,
 )
-from models.batch import ExecutionBatch
+from models.batch import (
+    HOST_RESULT_LABELS,
+    STATUS_LABELS,
+    ExecutionBatch,
+)
 from models.db import get_connection, init_schema
 from models.execution import ExecutionRecord
 from models.password import PasswordRecord
-from models.user import User
+from models.user import AuthEvent, User
 from services.ansible_runner import apply_host, inspect_host
 from services.csrf import csrf_protect, generate_csrf_token, rotate_csrf_token
-from services.host_resolver import resolve_target, validate_target
+from services.host_resolver import pin_target, resolve_target
+from services.job_queue import JobQueue, JobQueueFull
 from services.password_tester import test_ansible_ping
 from services.rate_limiter import LIMITER
 from services.secure_temp import secure_temp_file
+from services.time_utils import (
+    LOCAL_TIME_AMBIGUOUS,
+    LOCAL_TIME_MISSING,
+    local_time_epoch,
+    local_time_status,
+    timezone_exists,
+    utc_time_epoch,
+)
 from services.vault_manager import VaultManager
 
 logger = logging.getLogger("hora_admin")
@@ -121,7 +151,16 @@ _OPERATION_IDS_LOCK = threading.Lock()
 _OPERATION_ID_TTL = 3600
 
 # Estados que cierran el stream SSE.
-TERMINAL_STATES = {"completed", "failed", "error", "found", "failure", "timeout"}
+TERMINAL_STATES = {
+    "completed",
+    "failed",
+    "error",
+    "found",
+    "failure",
+    "timeout",
+    "cancelled",
+    "incomplete",
+}
 
 login_manager = LoginManager()
 login_manager.login_view = "login"
@@ -132,6 +171,41 @@ login_manager.session_protection = "strong"
 # La app se crea aquí para que los decoradores @app.route de este módulo
 # encuentren el objeto. La configuración se aplica al final (configure_app).
 app = Flask(__name__)
+
+# Cola acotada de trabajos. Se crea de forma perezosa para no arrancar hilos al
+# importar el módulo (tests, CLI) y se apaga ordenadamente en ``configure_app``.
+_job_queue: Optional[JobQueue] = None
+
+
+def get_job_queue() -> JobQueue:
+    global _job_queue
+    if _job_queue is None:
+        _job_queue = JobQueue(
+            max_workers=JOB_MAX_WORKERS,
+            max_queue=JOB_QUEUE_SIZE,
+            shutdown_grace=JOB_SHUTDOWN_GRACE_SECONDS,
+        )
+    return _job_queue
+
+
+def roles_required(*roles: str):
+    """Restringe una ruta a los roles indicados (``admin`` siempre pasa)."""
+    from functools import wraps
+
+    def decorator(view):
+        @wraps(view)
+        @login_required
+        def wrapped(*args, **kwargs):
+            user = current_user
+            if not getattr(user, "is_authenticated", False):
+                return login_manager.unauthorized()
+            if not user.has_role("admin", *roles):
+                abort(403)
+            return view(*args, **kwargs)
+
+        return wrapped
+
+    return decorator
 
 
 def get_db_path() -> str:
@@ -262,6 +336,14 @@ def _form_bool(name: str) -> bool:
     }
 
 
+def _fold_value(raw: str) -> Optional[int]:
+    """Normaliza la desambiguación DST: ``auto``, ``0`` o ``1``."""
+    value = (raw or "auto").strip().lower()
+    if value in {"0", "1"}:
+        return int(value)
+    return None
+
+
 def _parse_ntp_servers(raw: str) -> tuple[List[str], Optional[str]]:
     """Valida y normaliza una lista de servidores NTP.
 
@@ -306,6 +388,8 @@ def _parse_operation_form(
         request.form.get("mode", default_mode).strip().lower() or default_mode
     )
     time_mode = request.form.get("time_mode", "utc").strip().lower() or "utc"
+    time_zone = request.form.get("time_zone", "").strip()
+    time_fold_raw = request.form.get("time_fold", "auto").strip().lower()
     ntp_policy = request.form.get("ntp_policy", "keep").strip().lower() or "keep"
     ntp_servers_raw = request.form.get("ntp_servers", "")
     sync_rtc = _form_bool("sync_rtc")
@@ -315,9 +399,13 @@ def _parse_operation_form(
 
     if mode not in {"preview", "execute"}:
         errors.append("Modo de operación no válido.")
-    target_error = validate_target(target)
+    target_error = None
+    pinned_target, target_error = pin_target(target)
     if target_error:
         errors.append(target_error)
+    else:
+        # Guardar la IP literal evita que Ansible vuelva a resolver DNS.
+        target = pinned_target
     if not admin_user:
         errors.append("El usuario administrador es obligatorio.")
     if action not in {"TZ", "TIME"}:
@@ -338,13 +426,77 @@ def _parse_operation_form(
                 value = parsed.strftime("%Y-%m-%dT%H:%M")
             except ValueError:
                 errors.append("Formato de hora inválido; use AAAA-MM-DDTHH:MM.")
+
+        if time_mode == "local":
+            # La hora de pared necesita una zona real y resolver el hueco o el
+            # solapamiento de DST. Así la vista previa y el playbook calculan
+            # exactamente el mismo epoch.
+            if not time_zone:
+                errors.append(
+                    "La zona horaria es obligatoria para la hora local (DST)."
+                )
+            elif not timezone_exists(time_zone):
+                errors.append(f"Zona horaria desconocida: {time_zone}.")
+            else:
+                status, message = local_time_status(
+                    value,
+                    time_zone,
+                    fold=_fold_value(time_fold_raw),
+                )
+                if status == LOCAL_TIME_MISSING:
+                    errors.append(message)
+                elif status == LOCAL_TIME_AMBIGUOUS:
+                    errors.append(message)
+                elif status not in {"ok"}:
+                    errors.append(message)
+        else:
+            # En UTC no se usa la zona del host; se calcula el instante en
+            # Python para que la comprobación sea determinista.
+            time_zone = ""
+            time_fold_raw = "auto"
+
+        if time_mode in {"utc", "local"} and not errors:
+            fold = _fold_value(time_fold_raw)
+            if time_mode == "local":
+                # ``auto`` solo puede resolverse a 0 cuando la hora no es
+                # ambigua (las ambiguas se rechazan arriba). Fijamos el valor
+                # para que vista previa y ejecución compartan el mismo fold.
+                fold = 0 if fold is None else fold
+                time_fold_raw = str(fold)
+            target_epoch = (
+                utc_time_epoch(value)
+                if time_mode == "utc"
+                else local_time_epoch(value, time_zone, fold or 0)
+            )
+            if target_epoch is None:
+                errors.append("No se pudo calcular el instante objetivo.")
+        else:
+            target_epoch = None
     else:
         # La semántica UTC/local solo aplica a TIME.
         time_mode = "utc"
+        time_zone = ""
+        time_fold_raw = "auto"
+        target_epoch = None
         if not value:
             errors.append("La zona horaria es obligatoria.")
         elif not _TIMEZONE_RE.fullmatch(value):
             errors.append("Formato de zona horaria inválido.")
+        elif not timezone_exists(value):
+            errors.append(f"Zona horaria desconocida: {value}.")
+
+    # TIME + NTP activo con política keep puede revertirse en segundos. En
+    # ejecución se rechaza por defecto; la vista previa solo advierte.
+    if (
+        mode == "execute"
+        and action == "TIME"
+        and ntp_policy == "keep"
+        and TIME_REQUIRE_NTP_OFF
+    ):
+        errors.append(
+            "TIME con NTP en política keep no está permitido al ejecutar: "
+            "el reloj podría revertirse. Usa off, restore o configure."
+        )
 
     ntp_servers: List[str] = []
     if ntp_policy == "configure":
@@ -399,6 +551,9 @@ def _parse_operation_form(
             "value": value,
             "mode": mode,
             "time_mode": time_mode,
+            "time_zone": time_zone,
+            "time_fold": _fold_value(time_fold_raw),
+            "target_epoch": target_epoch,
             "ntp_policy": ntp_policy,
             "ntp_servers": ntp_servers,
             "sync_rtc": sync_rtc,
@@ -429,16 +584,16 @@ def _would_change(
     ntp_policy: str,
     force: bool,
     ntp_servers: Optional[List[str]] = None,
+    target_epoch: Optional[int] = None,
 ) -> Optional[bool]:
     """Estima si hace falta cambiar algo según el estado leído (vista previa).
 
     Devuelve ``None`` si el estado no permite decidirlo (por ejemplo, un host
     inaccesible o una salida incompleta del playbook de inspección).
 
-    Para ``configure`` se devuelve ``True`` salvo que el estado incluya la
-    lista de servidores NTP y coincida exactamente: el playbook reescribe la
-    configuración NTP, así que no se puede prometer “sin cambios” sin esos
-    datos.
+    Para ``TIME`` se compara el epoch calculado en Python (``target_epoch``),
+    no la cadena local del host: así la vista previa y el playbook usan el
+    mismo instante incluso en cambios de horario de verano.
     """
     if force:
         return True
@@ -449,22 +604,15 @@ def _would_change(
     if action == "TZ":
         changed = (state.get("timezone") or "") != value
     elif action == "TIME":
-        if time_mode == "utc":
-            try:
-                target_epoch = int(
-                    datetime.strptime(value, "%Y-%m-%dT%H:%M")
-                    .replace(tzinfo=timezone.utc)
-                    .timestamp()
-                )
-                current_epoch = int(state.get("epoch") or 0)
-                changed = current_epoch == 0 or (
-                    abs(current_epoch - target_epoch) > TIME_VERIFY_TOLERANCE
-                )
-            except (TypeError, ValueError):
-                return None
-        else:
-            local = str(state.get("local") or "")
-            changed = not local.startswith(value)
+        if target_epoch is None:
+            return None
+        try:
+            current_epoch = int(state.get("epoch") or 0)
+        except (TypeError, ValueError):
+            return None
+        changed = current_epoch == 0 or (
+            abs(current_epoch - int(target_epoch)) > TIME_VERIFY_TOLERANCE
+        )
 
     if ntp_policy == "off":
         changed = changed or _state_bool(state.get("ntp"))
@@ -588,6 +736,66 @@ def _delete_persisted_task(tid: str) -> None:
         logger.debug("No se pudo borrar la tarea persistida %s", tid)
 
 
+def _trim_task_state_rows() -> None:
+    """Acota la tabla ``task_state`` a las instantáneas más recientes.
+
+    Sin este límite, un proceso de larga vida acumularía el estado completo de
+    todas las operaciones históricas (incluida la consola) en SQLite.
+    """
+    try:
+        with get_connection(get_db_path()) as conn:
+            conn.execute(
+                """
+                DELETE FROM task_state
+                WHERE task_id NOT IN (
+                    SELECT task_id FROM task_state
+                    ORDER BY updated_at DESC, task_id DESC
+                    LIMIT ?
+                )
+                """,
+                (MAX_TASK_STATE_ROWS,),
+            )
+    except Exception:
+        logger.debug("No se pudo recortar task_state", exc_info=True)
+
+
+def _purge_retention() -> None:
+    """Aplica las políticas de retención al arrancar.
+
+    Se ejecuta de forma perezosa y tolerante a fallos: una tabla ausente o una
+    base de datos bloqueada no debe impedir que la aplicación arranque.
+    """
+    db_path = get_db_path()
+    try:
+        tasks = ExecutionBatch.purge_old(HISTORY_RETENTION_DAYS, db_path=db_path)
+    except Exception:
+        tasks = 0
+        logger.exception("No se pudieron purgar lotes antiguos")
+    try:
+        records = ExecutionRecord.purge_old(
+            HISTORY_RETENTION_DAYS, db_path=db_path
+        )
+    except Exception:
+        records = 0
+        logger.exception("No se pudo purgar el historial heredado")
+    try:
+        events = AuthEvent.purge_old(
+            AUTH_EVENT_RETENTION_DAYS, db_path=db_path
+        )
+    except Exception:
+        events = 0
+        logger.exception("No se pudieron purgar eventos de autenticación")
+    _trim_task_state_rows()
+    if tasks or records or events:
+        logger.info(
+            "Retención aplicada: %s lote(s), %s registro(s) y %s evento(s) "
+            "eliminados",
+            tasks,
+            records,
+            events,
+        )
+
+
 def _recover_task_state() -> None:
     """Purga tareas antiguas y cierra las que quedaron en curso.
 
@@ -636,12 +844,24 @@ def create_task() -> str:
         "overall_result": "unknown",
         "completed": False,
         "dry_run": DRY_RUN,
-        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "created_at": _utc_now_iso(),
         "updated_at": _utc_now_iso(),
     }
     with _tasks_lock:
         _tasks[task_id] = task
+        # Acota el estado en memoria: las tareas cerradas más antiguas se
+        # descartan primero. La instantánea SQLite sigue disponible para el
+        # historial reciente.
+        if len(_tasks) > MAX_MEMORY_TASKS:
+            removable = [
+                key
+                for key, value in _tasks.items()
+                if key != task_id and value.get("completed")
+            ]
+            for key in removable[: max(0, len(_tasks) - MAX_MEMORY_TASKS)]:
+                _tasks.pop(key, None)
     _persist_task(task_id, task)
+    _trim_task_state_rows()
     return task_id
 
 
@@ -754,6 +974,9 @@ def _security_context():
         "csrf_token": generate_csrf_token,
         "csp_nonce": getattr(g, "csp_nonce", ""),
         "dry_run": DRY_RUN,
+        "is_production": IS_PRODUCTION,
+        "status_labels": STATUS_LABELS,
+        "host_result_labels": HOST_RESULT_LABELS,
     }
 
 
@@ -775,11 +998,9 @@ def _security_headers(response):
             "Content-Security-Policy",
             (
                 "default-src 'self'; "
-                f"script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; "
-                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net "
-                "https://fonts.googleapis.com; "
-                "font-src 'self' https://cdn.jsdelivr.net "
-                "https://fonts.gstatic.com; "
+                f"script-src 'self' 'nonce-{nonce}'; "
+                "style-src 'self'; "
+                "font-src 'self'; "
                 "img-src 'self' data:; "
                 "connect-src 'self'; "
                 "object-src 'none'; "
@@ -860,16 +1081,64 @@ def login():
         password = request.form.get("password", "")
         user = User.get_by_username(username, db_path=get_db_path())
 
-        if user is not None and user.is_active and user.check_password(password):
+        if user is not None and user.is_locked:
+            AuthEvent.record(
+                username,
+                client_ip,
+                "login_locked",
+                "Intento con cuenta bloqueada",
+                db_path=get_db_path(),
+            )
+            logger.warning("Login bloqueado para usuario=%r (cuenta bloqueada)", username)
+            flash(
+                "La cuenta está bloqueada temporalmente por demasiados intentos "
+                "fallidos. Inténtalo más tarde.",
+                "danger",
+            )
+        elif user is not None and user.is_active and user.check_password(password):
+            user.register_success(db_path=get_db_path())
+            AuthEvent.record(
+                username,
+                client_ip,
+                "login_success",
+                "Inicio de sesión correcto",
+                db_path=get_db_path(),
+            )
             LIMITER.reset(f"login:{client_ip}")
             rotate_csrf_token()
             session.permanent = True
             login_user(user, remember=bool(request.form.get("remember")))
             next_url = request.args.get("next") or request.form.get("next")
             return redirect(next_url if _is_safe_redirect(next_url) else url_for("index"))
-
-        logger.warning("Intento de login fallido para usuario=%r", username)
-        flash("Usuario o contraseña incorrectos.", "danger")
+        else:
+            locked = False
+            if user is not None:
+                try:
+                    locked = user.register_failure(
+                        LOGIN_LOCKOUT_THRESHOLD,
+                        LOGIN_LOCKOUT_MINUTES,
+                        db_path=get_db_path(),
+                    )
+                except Exception:  # pragma: no cover - no tumbar el login
+                    logger.exception("No se pudo registrar el fallo de login")
+            AuthEvent.record(
+                username,
+                client_ip,
+                "account_locked" if locked else "login_failure",
+                "Cuenta bloqueada por intentos fallidos"
+                if locked
+                else "Credenciales incorrectas",
+                db_path=get_db_path(),
+            )
+            logger.warning("Intento de login fallido para usuario=%r", username)
+            if locked:
+                flash(
+                    "Demasiados intentos fallidos: la cuenta quedó bloqueada "
+                    f"durante {LOGIN_LOCKOUT_MINUTES} minutos.",
+                    "danger",
+                )
+            else:
+                flash("Usuario o contraseña incorrectos.", "danger")
 
     no_admin = User.count(db_path=get_db_path()) == 0
     return render_template("auth/login.html", no_admin=no_admin)
@@ -897,8 +1166,12 @@ def index():
             "action",
             "value",
             "time_mode",
+            "time_zone",
+            "time_fold",
             "ntp_policy",
             "ntp_servers",
+            "sync_rtc",
+            "force",
         )
     }
     prefill["operation_id"] = uuid.uuid4().hex
@@ -912,20 +1185,24 @@ def index():
 
 
 @app.route("/preview", methods=["POST"])
-@login_required
+@roles_required("operator")
 def preview_execution():
     """Alias explícito para lanzar una vista previa (no cambia hosts)."""
     return handle_execution(default_mode="preview")
 
 
 @app.route("/execute", methods=["POST"])
-@login_required
+@roles_required("operator")
 def execute_execution():
     """Alias explícito para lanzar una ejecución sobre todos los hosts."""
     return handle_execution(default_mode="execute")
 
 
 def handle_execution(default_mode: str = "execute"):
+    # Incluso un envío desde el panel exige rol de operador: el rol viewer es
+    # de solo lectura y nunca debe poder lanzar Ansible.
+    if not current_user.has_role("admin", "operator"):
+        abort(403)
     retry_after = _check_rate_limit(
         f"exec:{current_user.get_id()}:{_client_ip()}",
         EXEC_RATE_LIMIT,
@@ -986,9 +1263,10 @@ def handle_execution(default_mode: str = "execute"):
             "completed": False,
         },
     )
-    thread = threading.Thread(
-        target=execute_with_progress,
-        args=(
+    try:
+        get_job_queue().submit(
+            tid,
+            execute_with_progress,
             tid,
             form["target"],
             form["admin_user"],
@@ -997,20 +1275,28 @@ def handle_execution(default_mode: str = "execute"):
             form["action"],
             form["value"],
             form["temporal_passwords"],
-        ),
-        kwargs={
-            "mode": form["mode"],
-            "time_mode": form["time_mode"],
-            "ntp_policy": form["ntp_policy"],
-            "ntp_servers": form["ntp_servers"],
-            "sync_rtc": form["sync_rtc"],
-            "force": form["force"],
-            "operator": operator,
-        },
-        daemon=True,
-        name=f"hora-admin-{tid[:8]}",
-    )
-    thread.start()
+            mode=form["mode"],
+            time_mode=form["time_mode"],
+            time_zone=form["time_zone"],
+            time_fold=form["time_fold"],
+            target_epoch=form["target_epoch"],
+            ntp_policy=form["ntp_policy"],
+            ntp_servers=form["ntp_servers"],
+            sync_rtc=form["sync_rtc"],
+            force=form["force"],
+            operator=operator,
+        )
+    except JobQueueFull as exc:
+        remove_task(tid)
+        message = (
+            "El servicio está ocupado con demasiadas operaciones. "
+            "Espera a que termine alguna e inténtalo de nuevo."
+        )
+        logger.warning("Cola de trabajos llena al enviar %s: %s", tid, exc)
+        if _wants_json():
+            return jsonify({"status": "error", "message": message}), 503
+        flash(message, "warning")
+        return redirect(url_for("index"))
 
     if _wants_json():
         return jsonify(
@@ -1161,12 +1447,32 @@ def _run_preview_batch(
     deadline: float,
     db_path: str,
     log_lines: List[str],
+    target_epoch: Optional[int] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> None:
-    """Inspecciona todos los hosts sin cambiar nada y registra el lote."""
+    """Inspecciona todos los hosts sin cambiar nada y registra el lote.
+
+    Devuelve ``completed``, ``incomplete`` (presupuesto agotado) o
+    ``cancelled`` (cancelación solicitada por el usuario).
+    """
     total = len(hosts)
     console_lines: List[str] = []
+    outcome = "completed"
     for index, host in enumerate(hosts, start=1):
+        if cancel_event is not None and cancel_event.is_set():
+            outcome = "cancelled"
+            _skip_remaining_hosts(
+                tid=tid,
+                batch_id=batch_id,
+                hosts=hosts[index - 1 :],
+                db_path=db_path,
+                log_lines=log_lines,
+                console_lines=console_lines,
+                reason="Cancelado por el usuario.",
+            )
+            break
         if time.monotonic() >= deadline:
+            outcome = "incomplete"
             _skip_remaining_hosts(
                 tid=tid,
                 batch_id=batch_id,
@@ -1191,6 +1497,9 @@ def _run_preview_batch(
 
         attempts = 0
         for candidate in candidates:
+            if cancel_event is not None and cancel_event.is_set():
+                last_error = "Cancelado por el usuario."
+                break
             if attempts >= MAX_PASSWORD_ATTEMPTS:
                 _append_log(
                     log_lines,
@@ -1206,6 +1515,7 @@ def _run_preview_batch(
                     password=candidate,
                     line_callback=line_callback,
                     force_real=True,
+                    cancel_event=cancel_event,
                 )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_error = str(exc)
@@ -1232,6 +1542,7 @@ def _run_preview_batch(
                     ntp_policy,
                     force,
                     ntp_servers=ntp_servers,
+                    target_epoch=target_epoch,
                 ),
                 "action": action,
                 "value": value,
@@ -1300,6 +1611,7 @@ def _run_preview_batch(
         )
 
     update_task(tid, {"console": list(console_lines)})
+    return outcome
 
 
 def _run_apply_batch(
@@ -1319,6 +1631,12 @@ def _run_apply_batch(
     deadline: float,
     db_path: str,
     log_lines: List[str],
+    target_epoch: Optional[int] = None,
+    local_fold: Optional[int] = None,
+    time_zone: str = "",
+    ntp_settle: int = 0,
+    requiere_ntp_off: bool = True,
+    cancel_event: Optional[threading.Event] = None,
 ) -> None:
     """Aplica el cambio en todos los hosts (best-effort) y registra cada uno.
 
@@ -1326,11 +1644,28 @@ def _run_apply_batch(
     siguientes candidatas hasta ``HORA_ADMIN_MAX_PASSWORD_ATTEMPTS``. Un fallo
     de un host nunca detiene el lote. Al agotarse el presupuesto de tiempo del
     lote, los hosts pendientes quedan como ``skipped``.
+
+    Devuelve ``completed``, ``incomplete`` (presupuesto agotado) o
+    ``cancelled`` (cancelación solicitada por el usuario).
     """
     total = len(hosts)
     console_lines: List[str] = []
+    outcome = "completed"
     for index, host in enumerate(hosts, start=1):
+        if cancel_event is not None and cancel_event.is_set():
+            outcome = "cancelled"
+            _skip_remaining_hosts(
+                tid=tid,
+                batch_id=batch_id,
+                hosts=hosts[index - 1 :],
+                db_path=db_path,
+                log_lines=log_lines,
+                console_lines=console_lines,
+                reason="Cancelado por el usuario.",
+            )
+            break
         if time.monotonic() >= deadline:
+            outcome = "incomplete"
             _skip_remaining_hosts(
                 tid=tid,
                 batch_id=batch_id,
@@ -1358,6 +1693,9 @@ def _run_apply_batch(
 
         attempts = 0
         for candidate in candidates:
+            if cancel_event is not None and cancel_event.is_set():
+                last_apply_error = "Cancelado por el usuario."
+                break
             if attempts >= MAX_PASSWORD_ATTEMPTS:
                 _append_log(
                     log_lines,
@@ -1375,7 +1713,10 @@ def _run_apply_batch(
             candidate_hash = PasswordRecord.hash_short(candidate)
             try:
                 ping = test_ansible_ping(
-                    host=host, user=admin_user, password=candidate
+                    host=host,
+                    user=admin_user,
+                    password=candidate,
+                    cancel_event=cancel_event,
                 )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_auth_error = str(exc)
@@ -1430,7 +1771,13 @@ def _run_apply_batch(
                     ntp_servers=ntp_servers,
                     sync_rtc=sync_rtc,
                     force=force,
+                    target_epoch=target_epoch,
+                    local_fold=local_fold,
+                    time_zone=time_zone,
+                    ntp_settle=ntp_settle,
+                    requiere_ntp_off=requiere_ntp_off,
                     line_callback=line_callback,
+                    cancel_event=cancel_event,
                 )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_apply_error = str(exc)
@@ -1564,6 +1911,7 @@ def _run_apply_batch(
         )
 
     update_task(tid, {"console": list(console_lines)})
+    return outcome
 
 
 def execute_with_progress(
@@ -1578,19 +1926,27 @@ def execute_with_progress(
     *,
     mode: str = "execute",
     time_mode: str = "utc",
+    time_zone: str = "",
+    time_fold: Optional[int] = None,
+    target_epoch: Optional[int] = None,
     ntp_policy: str = "keep",
     ntp_servers: Optional[List[str]] = None,
     sync_rtc: bool = False,
     force: bool = False,
     operator: str = "",
+    cancel_event: Optional[threading.Event] = None,
 ) -> None:
     """Ejecuta una vista previa o un lote completo sobre todos los hosts.
 
     El flujo es best-effort: cada host se procesa de forma independiente y se
-    guarda su resultado. Un host no detiene el resto del lote.
+    guarda su resultado. Un host no detiene el resto del lote. La cancelación
+    es cooperativa: se atiende entre hosts y dentro de cada playbook.
     """
+    if cancel_event is None:
+        cancel_event = get_job_queue().cancel_event(tid)
     batch_id = ""
     db_path = get_db_path()
+    cancelled = False
     try:
         update_task(
             tid,
@@ -1695,6 +2051,13 @@ def execute_with_progress(
             # La vista previa nunca aplica cambios: no es una ejecución
             # simulada, sino una inspección real de solo lectura.
             dry_run=DRY_RUN and mode != "preview",
+            admin_user=au,
+            password_origin=po,
+            ntp_servers=list(ntp_servers or []),
+            sync_rtc=sync_rtc,
+            force=force,
+            local_fold=time_fold,
+            time_zone=time_zone,
             db_path=db_path,
         )
         update_task(
@@ -1719,7 +2082,7 @@ def execute_with_progress(
         log_lines: List[str] = [f"Lote {batch_id}"]
         deadline = time.monotonic() + BATCH_TIME_BUDGET_SECONDS
         if mode == "preview":
-            _run_preview_batch(
+            outcome = _run_preview_batch(
                 tid=tid,
                 batch_id=batch_id,
                 hosts=hosts,
@@ -1735,9 +2098,11 @@ def execute_with_progress(
                 deadline=deadline,
                 db_path=db_path,
                 log_lines=log_lines,
+                target_epoch=target_epoch,
+                cancel_event=cancel_event,
             )
         else:
-            _run_apply_batch(
+            outcome = _run_apply_batch(
                 tid=tid,
                 batch_id=batch_id,
                 hosts=hosts,
@@ -1754,21 +2119,47 @@ def execute_with_progress(
                 deadline=deadline,
                 db_path=db_path,
                 log_lines=log_lines,
+                target_epoch=target_epoch,
+                local_fold=time_fold,
+                time_zone=time_zone,
+                ntp_settle=NTP_SETTLE_SECONDS,
+                requiere_ntp_off=TIME_REQUIRE_NTP_OFF,
+                cancel_event=cancel_event,
             )
 
+        if cancel_event is not None and cancel_event.is_set():
+            outcome = "cancelled"
+        explicit_status = outcome if outcome in {"cancelled", "incomplete"} else None
         batch = ExecutionBatch.finish_batch(
             batch_id=batch_id,
             total_hosts=len(hosts),
+            status=explicit_status,
             db_path=db_path,
         )
-        overall_result = batch.status if batch is not None else "error"
-        if overall_result not in {"success", "partial", "failure", "error", "preview"}:
+        overall_result = (
+            explicit_status
+            if explicit_status
+            else (batch.status if batch is not None else "error")
+        )
+        if overall_result not in {
+            "success",
+            "partial",
+            "failure",
+            "error",
+            "preview",
+            "incomplete",
+            "cancelled",
+        }:
             overall_result = "error"
         _append_log(log_lines, _batch_message(batch))
         update_task(
             tid,
             {
-                "status": "completed" if overall_result != "error" else "error",
+                "status": (
+                    overall_result
+                    if overall_result in {"cancelled", "incomplete", "error"}
+                    else "completed"
+                ),
                 "progress": 100,
                 "message": _batch_message(batch),
                 "log": list(log_lines),
@@ -1835,6 +2226,48 @@ def api_task_status(task_id: str):
     return response
 
 
+@app.route("/tasks/<task_id>/cancel", methods=["POST"])
+@roles_required("operator")
+def cancel_task(task_id: str):
+    """Solicita la cancelación cooperativa de una operación en curso."""
+    task = _get_task(task_id)
+    if task is None:
+        abort(404)
+    if task.get("completed") or task.get("cancellation_requested"):
+        message = "La operación ya terminó o ya se estaba cancelando."
+        if _wants_json():
+            return jsonify({"success": True, "message": message}), 200
+        flash(message, "info")
+        return redirect(url_for("progress_page", task_id=task_id))
+
+    requested = get_job_queue().cancel(task_id)
+    if not requested:
+        message = "La operación ya no está en ejecución."
+        if _wants_json():
+            return jsonify({"success": False, "message": message}), 409
+        flash(message, "warning")
+        return redirect(url_for("progress_page", task_id=task_id))
+
+    update_task(
+        task_id,
+        {
+            "cancellation_requested": True,
+            "message": "Cancelación solicitada; se detendrá al terminar el host actual…",
+        },
+    )
+    logger.info("Cancelación solicitada para la tarea %s", task_id)
+    if _wants_json():
+        return jsonify(
+            {
+                "success": True,
+                "status": "cancelling",
+                "message": "Cancelación solicitada.",
+            }
+        ), 202
+    flash("Cancelación solicitada.", "info")
+    return redirect(url_for("progress_page", task_id=task_id))
+
+
 # ---------------------------------------------------------------------------
 # Lotes y vista previa (P4)
 # ---------------------------------------------------------------------------
@@ -1873,6 +2306,8 @@ def _password_response(success: bool, message: str, status: int = 200):
 @login_required
 def passwords():
     if request.method == "POST":
+        if not current_user.has_role("admin", "operator"):
+            abort(403)
         retry_after = _check_rate_limit(
             f"vault:{current_user.get_id()}:{_client_ip()}",
             VAULT_RATE_LIMIT,
@@ -2054,6 +2489,16 @@ def history():
     return render_template("history.html", batches=batches, stats=stats)
 
 
+@app.route("/audit")
+@roles_required("admin")
+def audit():
+    """Auditoría de inicios de sesión y eventos de autenticación."""
+    events = AuthEvent.recent(limit=200, db_path=get_db_path())
+    return render_template(
+        "audit.html", events=events, retention_days=AUTH_EVENT_RETENTION_DAYS
+    )
+
+
 # ---------------------------------------------------------------------------
 # Errores
 # ---------------------------------------------------------------------------
@@ -2068,6 +2513,13 @@ def bad_request(error):
 @app.errorhandler(404)
 def not_found(_error):
     return render_template("404.html"), 404
+
+
+@app.errorhandler(403)
+def forbidden(_error):
+    if _wants_json():
+        return jsonify({"success": False, "message": "Acceso denegado."}), 403
+    return render_template("403.html"), 403
 
 
 @app.errorhandler(429)
@@ -2101,15 +2553,25 @@ def register_cli(flask_app: Flask) -> None:
 
     @flask_app.cli.command("init-admin")
     @click.option("--username", default=ADMIN_USERNAME, show_default=True)
+    @click.option(
+        "--role",
+        type=click.Choice(list(ROLES)),
+        default="admin",
+        show_default=True,
+    )
     @click.password_option(confirmation_prompt=True)
-    def init_admin_command(username: str, password: str):
+    def init_admin_command(username: str, password: str, role: str):
         """Crea o actualiza el usuario administrador."""
         if len(password) < ADMIN_PASSWORD_MIN_LENGTH:
             raise click.ClickException(
                 f"La contraseña debe tener al menos {ADMIN_PASSWORD_MIN_LENGTH} caracteres."
             )
-        User.create_or_update(username, password, db_path=get_db_path())
-        click.echo(f"Usuario administrador '{username}' creado/actualizado.")
+        User.create_or_update(
+            username, password, db_path=get_db_path(), role=role
+        )
+        click.echo(
+            f"Usuario '{username}' creado/actualizado con rol '{role}'."
+        )
 
     @flask_app.cli.command("reconcile-batches")
     def reconcile_batches_command():
@@ -2121,7 +2583,16 @@ def register_cli(flask_app: Flask) -> None:
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
+def _shutdown_job_queue() -> None:
+    """Espera brevemente a los trabajos en curso al terminar el proceso."""
+    if _job_queue is not None:
+        _job_queue.shutdown(wait=True)
+
+
 def configure_app(flask_app: Flask) -> Flask:
+    # Falla pronto si la configuración de producción no es segura (allowlist,
+    # clave de sesión y verificación de claves SSH).
+    validate_security_config()
     flask_app.config.update(
         SECRET_KEY=get_or_create_secret_key(),
         DEBUG=DEBUG,
@@ -2162,6 +2633,10 @@ def configure_app(flask_app: Flask) -> Flask:
     login_manager.init_app(flask_app)
     init_db()
     try:
+        _purge_retention()
+    except Exception:  # pragma: no cover - no impedir el arranque
+        logger.exception("No se pudo aplicar la retención al arrancar")
+    try:
         _recover_task_state()
     except Exception:  # pragma: no cover - no impedir el arranque
         logger.exception("No se pudieron recuperar las tareas persistidas")
@@ -2176,6 +2651,10 @@ def configure_app(flask_app: Flask) -> Flask:
                 reconciled,
             )
     register_cli(flask_app)
+
+    # Apagado ordenado. El ``atexit`` se registra una sola vez por proceso; si
+    # la cola nunca se creó, el callback no hace nada.
+    atexit.register(_shutdown_job_queue)
     return flask_app
 
 

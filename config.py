@@ -96,6 +96,9 @@ def _find_binary(name: str, env_var: str) -> str:
 # ---------------------------------------------------------------------------
 # Rutas principales
 # ---------------------------------------------------------------------------
+ENVIRONMENT = os.environ.get("HORA_ADMIN_ENV", "development").strip().lower()
+IS_PRODUCTION = ENVIRONMENT == "production"
+
 SECRETS_DIR = _env_path("HORA_ADMIN_SECRETS_DIR", "/etc/hora-admin/secrets")
 DATA_DIR = _env_path("HORA_ADMIN_DATA_DIR", "/var/lib/hora-admin")
 LOG_DIR = _env_path("HORA_ADMIN_LOG_DIR", "/var/log/hora-admin")
@@ -240,6 +243,34 @@ CONNECT_TIMEOUT = _env_int("HORA_ADMIN_CONNECT_TIMEOUT", 10, minimum=3, maximum=
 # Retención del historial y del progreso en memoria
 HISTORY_RETENTION_DAYS = _env_int("HORA_ADMIN_HISTORY_DAYS", 180, minimum=1)
 JOB_RETENTION_HOURS = _env_int("HORA_ADMIN_JOB_RETENTION_HOURS", 24, minimum=1)
+AUTH_EVENT_RETENTION_DAYS = _env_int(
+    "HORA_ADMIN_AUTH_EVENT_DAYS", 365, minimum=1
+)
+
+# Límites de memoria y de la tabla de instantáneas de tareas. Evitan que un
+# proceso de larga vida acumule estados de todas las operaciones históricas.
+MAX_MEMORY_TASKS = _env_int("HORA_ADMIN_MAX_MEMORY_TASKS", 200, minimum=10)
+MAX_TASK_STATE_ROWS = _env_int(
+    "HORA_ADMIN_MAX_TASK_STATE_ROWS", 500, minimum=10
+)
+
+# Cola de trabajos: concurrencia acotada y tamaño máximo de la cola.
+JOB_MAX_WORKERS = _env_int("HORA_ADMIN_JOB_WORKERS", 2, minimum=1, maximum=32)
+JOB_QUEUE_SIZE = _env_int("HORA_ADMIN_JOB_QUEUE_SIZE", 50, minimum=1)
+JOB_SHUTDOWN_GRACE_SECONDS = _env_int(
+    "HORA_ADMIN_JOB_SHUTDOWN_GRACE", 10, minimum=0, maximum=300
+)
+
+# Bloqueo progresivo de cuentas tras intentos fallidos de login.
+LOGIN_LOCKOUT_THRESHOLD = _env_int(
+    "HORA_ADMIN_LOGIN_LOCKOUT_THRESHOLD", 5, minimum=1, maximum=100
+)
+LOGIN_LOCKOUT_MINUTES = _env_int(
+    "HORA_ADMIN_LOGIN_LOCKOUT_MINUTES", 15, minimum=1, maximum=1440
+)
+
+# Roles disponibles. El rol se guarda en la tabla ``users``.
+ROLES: tuple[str, ...] = ("viewer", "operator", "admin")
 
 # Extensión máxima de un rango CIDR aceptado (p. ej. /24 -> 254 hosts).
 MIN_CIDR_PREFIX = _env_int("HORA_ADMIN_MIN_CIDR_PREFIX", 22, minimum=8, maximum=32)
@@ -266,17 +297,56 @@ def _parse_allowed_networks(raw: str) -> tuple:
     return tuple(networks)
 
 
-# Allowlist opcional de redes de destino. Si está vacía, no se restringe.
+# Allowlist obligatoria de redes de destino. En producción, un valor vacío
+# impide el arranque: la aplicación prueba credenciales y ejecuta ``become``
+# contra lo que se le indique, así que nunca debe quedar sin restricción.
 ALLOWED_NETWORKS = _parse_allowed_networks(
     os.environ.get("HORA_ADMIN_ALLOWED_NETWORKS", "")
+)
+
+# Loopback solo se permite explícitamente en desarrollo (tests y laboratorio).
+# En producción siempre se bloquea, incluso si la allowlist lo incluyera.
+ALLOW_LOOPBACK = _env_bool(
+    "HORA_ADMIN_ALLOW_LOOPBACK", not IS_PRODUCTION
+)
+
+# Direcciones que nunca deben ser objetivo de una operación: loopback,
+# link-local (incluye 169.254.169.254 de metadatos cloud), multicast,
+# reservadas y no especificadas. Se comprueban siempre, además de la allowlist.
+BLOCKED_NETWORKS: tuple = tuple(
+    ipaddress.ip_network(net)
+    for net in (
+        "0.0.0.0/8",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "224.0.0.0/4",
+        "240.0.0.0/4",
+        "::1/128",
+        "fe80::/10",
+        "ff00::/8",
+        "::/128",
+    )
 )
 
 # ---------------------------------------------------------------------------
 # P4: ejecución en grupo, verificación e idempotencia
 # ---------------------------------------------------------------------------
 # Diferencia máxima aceptada entre la hora objetivo y la hora final del host.
+# Para una herramienta de fijación de hora, 2 s es un margen razonable; 120 s
+# permitía reportar como éxito un reloj claramente desviado.
 TIME_VERIFY_TOLERANCE = _env_int(
-    "HORA_ADMIN_TIME_TOLERANCE", 120, minimum=0, maximum=3600
+    "HORA_ADMIN_TIME_TOLERANCE", 2, minimum=0, maximum=3600
+)
+
+# ``TIME`` con NTP activo y política ``keep`` puede revertirse en segundos.
+# Por defecto se bloquea la ejecución; la vista previa sigue mostrando el
+# aviso para que el operador pueda corregir la política.
+TIME_REQUIRE_NTP_OFF = _env_bool("HORA_ADMIN_TIME_REQUIRE_NTP_OFF", True)
+
+# Espera tras reactivar NTP antes de la verificación final (segundos). Da
+# margen a que el demonio aplique su corrección y permite detectar reversiones.
+NTP_SETTLE_SECONDS = _env_int(
+    "HORA_ADMIN_NTP_SETTLE_SECONDS", 3, minimum=0, maximum=60
 )
 
 # Límite de contraseñas candidatas que se prueban contra un mismo host. Sin
@@ -374,6 +444,36 @@ COMMON_TIMEZONES: tuple[str, ...] = (
 # ---------------------------------------------------------------------------
 # Funciones de soporte
 # ---------------------------------------------------------------------------
+def validate_security_config() -> None:
+    """Rechaza configuraciones inseguras antes de arrancar en producción.
+
+    En producción la allowlist de destino es obligatoria. También se exige una
+    clave de sesión explícita y se advierte si la comprobación de claves SSH
+    está desactivada. Es preferible no arrancar que operar sin estas garantías.
+    """
+    if not IS_PRODUCTION:
+        return
+
+    problems = []
+    if not ALLOWED_NETWORKS:
+        problems.append(
+            "HORA_ADMIN_ALLOWED_NETWORKS es obligatoria en producción "
+            "(ejemplo: 10.0.0.0/8,192.168.1.0/24)."
+        )
+    if not SECRET_KEY:
+        problems.append(
+            "HORA_ADMIN_SECRET_KEY es obligatoria en producción; no se debe "
+            "depender de una clave generada en el primer arranque."
+        )
+    if not HOST_KEY_CHECKING:
+        problems.append(
+            "HORA_ADMIN_HOST_KEY_CHECKING=0 desactiva la verificación de "
+            "claves SSH y no está permitido en producción."
+        )
+    if problems:
+        raise RuntimeError("Configuración insegura:\n- " + "\n- ".join(problems))
+
+
 def ensure_directories() -> None:
     """Crea los directorios de trabajo con permisos restrictivos.
 

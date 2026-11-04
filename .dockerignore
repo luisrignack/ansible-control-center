@@ -33,3 +33,10 @@ install.sh
 docker-compose.yml
 docker/nginx
 passwords.example.txt
+# Paquetes de despliegue y artefactos de build: nunca deben entrar en la
+# imagen (el tar de imágenes pesa cientos de MB y suele estar obsoleto).
+dist
+dist/
+*.tar
+*.tgz
+*.tar.gz

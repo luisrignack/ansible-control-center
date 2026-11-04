@@ -326,9 +326,10 @@ grupos:
 - Logging: `HORA_ADMIN_LOG_LEVEL`, `HORA_ADMIN_LOG_TO_FILE`,
   `HORA_ADMIN_LOG_MAX_BYTES`, `HORA_ADMIN_LOG_BACKUPS`.
 
-Reservada (definida, sin job de purga de lotes): `HORA_ADMIN_HISTORY_DAYS`.
-`HORA_ADMIN_JOB_RETENTION_HOURS` se aplica al arrancar a las instantáneas de
-tareas.
+`HORA_ADMIN_HISTORY_DAYS` purga el historial de lotes;
+`HORA_ADMIN_AUTH_EVENT_DAYS` purga la auditoría de acceso;
+`HORA_ADMIN_JOB_RETENTION_HOURS` purga instantáneas de tareas y
+`HORA_ADMIN_MAX_TASK_STATE_ROWS` recorta `task_state`.
 
 ---
 
