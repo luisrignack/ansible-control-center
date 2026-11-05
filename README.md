@@ -234,7 +234,8 @@ reconstruir nada:
 
 ```bash
 ./docker/export-images.sh
-# genera dist/ansible-control-center-despliegue/ (LEEME.txt + DESPLIEGUE.md)
+# genera dist/hora-admin-despliegue/
+#   (01-INICIO-RAPIDO.txt + 02-GUIA-COMPLETA-DESPLIEGUE.md)
 
 # en la PC de destino, dentro de esa carpeta:
 docker load -i imagenes/ansible-control-center-images.tar

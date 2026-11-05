@@ -3,6 +3,12 @@
 Guía autocontenida para instalar Ansible Control Center en un equipo **sin el código
 fuente** y **sin acceso a Docker Hub**. Solo necesitas esta carpeta.
 
+**Orden de lectura del paquete**: `01-INICIO-RAPIDO.txt` (pasos mínimos) →
+`02-GUIA-COMPLETA-DESPLIEGUE.md` (este documento, amplía cada paso) →
+`imagenes/03-INFORMACION-IMAGENES.txt` (metadatos de las imágenes).
+Este archivo sustituye al antiguo `DESPLIEGUE.md` y ya no repite los pasos
+rápidos; para la arrancada resume mira `01`.
+
 ```
 Navegador ──HTTPS(443)──> nginx ──HTTP(8000)──> app (Gunicorn)
                             │
@@ -15,15 +21,16 @@ Navegador ──HTTPS(443)──> nginx ──HTTP(8000)──> app (Gunicorn)
 
 | Ruta | Contenido |
 |---|---|
+| `01-INICIO-RAPIDO.txt` | Los 5 pasos mínimos (empieza aquí) |
+| `02-GUIA-COMPLETA-DESPLIEGUE.md` | Esta guía |
 | `imagenes/ansible-control-center-images.tar` | Imágenes `ansible-control-center` (app) y `ansible-control-center-nginx` |
-| `imagenes/IMAGENES_INFO.txt` | Arquitectura, fecha de empaquetado y digests |
+| `imagenes/03-INFORMACION-IMAGENES.txt` | Arquitectura, fecha de empaquetado y digests |
 | `docker-compose.yml` | Stack: app Flask + Nginx con TLS |
 | `.env.docker.example` | Plantilla de configuración (copiar a `.env.docker`) |
 | `certs/` | Vacío; el certificado autofirmado se genera aquí al arrancar |
 | `docker/` | Entrypoint y configuración de Nginx (ya dentro de la imagen) |
 | `Dockerfile` | Solo si quieres reconstruir; no se usa con `--no-build` |
 | `sha256sums.txt` | Sumas SHA-256 para comprobar la integridad del paquete |
-| `LEEME.txt` | Resumen de los pasos (este documento amplía cada uno) |
 
 ---
 
@@ -31,7 +38,8 @@ Navegador ──HTTPS(443)──> nginx ──HTTP(8000)──> app (Gunicorn)
 
 - Docker Engine 24+ y Docker Compose v2 (`docker compose version`).
 - Puertos 80 y 443 libres (o cámbialos, ver §4).
-- Arquitectura coincidente con la imagen (`IMAGENES_INFO.txt`).
+- Arquitectura coincidente con la imagen
+  (`imagenes/03-INFORMACION-IMAGENES.txt`).
 - Conectividad del contenedor `app` hacia los equipos Ubuntu que se van a
   administrar (misma red o VPN) y salida SSH (22/tcp).
 
@@ -39,7 +47,7 @@ Comprueba la arquitectura:
 
 ```bash
 docker info --format '{{.Architecture}}'
-cat imagenes/IMAGENES_INFO.txt
+cat imagenes/03-INFORMACION-IMAGENES.txt
 ```
 
 ---

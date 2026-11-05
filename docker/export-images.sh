@@ -102,70 +102,72 @@ log "Exportando imágenes a $DEST/imagenes/ansible-control-center-images.tar ...
 docker save "$APP_IMAGE" "$NGINX_IMAGE" -o "$DEST/imagenes/ansible-control-center-images.tar"
 
 log "Copiando archivos de despliegue ..."
+
+# La carpeta queda en orden de lectura (01 → 04). Si ya existía un paquete
+# anterior con los nombres sin numerar, se retiran para no confundir.
+rm -f "$DEST/LEEME.txt" "$DEST/DESPLIEGUE.md" \
+      "$DEST/imagenes/IMAGENES_INFO.txt"
+
+cat > "$DEST/01-INICIO-RAPIDO.txt" <<'EOF'
+Ansible Control Center — despliegue en otra PC (arranque rápido)
+================================================================
+
+ORDEN DE LECTURA DE ESTE PAQUETE
+  01-INICIO-RAPIDO.txt        este archivo: los 5 pasos mínimos
+  02-GUIA-COMPLETA-DESPLIEGUE.md   guía completa (configuración, TLS,
+                              SSH, LDAPS, volúmenes, actualización,
+                              diagnóstico y seguridad)
+  imagenes/03-INFORMACION-IMAGENES.txt  arquitectura, digests y fecha
+                              de empaquetado de las imágenes
+
+CONTENIDO DE LA CARPETA
+  imagenes/ansible-control-center-images.tar  las imágenes listas para
+                              cargar (aplicación + Nginx, sin código)
+  docker-compose.yml          estructura del stack (app + Nginx)
+  .env.docker.example         plantilla de configuración
+  Dockerfile                  solo para recrear desde código; con el
+                              tar de imágenes no hace falta
+  certs/                      vacío: el certificado se genera al arrancar
+  sha256sums.txt              para verificar la integridad del paquete
+
+ARRANQUE EN 5 PASOS (detalles y comprobaciones: guía 02, §3)
+
+  1) Verificar el paquete y cargar las imágenes:
+       sha256sum -c sha256sums.txt
+       docker load -i imagenes/ansible-control-center-images.tar
+
+  2) Crear la configuración:
+       cp .env.docker.example .env.docker && chmod 600 .env.docker
+       openssl rand -hex 32        # pégalo en ACC_SECRET_KEY
+
+  3) Editar .env.docker. Mínimo obligatorio (tabla completa: guía 02, §4):
+       ACC_SECRET_KEY=<paso 2>
+       ACC_ADMIN_PASSWORD=/contraseña/mínimo/12/
+       ACC_ALLOWED_NETWORKS=10.0.0.0/8,192.168.1.0/24   # redes a administrar
+       TLS_SAN=DNS:servidor.local,IP:10.0.0.5           # cómo se accederá
+
+  4) Arrancar (no es necesario código fuente ni internet):
+       docker compose --env-file .env.docker up -d --no-build
+
+  5) Comprobar y entrar:
+       curl -fk https://localhost/healthz
+       https://localhost  (acepta el aviso del certificado autofirmado)
+       Usuario: ACC_ADMIN_USERNAME / ACC_ADMIN_PASSWORD
+
+DESPUÉS DEL ARRANQUE
+  - La tarjeta «Zona horaria» aplica America/Caracas (UTC-4) permanente;
+    guarda copia del /etc/timezone anterior en el volumen de datos.
+  - Acceso corporativo LDAPS (opcional): pasos en la guía 02, §4.1.
+  - El modo Simulación cambia desde la barra superior de la interfaz.
+EOF
+
 cp -a docker-compose.yml Dockerfile .env.docker.example "$DEST/"
 cp -a docker/entrypoint.sh "$DEST/docker/"
 cp -a docker/nginx/Dockerfile docker/nginx/default.conf docker/nginx/self-signed.sh \
   "$DEST/docker/nginx/"
-cp -a docker/despliegue-portable.md "$DEST/DESPLIEGUE.md"
+# Guía completa, numerada como 02 en el orden de lectura.
+cp -a docker/despliegue-portable.md "$DEST/02-GUIA-COMPLETA-DESPLIEGUE.md"
 : > "$DEST/certs/.gitkeep"
-
-cat > "$DEST/LEEME.txt" <<'EOF'
-Ansible Control Center - paquete de despliegue para otra PC
-===============================================
-
-Guía completa: DESPLIEGUE.md
-Imágenes:      imagenes/ansible-control-center-images.tar
-
-Pasos mínimos
--------------
-1. Requisitos: Docker Engine 24+ y Docker Compose v2.
-
-2. Verificar y cargar las imágenes:
-
-     sha256sum -c sha256sums.txt
-     docker load -i imagenes/ansible-control-center-images.tar
-
-3. Crear la configuración:
-
-     cp .env.docker.example .env.docker
-     chmod 600 .env.docker
-     openssl rand -hex 32        # pégalo en ACC_SECRET_KEY
-
-   Define también ACC_ADMIN_PASSWORD (mínimo 12 caracteres) y ajusta
-   TLS_CN/TLS_SAN al nombre o IP real de acceso.
-
-   Con ACC_ENV=production (valor por defecto) debes rellenar
-   ACC_ALLOWED_NETWORKS; si está vacía, la aplicación no arranca.
-   Ejemplo: ACC_ALLOWED_NETWORKS=10.0.0.0/8,192.168.1.0/24
-
-4. Arrancar (no reconstruye: no hace falta el código fuente):
-
-     docker compose --env-file .env.docker up -d --no-build
-
-5. Comprobar:
-
-     docker compose ps
-     curl -fk https://localhost/healthz
-
-   Entra en https://localhost (o el nombre/IP configurado) y acepta el aviso
-   del certificado autofirmado.
-
-Notas
------
-- Mantén ACC_DRY_RUN=1 hasta validar el flujo en laboratorio. Después, un
-  administrador puede activar o desactivar la simulación con el interruptor
-  de la barra superior; el estado se guarda en SQLite.
-- ACC_HSTS=0 es intencionado con certificado autofirmado.
-- ACC_ENV=production exige ACC_ALLOWED_NETWORKS no vacía.
-- El primer arranque genera ./certs y aplica las migraciones de SQLite.
-- Acceso por LDAPS (opcional): configura las ACC_LDAP_* de .env.docker con
-  la contraseña del bind en el volumen de secretos
-  (acc_ldap_bind_password) y actívalo en la web de Usuarios con el botón
-  "Activar acceso LDAPS" (solo el admin local). La tarjeta
-  "Zona horaria" aplica America/Caracas (UTC-4) permanente en Linux y
-  Windows y guarda copia del /etc/timezone anterior en el volumen de datos.
-- No copies volúmenes de otra instalación salvo que quieras restaurar datos.
-EOF
 
 # ---------------------------------------------------------------------------
 # 4. Metadatos e integridad
@@ -175,7 +177,7 @@ APP_DIGEST="$(docker image inspect "$APP_IMAGE" --format '{{.Id}}')"
 NGINX_DIGEST="$(docker image inspect "$NGINX_IMAGE" --format '{{.Id}}')"
 SIZE="$(du -h "$DEST/imagenes/ansible-control-center-images.tar" | cut -f1)"
 
-cat > "$DEST/imagenes/IMAGENES_INFO.txt" <<EOF
+cat > "$DEST/imagenes/03-INFORMACION-IMAGENES.txt" <<EOF
 Ansible Control Center - imágenes incluidas
 ===============================
 
@@ -211,10 +213,10 @@ cat <<EOF
 
   Arquitectura : $ARCH
   Imagen .tar  : $SIZE
-  Punto de entrada: $DEST/LEEME.txt
-  Guía completa   : $DEST/DESPLIEGUE.md
+  Punto de entrada: $DEST/01-INICIO-RAPIDO.txt
+  Guía completa   : $DEST/02-GUIA-COMPLETA-DESPLIEGUE.md
 
-  Copia toda la carpeta a la otra PC y sigue el LEEME.txt. Allí no hace falta
-  ni el código fuente ni acceso a Docker Hub.
+  Copia toda la carpeta a la otra PC y empieza por 01-INICIO-RAPIDO.txt. Allí
+  no hace falta ni el código fuente ni acceso a Docker Hub.
 
 EOF

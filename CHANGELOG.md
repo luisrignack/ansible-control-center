@@ -5,6 +5,18 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Documentación del paquete numerada y sin duplicar] — 2026-11-05
+
+### Cambiado
+
+- El paquete de despliegue (`dist/hora-admin-despliegue/`) ahora lleva los
+  documentos **numerados por orden de lectura**: `01-INICIO-RAPIDO.txt`
+  (los 5 pasos mínimos, sin repetir las tablas de la guía),
+  `02-GUIA-COMPLETA-DESPLIEGUE.md` (antes `DESPLIEGUE.md`, con referencias
+  a los otros dos documentos) y `imagenes/03-INFORMACION-IMAGENES.txt`
+  (antes `IMAGENES_INFO.txt`). `export-images.sh` elimina los nombres
+  antiguos al regenerar sobre un paquete previo.
+
 ## [Login corporativo LDAPS y gestión de usuarios] — 2026-11-04
 
 ### Añadido

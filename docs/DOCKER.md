@@ -251,19 +251,20 @@ imágenes), empaqueta todo en el origen:
 ```
 
 El script deja una carpeta autocontenida (ignorada por git) en
-`dist/ansible-control-center-despliegue/`:
+`dist/hora-admin-despliegue/`, con los documentos numerados por orden
+de lectura:
 
 | Ruta | Contenido |
 |---|---|
 | `imagenes/ansible-control-center-images.tar` | Imágenes `ansible-control-center` y `ansible-control-center-nginx` |
-| `imagenes/IMAGENES_INFO.txt` | Arquitectura, fecha y digests de las imágenes |
+| `imagenes/03-INFORMACION-IMAGENES.txt` | Arquitectura, fecha y digests de las imágenes |
 | `docker-compose.yml` | Stack App + Nginx con TLS |
 | `.env.docker.example` | Plantilla de configuración |
 | `certs/` | Vacío; el certificado se genera al arrancar |
 | `docker/` | Entrypoint, configuración de Nginx y el propio script |
 | `Dockerfile` | Solo para reconstruir; no se usa con `--no-build` |
-| `DESPLIEGUE.md` | Guía completa, autocontenida |
-| `LEEME.txt` | Pasos mínimos (punto de entrada) |
+| `02-GUIA-COMPLETA-DESPLIEGUE.md` | Guía completa, autocontenida |
+| `01-INICIO-RAPIDO.txt` | Pasos mínimos (punto de entrada) |
 | `sha256sums.txt` | Integridad de todo el paquete |
 
 Copia esa carpeta a la PC de destino y allí:
