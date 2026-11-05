@@ -27,7 +27,7 @@ cd "$ROOT_DIR"
 
 APP_IMAGE="ansible-control-center:latest"
 NGINX_IMAGE="ansible-control-center-nginx:latest"
-BUNDLE_NAME="ansible-control-center-despliegue"
+BUNDLE_NAME="hora-admin-despliegue"
 BUILD_MODE="auto"
 OUTPUT_DIR=""
 GIT_COMMIT="$(git rev-parse --short=12 HEAD 2>/dev/null || printf 'desconocido')"
@@ -158,6 +158,12 @@ Notas
 - ACC_HSTS=0 es intencionado con certificado autofirmado.
 - ACC_ENV=production exige ACC_ALLOWED_NETWORKS no vacía.
 - El primer arranque genera ./certs y aplica las migraciones de SQLite.
+- Acceso por LDAPS (opcional): configura las ACC_LDAP_* de .env.docker con
+  la contraseña del bind en el volumen de secretos
+  (acc_ldap_bind_password) y actívalo en la web de Usuarios con el botón
+  "Activar acceso LDAPS" (solo el admin local). La tarjeta
+  "Zona horaria" aplica America/Caracas (UTC-4) permanente en Linux y
+  Windows y guarda copia del /etc/timezone anterior en el volumen de datos.
 - No copies volúmenes de otra instalación salvo que quieras restaurar datos.
 EOF
 

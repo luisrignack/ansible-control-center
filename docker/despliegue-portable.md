@@ -103,6 +103,17 @@ hay que aceptar una vez. `curl` necesita `-k` (o `--cacert certs/fullchain.pem`)
 | `TLS_CN` | `localhost` | Common Name del certificado |
 | `TLS_SAN` | `DNS:localhost,IP:127.0.0.1` | Nombres/IPs válidos del certificado |
 | `TLS_DAYS` | `825` | Validez del certificado en días |
+| `ACC_LDAP_ENABLED` | `0` | Estado **inicial** del acceso por LDAPS; después se conmuta en la web (`/usuarios`, solo admin local) |
+| `ACC_LDAP_URL` | `ldaps://lds.etecsa.cu:636` | URL del directorio corporativo |
+| `ACC_LDAP_BIND_DN` | `uid=rouser,ou=Special Users,dc=etecsa,dc=cu` | Usuario de solo lectura para buscar |
+| `ACC_LDAP_BIND_PASSWORD` / `_FILE` | — | Contraseña del bind (preferible `ACC_LDAP_BIND_PASSWORD_FILE` como secret) |
+| `ACC_LDAP_USER_BASE` | `ou=etecsa.cu,ou=people,dc=etecsa,dc=cu` | Base de búsqueda de usuarios |
+| `ACC_LDAP_USER_FILTER` | `(objectClass=person)` | Filtro de búsqueda |
+| `ACC_LDAP_USER_SCOPE` | `onelevel` | `onelevel` o `subtree` |
+| `ACC_LDAP_USERNAME_ATTR` | `uid` | Atributo que contiene el nombre de usuario |
+| `ACC_LDAP_TLS_VERIFY` | `1` | Validar el certificado TLS del directorio |
+| `ACC_LDAP_TLS_CA_FILE` | CA del sistema | Archivo de la CA del directorio (monta el CRT) |
+| `ACC_LDAP_DEFAULT_ROLE` | `viewer` | Rol de la cuenta en el primer login corporativo |
 
 > Si cambias `ACC_HTTPS_PORT`, entra siempre por
 > `https://host:<puerto>`: la redirección de HTTP a HTTPS no arrastra el puerto
@@ -118,6 +129,44 @@ TLS_SAN=DNS:acc.empresa.local,IP:192.168.1.50
 
 Cualquier otro ajuste de la aplicación (timeouts, límites, NTP, retención) se
 pasa en `environment:` del `docker-compose.yml` o en `.env.docker`.
+
+### Acceso por directorio (LDAPS, opcional)
+
+La app autentica con la cuenta corporativa además del admin local. El
+**admin local siempre entra igual** y es quien otorga roles: los usuarios
+LDAPS entran con rol `viewer` en su primer login y deben ser promovidos a
+`operator`/`admin` desde la vista **Usuarios** de la aplicación.
+
+1. Contraseña del binding de solo lectura en un archivo del volumen
+   `/secrets` (nunca en el `.env.docker` en claro):
+
+   ```bash
+   # En el host que ejecuta Docker (ajusta el nombre del volumen si el
+   # proyecto compose no es "ansible-control-center"):
+   echo 'contraseña-del-rouser' \
+     | sudo tee /var/lib/docker/volumes/ansible-control-center_acc_secrets/_data/acc_ldap_bind_password
+   sudo chmod 600 /var/lib/docker/volumes/ansible-control-center_acc_secrets/_data/acc_ldap_bind_password
+   ```
+
+2. Certificado del directorio (si TLS con CA propia) en
+   `..._acc_secrets/_data/lds-ca.crt`.
+
+3. En `.env.docker` descomenta el bloque `ACC_LDAP_*` (URL del directorio,
+   bind DN, base de búsqueda, `ACC_LDAP_BIND_PASSWORD_FILE=/secrets/acc_ldap_bind_password`,
+   `ACC_LDAP_TLS_CA_FILE=/secrets/lds-ca.crt`). Todas las variables ya están
+   mapeadas en el `docker-compose.yml` del paquete.
+
+4. `docker compose --env-file .env.docker up -d` y, en la web:
+   **Usuarios → “Activar acceso LDAPS”** (solo lo ve y lo usa el admin
+   local; un usuario LDAP promovido a admin no puede conmutar el acceso).
+   El estado queda en la base de datos: los cambios posteriores no
+   requieren reiniciar el contenedor. Comprueba con el badge
+   “LDAPS activo” de la misma vista.
+
+> Requisito de red: el contenedor `app` debe alcanzar el puerto **636** del
+> servidor LDAPS. Si el firewall lo bloquea, el login corporativo mostrará
+> “Servidor LDAP no disponible”; el admin local sigue entrando con
+> normalidad.
 
 ---
 
@@ -241,6 +290,14 @@ docker compose exec app flask --app app reconcile-batches   # lotes huérfanos
   volúmenes `acc_secrets`/`acc_data`.
 - Roles `admin`, `operator` y `viewer` (sin MFA). Usa `ACC_ALLOWED_NETWORKS`
   para acotar los destinos.
+- **Cuentas LDAPS**: un uid del directorio nunca puede tomar el nombre de la
+  cuenta local `admin` (la local tiene prioridad). Un usuario LDAP promovido
+  a `admin` administra cuentas y roles, pero no puede activar/desactivar el
+  acceso LDAPS: ese interruptor es exclusivo del admin local.
+- La tarjeta operativa **Zona horaria** aplica `America/Caracas` (UTC-4)
+  permanente en Linux y Windows; antes del cambio guarda
+  `/etc/timezone.bak` en la estación y una copia en el volumen
+  `acc_data` (`/data/timezone_backups/<lote>/<estación>/`).
 
 ---
 
