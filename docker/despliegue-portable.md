@@ -167,8 +167,11 @@ LDAPS entran con rol `viewer` en su primer login y deben ser promovidos a
 4. `docker compose --env-file .env.docker up -d` y, en la web:
    **Usuarios → “Activar acceso LDAPS”** (solo lo ve y lo usa el admin
    local; un usuario LDAP promovido a admin no puede conmutar el acceso).
-   El estado queda en la base de datos: los cambios posteriores no
-   requieren reiniciar el contenedor. Comprueba con el badge
+   Al activar, la app **prueba el bind del directorio en ese momento**: si
+   el servidor no acepta la conexión (URL, bind, contraseña o CA mal
+   puestos, o firewall), el interruptor se queda en OFF con el motivo en
+   pantalla. El estado queda en la base de datos: los cambios posteriores
+   no requieren reiniciar el contenedor. Comprueba con el badge
    “LDAPS activo” de la misma vista.
 
 > Requisito de red: el contenedor `app` debe alcanzar el puerto **636** del
@@ -215,9 +218,14 @@ docker compose exec app sh -c \
 docker compose exec app chmod 600 /home/acc/.ssh/known_hosts
 ```
 
-También puedes pasar las líneas al arrancar con `ACC_KNOWN_HOSTS`, o
-desactivar la verificación de forma consciente
-(`ACC_HOST_KEY_CHECKING=0`).
+También puedes pasar las líneas al arrancar con `ACC_KNOWN_HOSTS`, indicar
+otro fichero con `ACC_KNOWN_HOSTS_FILE`, o desactivar la verificación de forma
+consciente (`ACC_HOST_KEY_CHECKING=0`).
+
+La app puede rellenar `known_hosts` con `ssh-keyscan`, pero está desactivado
+por defecto porque aceptar una huella en el primer contacto debilita TOFU.
+Actívalo solo en redes de gestión de confianza con
+`ACC_SSH_HOST_KEYS_AUTO=1`.
 
 ---
 
@@ -301,7 +309,10 @@ docker compose exec app flask --app app reconcile-batches   # lotes huérfanos
 - **Cuentas LDAPS**: un uid del directorio nunca puede tomar el nombre de la
   cuenta local `admin` (la local tiene prioridad). Un usuario LDAP promovido
   a `admin` administra cuentas y roles, pero no puede activar/desactivar el
-  acceso LDAPS: ese interruptor es exclusivo del admin local.
+  acceso LDAPS: ese interruptor es exclusivo del admin local. Tampoco puede
+  retirar el rol admin ni desactivar al **último admin local activo**: si
+  el directorio deja de alcanzarse, el sistema conserva una puerta de
+  administración local.
 - La tarjeta operativa **Zona horaria** aplica `America/Caracas` (UTC-4)
   permanente en Linux y Windows; antes del cambio guarda
   `/etc/timezone.bak` en la estación y una copia en el volumen

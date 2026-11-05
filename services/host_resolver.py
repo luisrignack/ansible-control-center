@@ -46,6 +46,29 @@ def _looks_like_ipv4_range(value: str) -> bool:
     return bool(_IPV4_RANGE_RE.fullmatch(value or ""))
 
 
+def _split_target_list(value: str) -> List[str]:
+    """Divide un objetivo con varias entradas separadas por comas.
+
+    Se ignoran los espacios alrededor de cada entrada y las comas sobrantes,
+    de modo que ``10.0.0.1, 10.0.0.2`` y ``10.0.0.1,,10.0.0.2`` son válidos.
+    """
+    return [piece.strip() for piece in (value or "").split(",") if piece.strip()]
+
+
+def _pinned_host_count(pinned: str) -> int:
+    """Cuenta los hosts que expande un objetivo ya fijado por ``pin_target``."""
+    pair = _parse_ipv4_range(pinned or "")
+    if pair is not None:
+        return int(pair[1]) - int(pair[0]) + 1
+    if "/" in (pinned or ""):
+        try:
+            network = ipaddress.ip_network(pinned, strict=False)
+        except ValueError:
+            return 1
+        return max(network.num_addresses - 2, 1)
+    return 1
+
+
 def _effective_limits(
     max_hosts: Optional[int], min_prefix: Optional[int]
 ) -> Tuple[int, int]:
@@ -291,7 +314,8 @@ def resolve_target(
 
     Args:
         target: IP única (192.168.1.10), rango CIDR (192.168.1.0/24),
-            rango inclusivo (172.17.128.118-172.17.128.235) o hostname.
+            rango inclusivo (172.17.128.118-172.17.128.235), hostname o
+            varias de esas entradas separadas por comas.
 
     Returns:
         Lista de direcciones IP individuales.
@@ -299,6 +323,17 @@ def resolve_target(
     target = (target or "").strip()
     if not target:
         return []
+
+    # Varias entradas separadas por comas: se resuelven una a una y se
+    # deduplican, respetando el máximo de hosts del conjunto.
+    if "," in target:
+        pieces = _split_target_list(target)
+        if len(pieces) > 1:
+            return _resolve_target_list(pieces, max_hosts, min_prefix)
+        if pieces:
+            target = pieces[0]
+        else:
+            return []
 
     # Rango inclusivo inicio-fin (solo IPv4).
     if _parse_ipv4_range(target) is not None:
@@ -334,6 +369,34 @@ def resolve_target(
             return []
         return [ip]
     return []
+
+
+def _resolve_target_list(
+    pieces: List[str],
+    max_hosts: Optional[int],
+    min_prefix: Optional[int],
+) -> List[str]:
+    """Resuelve un objetivo con varias entradas separadas por comas.
+
+    Cada entrada se valida con las mismas restricciones que un objetivo
+    individual y el resultado se deduplica conservando el orden. Si la suma
+    supera ``max_hosts`` se rechaza el objetivo completo en lugar de truncarlo.
+    """
+    max_hosts, _ = _effective_limits(max_hosts, min_prefix)
+    hosts: List[str] = []
+    for piece in pieces:
+        for host in resolve_target(piece, max_hosts, min_prefix):
+            if host not in hosts:
+                hosts.append(host)
+    if len(hosts) > max_hosts:
+        logger.warning(
+            "Objetivo rechazado (%s): %d hosts supera el máximo de %d",
+            ",".join(pieces),
+            len(hosts),
+            max_hosts,
+        )
+        return []
+    return hosts
 
 
 def validate_ip_format(ip_str: str) -> bool:
@@ -377,6 +440,9 @@ def pin_target(
     DNS, lo que elimina la ventana de DNS rebinding entre la validación del
     formulario y la ejecución del playbook.
 
+    Admite varias entradas separadas por comas: cada una se fija igual que un
+    objetivo individual y el total de hosts no puede superar el máximo.
+
     Returns:
         ``(objetivo_fijado, error)``. Si hay error, el primer elemento es
         ``None``.
@@ -384,6 +450,16 @@ def pin_target(
     value = (target or "").strip()
     if not value:
         return None, "La IP o rango es obligatorio."
+
+    # Varias entradas separadas por comas: se fija cada una con el presupuesto
+    # de hosts que queda, de forma que la suma no supere el máximo.
+    if "," in value:
+        pieces = _split_target_list(value)
+        if not pieces:
+            return None, "La IP o rango es obligatorio."
+        if len(pieces) > 1:
+            return _pin_target_list(pieces, max_hosts, min_prefix)
+        value = pieces[0]
 
     # Rango IPv4 inclusivo. Se valida cada dirección para que la allowlist y
     # los rangos prohibidos se apliquen también a los extremos intermedios.
@@ -471,6 +547,37 @@ def pin_target(
             f"{max_hosts}.",
         )
     return str(network), None
+
+
+def _pin_target_list(
+    pieces: List[str],
+    max_hosts: Optional[int],
+    min_prefix: Optional[int],
+) -> Tuple[Optional[str], Optional[str]]:
+    """Fija un objetivo con varias entradas separadas por comas.
+
+    Devuelve las entradas normalizadas unidas por comas. El máximo de hosts se
+    comparte entre todas las entradas y las repetidas se descartan.
+    """
+    max_hosts, min_prefix = _effective_limits(max_hosts, min_prefix)
+    remaining = max_hosts
+    pinned_parts: List[str] = []
+    for piece in pieces:
+        if remaining <= 0:
+            return None, (
+                "Las entradas suman más hosts que el máximo permitido "
+                f"({max_hosts})."
+            )
+        pinned_piece, error = pin_target(
+            piece, max_hosts=remaining, min_prefix=min_prefix
+        )
+        if error or not pinned_piece:
+            return None, f"{piece}: {error or 'entrada no válida.'}"
+        if pinned_piece in pinned_parts:
+            continue
+        remaining -= _pinned_host_count(pinned_piece)
+        pinned_parts.append(pinned_piece)
+    return ",".join(pinned_parts), None
 
 
 def validate_target(

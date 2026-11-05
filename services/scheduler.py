@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
@@ -33,14 +34,35 @@ def password_key_file() -> Path:
 
 
 def _fernet():
+    """Devuelve el cifrador Fernet, creando la clave con permisos 0600.
+
+    La clave se crea de forma atómica con ``O_EXCL`` y ``0600``; si otro
+    proceso se adelanta, se reutiliza la clave ya escrita. Nunca se deja una
+    ventana en la que el fichero sea legible por otros usuarios.
+    """
     from cryptography.fernet import Fernet
 
     key_file = password_key_file()
     if not key_file.exists():
-        key_file.parent.mkdir(parents=True, exist_ok=True)
-        key_file.chmod = key_file.chmod  # por claridad y typeshed
-        key_file.write_bytes(Fernet.generate_key())
+        key_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            fd = os.open(
+                key_file,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+            )
+        except FileExistsError:
+            # Otro proceso/worker creó la clave entre la comprobación y el
+            # open: se usa la existente.
+            pass
+        else:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(Fernet.generate_key())
+    try:
+        # Normaliza permisos también si la clave venía de una versión previa.
         key_file.chmod(0o600)
+    except OSError:  # pragma: no cover - sistemas sin permisos POSIX
+        pass
     return Fernet(key_file.read_bytes())
 
 

@@ -16,9 +16,9 @@ Windows, con backup previo de `/etc/timezone`.
 
 ## Estado actual
 
-Fases **P0–P4, P4.1 y P4.2 completadas**. Suite de pruebas: **136 tests
-(135 en verde y 1 integración SSH opcional omitida por defecto)**. Incluye
-empaquetado Docker con Nginx y TLS.
+Fases **P0–P4, P4.1, P4.2 y bloque de operación continua** completadas.
+Suite de pruebas: **250 tests en verde y 1 integración SSH opcional omitida
+por defecto** (251 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 | Fase | Contenido |
 |---|---|
@@ -29,6 +29,8 @@ empaquetado Docker con Nginx y TLS.
 | P4 | Grupo completo, best-effort, lotes, vista previa, verificación, idempotencia, UTC/local, política NTP |
 | P4.1 | DRY RUN visible y persistido, `restore` fiel al estado previo, aviso `TIME`+`keep`, JSON sin caché |
 | P4.2 | Vista previa real en simulación, intentos y tiempo acotados, hostnames, verificación en ruta legacy |
+| Operación | Inventario persistente, programaciones, doble aprobación, notificaciones SMTP, informe PDF, usuarios y LDAPS |
+| Soporte | Ubuntu (systemd/timedatectl) y Windows (WinRM), con catálogo de tareas y roles |
 
 ---
 
@@ -76,6 +78,23 @@ empaquetado Docker con Nginx y TLS.
   cada lote. Un administrador puede activarlo o desactivarlo desde el
   interruptor **Simulación** de la barra superior; el cambio se guarda en
   SQLite y sobrevive a los reinicios.
+- **Inventario persistente**: grupos Linux/Windows con hosts y etiquetas;
+  permite ejecutar contra un grupo sin repetir el rango. Cada grupo Linux
+  puede tener una clave privada SSH propia (se guarda en `ACC_DATA_DIR` con
+  permisos `0600`).
+- **Programaciones**: ejecuciones únicas, diarias o semanales contra una IP o
+  un grupo del inventario. La contraseña maestra del vault se guarda cifrada
+  con Fernet (`0600`) y las programaciones aplican las mismas validaciones
+  que la ejecución manual (tarea activa, acción admitida, valor fijo de la
+  tarea, NTP y zona horaria).
+- **Doble aprobación**: las tareas marcadas como destructivas requieren la
+  aprobación de un administrador distinto del ejecutor, con caducidad
+  (`ACC_APPROVAL_TTL_MINUTES`) y un solo uso.
+- **Notificaciones SMTP** opcionales de resultados (`failures` o `all`) y
+  **re-ejecución** de un lote desde su detalle cuando el estado lo permite.
+- **Informe PDF** por ejecución, generado sin dependencias externas.
+- **Auditoría de acceso**: `/audit` registra logins, cambios de rol y bloqueos;
+  `/usuarios` permite gestionar cuentas locales y LDAPS.
 
 ### Seguridad
 
@@ -101,7 +120,10 @@ empaquetado Docker con Nginx y TLS.
   nunca se persiste ni se registra.
 - Credenciales de Ansible en ficheros temporales `0600` mediante
   `--extra-vars @fichero`, nunca en la línea de comandos.
-- Verificación estricta de clave SSH (`known_hosts`) por defecto.
+- Verificación estricta de clave SSH (`known_hosts`) por defecto. El
+  provisionamiento automático con `ssh-keyscan` es **opcional y desactivado
+  por defecto** (`ACC_SSH_HOST_KEYS_AUTO=1`): aceptar una huella en el primer
+  contacto debilita el modelo TOFU.
 - Modo temporal `.txt`: el archivo se procesa en memoria y no se guarda.
 
 ### Registro y auditoría
@@ -137,10 +159,11 @@ docker/                    Entrypoint, Nginx y empaquetado para otra PC
 certs/                     Certificado TLS (autofirmado o real)
 models/
   db.py                    Conexiones SQLite, WAL, busy_timeout y migraciones
-  user.py                  Usuarios administradores
+  user.py                  Usuarios, roles, bloqueo y auditoría de acceso
   password.py              Hashes de contraseñas candidatas
   execution.py             Historial heredado por host
   batch.py                 Lotes y resultados por host (P4)
+  ops.py                   Inventario, programaciones y doble aprobación
 services/
   ansible_runner.py        inspect_host, apply_host y ejecución segura
   password_tester.py       Ping y prueba de contraseñas candidatas
@@ -149,6 +172,14 @@ services/
   secure_temp.py           Ficheros y directorios temporales 0600/0700
   csrf.py                  Protección CSRF
   rate_limiter.py          Ventana deslizante en memoria
+  task_catalog.py          Catálogo de tareas y validación por rol
+  job_queue.py             Cola acotada de trabajos en segundo plano
+  scheduler.py             Disparo de programaciones y cifrado Fernet
+  ssh_host_keys.py         Provisionamiento opcional de known_hosts
+  notifier.py              Correo SMTP de resultados de lotes
+  ldap_auth.py             Autenticación corporativa LDAPS
+  time_utils.py            Zonas IANA, DST y conversión a epoch
+  pdf_report.py            Informe PDF de una ejecución
 templates/                 Vistas Jinja2
 ansible/
   cambiar_hora.yml         Playbook de cambio + verificación
@@ -273,6 +304,8 @@ una `ACC_SECRET_KEY` aleatoria.
 |---|---|---|
 | `ACC_DRY_RUN` | `1` | No ejecuta Ansible real |
 | `ACC_HOST_KEY_CHECKING` | `1` | Verificación estricta de clave SSH |
+| `ACC_SSH_HOST_KEYS_AUTO` | `0` | Provisiona `known_hosts` con `ssh-keyscan` (debilita TOFU; solo redes de confianza) |
+| `ACC_KNOWN_HOSTS_FILE` | vacío | Ruta alternativa de `known_hosts`; vacío usa `$HOME/.ssh/known_hosts` |
 | `ACC_MAX_HOSTS` | `256` | Máximo de hosts por ejecución |
 | `ACC_MIN_CIDR_PREFIX` | `22` | Prefijo IPv4 mínimo aceptado |
 | `ACC_ALLOWED_NETWORKS` | vacío | Allowlist de redes separadas por comas. **Obligatoria en producción**; vacío solo se acepta en desarrollo |
@@ -341,6 +374,24 @@ una `ACC_SECRET_KEY` aleatoria.
 | `ACC_LDAP_TLS_VERIFY` | `1` | Validar el certificado TLS |
 | `ACC_LDAP_TLS_CA_FILE` | CA del sistema | Archivo de la CA del directorio |
 | `ACC_LDAP_DEFAULT_ROLE` | `viewer` | Rol de la cuenta en el primer login |
+
+### Notificaciones por correo
+
+| Variable | Por defecto | Descripción |
+|---|---|---|
+| `ACC_SMTP_HOST` | vacío | Servidor SMTP; vacío desactiva el envío |
+| `ACC_SMTP_PORT` | `25` | Puerto SMTP (`587` con STARTTLS) |
+| `ACC_SMTP_USER` / `ACC_SMTP_PASSWORD` | — | Credenciales opcionales |
+| `ACC_SMTP_FROM` | usuario SMTP | Remitente |
+| `ACC_SMTP_STARTTLS` | según puerto | Activa STARTTLS |
+| `ACC_NOTIFY_TO` | vacío | Destinatarios separados por comas |
+| `ACC_NOTIFY_LEVEL` | `off` | `off`, `failures` o `all` |
+
+### Programaciones
+
+| Variable | Por defecto | Descripción |
+|---|---|---|
+| `ACC_APPROVAL_TTL_MINUTES` | `30` | Validez de una aprobación de tarea destructiva |
 
 ### Logging
 
@@ -434,16 +485,25 @@ administrador desactiva el interruptor **Simulación** de la barra superior
 | GET/POST | `/login` | No | Inicio de sesión |
 | GET | `/healthz` | No | Salud para Docker/balanceadores |
 | POST | `/logout` | Sí | Cierre de sesión |
-| GET/POST | `/` | Sí | Panel; POST ejecuta según `mode` |
+| GET/POST | `/` | Sí | Catálogo de tareas; POST ejecuta según `mode` |
+| GET | `/tarea/<task_id>` | Sí | Detalle y formulario de la tarea |
+| GET | `/tarea/<task_id>/informe.pdf` | Sí | Informe PDF de la ejecución |
 | POST | `/preview` | Sí | Alias explícito de vista previa |
 | POST | `/execute` | Sí | Alias explícito de ejecución |
+| GET/POST | `/inventario` | Sí | Grupos, hosts y clave SSH (admin para cambios) |
+| GET/POST | `/programaciones` | Sí | Programaciones (admin para cambios) |
+| GET/POST | `/aprobaciones` | Admin | Doble aprobación de tareas destructivas |
 | GET | `/progress/<task_id>` | Sí | Página de progreso |
 | GET | `/progress/<task_id>/events` | Sí | Stream SSE de progreso |
 | GET | `/api/task-status/<task_id>` | Sí | Estado JSON de la tarea |
+| POST | `/tasks/<task_id>/cancel` | Sí | Cancela un trabajo en cola |
 | GET | `/batches/<batch_id>` | Sí | Detalle del lote y hosts |
 | GET | `/preview/<batch_id>` | Sí | Redirección al detalle del lote |
 | GET/POST | `/passwords` | Sí | Gestión del vault |
 | GET | `/history` | Sí | Historial de lotes |
+| GET | `/audit` | Admin | Eventos de autenticación y auditoría |
+| GET | `/usuarios` | Admin | Cuentas, roles y acceso LDAPS |
+| GET | `/acerca-de` | Sí | Versión, configuración efectiva y diagnóstico |
 
 CLI:
 
@@ -473,12 +533,24 @@ Estados: `running`, `success`, `partial`, `failure`, `preview`, `error`.
 
 Resultados: `success`, `failure`, `skipped`, `error`, `preview`.
 
+### Inventario y operación
+
+- `host_groups`: grupos Linux/Windows del inventario, con etiqueta y ruta de
+  clave SSH opcional.
+- `inventory_hosts`: hosts de cada grupo (dirección, etiqueta, alta).
+- `schedules`: programaciones (`run_at`, recurrencia, `params` JSON con la
+  contraseña maestra cifrada, último resultado y error).
+- `approval_requests`: solicitudes de doble aprobación con caducidad,
+  aprobador, estado y consumo único.
+- `app_settings`: preferencias persistentes (p. ej. el interruptor DRY RUN o
+  el acceso LDAPS).
+
 ### Tablas heredadas
 
 `users`, `passwords`, `executions`, `execution_summaries`. El historial
 principal es el lote; `executions` se conserva por compatibilidad.
 
-Esquema actual: `PRAGMA user_version = 7`.
+Esquema actual: `PRAGMA user_version = 10`.
 
 ---
 
@@ -563,12 +635,13 @@ Define `hora_estado` con: `timezone`, `ntp`, `ntp_synchronized`,
 - **Ejecución secuencial dentro de cada lote**: los hosts se procesan uno a
   uno. La cola limita cuántos lotes corren a la vez (`ACC_JOB_WORKERS`)
   y permite cancelar; no hay reintento selectivo de fallidos.
-- **Sin MFA**: hay roles y auditoría de acceso, pero la autenticación es solo
-  usuario/contraseña. La allowlist de red es global.
-- **Sin inventario/CSV/grupos**: solo IP/CIDR/rango.
-- **Solo Ubuntu/systemd**: no hay soporte para RHEL, Windows o dispositivos de
-  red.
-- **Sin programación ni notificaciones**.
+- **Sin MFA**: hay roles, doble aprobación y auditoría de acceso, pero no un
+  segundo factor. La allowlist de red es global.
+- **Inventario manual**: los grupos y hosts se mantienen desde la web; no hay
+  importación CSV/API ni descubrimiento automático.
+- **Sistemas soportados**: Ubuntu/Debian con systemd (`timedatectl`) y
+  Windows por WinRM. No hay playbooks para RHEL, macOS ni dispositivos de red.
+- **Programaciones sin calendario complejo**: solo única, diaria o semanal.
 - **Retención al arrancar**: las instantáneas de tareas se purgan según
   `ACC_JOB_RETENTION_HOURS`, el historial de lotes según
   `ACC_HISTORY_DAYS`, los eventos de acceso según
@@ -600,6 +673,18 @@ Módulos:
 - `test_sprint01.py`: allowlist/loopback/metadatos, fijación de IP, DST,
   cola acotada, roles/bloqueo/auditoría, CSP y assets locales, lock del vault,
   entorno mínimo de Ansible, estados de lote y guardia de esquema futuro.
+- `test_ops.py`: inventario, ejecución por grupo, programaciones, valor fijo
+  del catálogo, notificaciones, doble aprobación, re-ejecución, clave SSH y
+  cifrado Fernet de credenciales.
+- `test_ldap.py`: cliente LDAPS con conexión falsa, primer login, colisión con
+  cuentas locales, permisos de `/usuarios` y cambios de rol.
+- `test_windows.py`: playbooks y marcadores de soporte WinRM.
+- `test_ssh_host_keys.py`: `ssh-keyscan`, deduplicación y permisos de
+  `known_hosts` sin red.
+- `test_cli_admin.py`: `init-admin` aplica el rol solicitado a cuentas
+  existentes.
+- `test_report_about.py`: informe PDF y página de diagnóstico.
+- `test_dry_run_switch.py`: persistencia del interruptor de simulación.
 - `test_ssh_container.py`: integración opcional con un contenedor SSH; se
   omite salvo `ACC_RUN_SSH_TESTS=1` y Docker disponible.
 

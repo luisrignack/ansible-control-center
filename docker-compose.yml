@@ -1,4 +1,4 @@
-name: ansible-control-center
+name: hora-admin
 
 services:
   app:
@@ -7,6 +7,11 @@ services:
       dockerfile: Dockerfile
     image: ansible-control-center:latest
     restart: unless-stopped
+    # La app no necesita privilegios: corre como ``acc`` y solo abre el 8000.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     environment:
       ACC_DATA_DIR: /data
       ACC_SECRETS_DIR: /secrets

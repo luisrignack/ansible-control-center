@@ -20,6 +20,13 @@ ansible-core>=2.16,<2.20
 # necesita la colección ansible.windows y la imagen se construye sin red.
 pywinrm>=0.4.3
 
+# --- Cifrado de credenciales programadas ---
+# cryptography la usa services/scheduler.py (Fernet) para cifrar la contraseña
+# maestra del vault de las ejecuciones desatendidas. ansible-core la instala
+# como dependencia transitiva, pero se declara aquí de forma explícita porque
+# es una dependencia directa del código.
+cryptography>=42.0
+
 # --- Autenticación corporativa (LDAPS) ---
 # ldap3 es pura Python (necesita pyasn1, también pura). Hay copias vendadas
 # en vendor/wheels para que el build de Docker sea autárquico si PyPI no

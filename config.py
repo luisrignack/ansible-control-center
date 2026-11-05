@@ -191,7 +191,12 @@ DEBUG = _env_bool("ACC_DEBUG", False)
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 # Detrás de un proxy inverso con HTTPS poner ACC_COOKIE_SECURE=1.
-SESSION_COOKIE_SECURE = _env_bool("ACC_COOKIE_SECURE", False)
+# Cookie de sesión solo por HTTPS. En producción es 1 por defecto a menos que
+# se fije ACC_COOKIE_SECURE explícitamente (desarrollo sigue en 0: sin HTTPS
+# la cookie Secure no se enviaría y nadie podría iniciar sesión).
+SESSION_COOKIE_SECURE = _env_bool(
+    "ACC_COOKIE_SECURE", default=IS_PRODUCTION
+)
 REMEMBER_COOKIE_HTTPONLY = True
 REMEMBER_COOKIE_SAMESITE = "Lax"
 REMEMBER_COOKIE_SECURE = SESSION_COOKIE_SECURE
@@ -314,6 +319,10 @@ ADMIN_USERNAME = os.environ.get("ACC_USERNAME", "admin")
 ADMIN_PASSWORD_MIN_LENGTH = _env_int(
     "ACC_ADMIN_PASSWORD_MIN_LENGTH", 12, minimum=8, maximum=128
 )
+# Usuario con el que se opera en los equipos destino. Es el valor que aparece
+# por defecto en el campo "Usuario Admin" del formulario del panel; no es la
+# cuenta local de la aplicación (esa es ``ADMIN_USERNAME``).
+TARGET_ADMIN_USERNAME = "ladmin"
 
 # Contacto para solicitar una tarea nueva en el catálogo (mailto en la
 # portada). El asunto también es configurable para pruebas.
@@ -358,6 +367,15 @@ DRY_RUN = _env_bool("ACC_DRY_RUN", True)
 # están en known_hosts, el primer acceso fallará. Se puede desactivar de forma
 # consciente con ACC_HOST_KEY_CHECKING=0 (menos seguro).
 HOST_KEY_CHECKING = _env_bool("ACC_HOST_KEY_CHECKING", True)
+
+# Provisionamiento automático de known_hosts con ssh-keyscan. Desactivado por
+# defecto: aceptar automáticamente la huella de un host en el primer contacto
+# debilita el modelo TOFU (un atacante en la red podría presentar su clave).
+# Actívalo solo en redes de gestión de confianza.
+SSH_HOST_KEYS_AUTO = _env_bool("ACC_SSH_HOST_KEYS_AUTO", False)
+# Ruta explícita del known_hosts (opcional). Si está vacía se usa
+# ``$HOME/.ssh/known_hosts``, que es el mismo fichero que ve Ansible.
+KNOWN_HOSTS_FILE = os.environ.get("ACC_KNOWN_HOSTS_FILE", "").strip()
 
 # Límites de seguridad
 MAX_HOSTS = _env_int("ACC_MAX_HOSTS", 256, minimum=1, maximum=4096)

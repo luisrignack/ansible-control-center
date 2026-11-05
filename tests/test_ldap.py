@@ -288,11 +288,21 @@ def test_ldap_local_username_is_rejected(client, fake_ldap, monkeypatch):
         "username": "admin", "password": "clave-ldap"
     })
     # Sin la contraseña local correcta, el login LDAP con ese nombre es
-    # rechazado aunque el directorio lo acepte.
+    # rechazado aunque el directorio lo acepte. El mensaje al navegador es
+    # genérico: no revela qué nombres son cuentas locales (enumeración).
     assert response.status_code == 200
-    assert b"cuenta local" in response.data
+    assert b"Usuario o contrase" in response.data
+    assert b"cuenta local" not in response.data
     admin = User.get_by_username("admin", db_path=app_module.get_db_path())
     assert admin.auth_source == "local"
+    # El detalle queda en la auditoría.
+    import sqlite3
+
+    with sqlite3.connect(app_module.get_db_path()) as conn:
+        events = conn.execute(
+            "SELECT event FROM auth_events WHERE username = 'admin'"
+        ).fetchall()
+    assert any(e[0] == "login_rejected_local_account" for e in events)
 
 
 def test_local_login_still_works_with_ldap_enabled(client, fake_ldap):
@@ -494,3 +504,165 @@ def test_ldap_toggle_without_directory_config(client, fake_ldap,
     assert response.status_code == 200
     assert "no está configurado" in response.get_data(as_text=True)
     assert app_module.load_ldap_access_setting() is False
+
+
+# ---------------------------------------------------------------------------
+# Refuerzos de seguridad de la revisión
+# ---------------------------------------------------------------------------
+JEFE = {
+    "dn": "uid=jefe.cu,ou=etecsa.cu,ou=people,dc=etecsa,dc=cu",
+    "attributes": {"uid": ["jefe.cu"], "mail": [], "cn": ["Jefe"]},
+}
+
+
+def test_safe_redirect_rejects_backslash_trick():
+    """``/\\host`` se normaliza como protocolo relativo: no es destino válido."""
+    assert app_module._is_safe_redirect("/tarea/x")
+    assert app_module._is_safe_redirect("/tarea/x?q=1")
+    assert not app_module._is_safe_redirect("//evil.com")
+    assert not app_module._is_safe_redirect("/\\evil.com")
+    assert not app_module._is_safe_redirect("https://evil.com")
+    assert not app_module._is_safe_redirect("")
+
+
+def test_login_rejects_empty_username_to_ldap(client, fake_ldap, monkeypatch):
+    """Sin nombre no se consulta el directorio: fallo genérico local."""
+    seen = []
+    monkeypatch.setattr(ldap_auth, "authenticate", lambda u, p: seen.append(u))
+    response = _post(client, "/login", {"username": "", "password": "algo"})
+    assert response.status_code == 200
+    assert seen == []
+    assert b"Usuario o contrase" in response.data
+
+
+def test_ldap_activation_checks_search_bind(client, fake_ldap):
+    """Activar LDAPS exige que el bind del servicio funcione ya mismo."""
+    _login_admin(client)
+
+    # Estado inicial del fixture: ON (false_ldap LDAP_ENABLED=True). Se
+    # desactiva para probar la ruta de activación.
+    response = _post(client, "/usuarios/ldaps", {}, follow_redirects=True)
+    assert "desactivado" in response.get_data(as_text=True).lower()
+
+    # Bind roto: no se activa y el estado queda en OFF.
+    fake_ldap["settings"]["bind_ok"] = False
+    response = _post(client, "/usuarios/ldaps", {}, follow_redirects=True)
+    assert response.status_code == 200
+    assert "No se pudo activar" in response.get_data(as_text=True)
+    assert app_module.load_ldap_access_setting() is False
+
+    # Bind OK: activación normal.
+    fake_ldap["settings"]["bind_ok"] = True
+    response = _post(client, "/usuarios/ldaps", {}, follow_redirects=True)
+    assert "Acceso por LDAPS activado." in response.get_data(as_text=True)
+    assert app_module.load_ldap_access_setting() is True
+
+    # Desactivar no necesita contactar el directorio.
+    fake_ldap["settings"]["bind_ok"] = False
+    response = _post(client, "/usuarios/ldaps", {}, follow_redirects=True)
+    assert "desactivado" in response.get_data(as_text=True).lower()
+    assert app_module.load_ldap_access_setting() is False
+
+
+def test_ldap_admin_cannot_demote_or_disable_last_local_admin(client,
+                                                              fake_ldap):
+    """Un admin LDAPS no deja al sistema sin administración local."""
+    User.create_or_update(
+        "jefe.cu", "", db_path=app_module.get_db_path(),
+        role="admin", auth_source="ldaps",
+    )
+    # Solo hay un admin local activo: 'admin'.
+    ldap_auth._connect = lambda *a, **kw: FakeConnection([JEFE])
+    login = _login_ldap(client, fake_ldap, username="jefe.cu")
+    assert login.status_code == 302
+
+    response = _post(client, "/usuarios/estado", {
+        "username": "admin", "active": "0",
+    }, follow_redirects=True)
+    assert "último administrador local" in response.get_data(as_text=True)
+    assert User.get_by_username(
+        "admin", db_path=app_module.get_db_path()
+    ).is_active
+
+    response = _post(client, "/usuarios/rol", {
+        "username": "admin", "role": "viewer",
+    }, follow_redirects=True)
+    assert "último administrador local" in response.get_data(as_text=True)
+    assert User.get_by_username(
+        "admin", db_path=app_module.get_db_path()
+    ).is_admin
+
+
+def test_ldap_admin_can_manage_when_local_admins_remain(client, fake_ldap):
+    """Con dos admins locales, quitar uno de ellos sí está permitido."""
+    User.create_or_update(
+        "maria.loc", "otra-clave-123", db_path=app_module.get_db_path(),
+        role="admin", auth_source="local",
+    )
+    User.create_or_update(
+        "jefe.cu", "", db_path=app_module.get_db_path(),
+        role="admin", auth_source="ldaps",
+    )
+    ldap_auth._connect = lambda *a, **kw: FakeConnection([JEFE])
+    assert _login_ldap(client, fake_ldap, username="jefe.cu").status_code == 302
+
+    response = _post(client, "/usuarios/rol", {
+        "username": "maria.loc", "role": "operator",
+    })
+    assert response.status_code == 302
+    assert User.get_by_username(
+        "maria.loc", db_path=app_module.get_db_path()
+    ).role == "operator"
+
+    response = _post(client, "/usuarios/estado", {
+        "username": "maria.loc", "active": "0",
+    })
+    assert response.status_code == 302
+    assert not User.get_by_username(
+        "maria.loc", db_path=app_module.get_db_path()
+    ).is_active
+
+
+# ---------------------------------------------------------------------------
+# Semántica de User.create_or_update
+# ---------------------------------------------------------------------------
+def test_create_or_update_preserves_role_of_existing_account(tmp_path):
+    """El upsert no degrada roles: recrear una cuenta no cambia su rol."""
+    db_path = str(tmp_path / "users.db")
+    User.init_db(db_path)
+    User.create_or_update("op.loc", "clave-1", db_path=db_path, role="operator")
+    User.create_or_update(
+        "op.loc", "clave-2", db_path=db_path, role="admin"
+    )
+    user = User.get_by_username("op.loc", db_path=db_path)
+    assert user.role == "operator"
+    assert user.auth_source == "local"
+    assert user.check_password("clave-2")
+
+
+def test_create_or_update_refuses_conflicting_auth_source(tmp_path):
+    """Un upsert nunca transforma una cuenta local en LDAPS (ni al revés)."""
+    db_path = str(tmp_path / "users.db")
+    User.init_db(db_path)
+    User.create_or_update("dueno.loc", "clave-local", db_path=db_path)
+
+    with pytest.raises(ValueError, match="origen"):
+        User.create_or_update(
+            "dueno.loc", "", db_path=db_path,
+            role="viewer", auth_source="ldaps",
+        )
+    intact = User.get_by_username("dueno.loc", db_path=db_path)
+    assert intact.auth_source == "local"
+    assert intact.check_password("clave-local")
+
+    # Caso inverso: tampoco se puede crear local sobre una sombra LDAPS.
+    User.create_or_update(
+        "sombra.cu", "", db_path=db_path, role="viewer", auth_source="ldaps"
+    )
+    with pytest.raises(ValueError, match="origen"):
+        User.create_or_update(
+            "sombra.cu", "clave-local", db_path=db_path, auth_source="local"
+        )
+    clean = User.get_by_username("sombra.cu", db_path=db_path)
+    assert clean.auth_source == "ldaps"
+    assert not clean.password_hash

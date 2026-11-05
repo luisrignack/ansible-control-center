@@ -177,6 +177,24 @@ def _bind_or_fail(connection, context: str) -> None:
         raise LdapError(f"{context}: bind LDAP fallido ({description}).{hint}")
 
 
+def test_search_bind() -> None:
+    """Comprueba que el bind del servicio de búsqueda funciona.
+
+    Lo usa el interruptor de ``/usuarios`` antes de activar el acceso:
+    evita dejar ON un directorio al que no se puede conectar (URL, bind o
+    certificado mal configurados). Lanza ``LdapError`` si el bind falla.
+    """
+    connection = _connect()
+    try:
+        _bind_or_fail(connection, "servicio de búsqueda")
+    finally:
+        if getattr(connection, "bound", False):
+            try:
+                connection.unbind()
+            except Exception:  # pragma: no cover
+                pass
+
+
 # ---------------------------------------------------------------------------
 # Búsqueda y verificación
 # ---------------------------------------------------------------------------

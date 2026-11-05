@@ -10,7 +10,6 @@ verificación e idempotencia (fases P0-P4).
 from __future__ import annotations
 
 import atexit
-import atexit
 import ipaddress
 import json
 import logging
@@ -23,7 +22,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from typing import Any, Dict, List, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import click
 from flask import (
@@ -66,8 +65,11 @@ from config import (
     EXEC_RATE_LIMIT,
     EXEC_RATE_WINDOW,
     HISTORY_RETENTION_DAYS,
+    HOST_KEY_CHECKING,
     HSTS_ENABLED,
     HSTS_MAX_AGE,
+    SSH_HOST_KEYS_AUTO,
+    TARGET_ADMIN_USERNAME,
     TIMEZONE_BACKUP_DIR,
     IS_PRODUCTION,
     JOB_MAX_WORKERS,
@@ -151,6 +153,7 @@ from services.rate_limiter import LIMITER
 import services.notifier as notifier
 import services.scheduler as scheduler
 from services.secure_temp import secure_temp_file
+from services.ssh_host_keys import ensure_host_keys
 from services.task_catalog import (
     TASK_CATALOG,
     STATUS_ACTIVE,
@@ -337,8 +340,18 @@ def _wants_json() -> bool:
 
 
 def _is_safe_redirect(target: Optional[str]) -> bool:
-    """Solo permite redirecciones internas (evita open redirect)."""
-    return bool(target) and target.startswith("/") and not target.startswith("//")
+    """Solo permite redirecciones internas (evita open redirect).
+
+    Reconoce las dos variantes que los navegadores normalizan como
+    protocolo relativo: ``//host`` y ``/\\host`` (la barra invertida se
+    acepta como ``/`` por varios). Se descarta además cualquier objetivo
+    con netloc tras el parseo.
+    """
+    if not target or not target.startswith("/"):
+        return False
+    if target.startswith(("//", "/\\")):
+        return False
+    return urlsplit(target).netloc in ("", None)
 
 
 def _client_ip() -> str:
@@ -484,6 +497,104 @@ def _parse_ntp_servers(raw: str) -> tuple[List[str], Optional[str]]:
     return servers, None
 
 
+def _validate_scheduled_params(
+    task: Optional[Dict[str, Any]],
+    admin_user: str,
+    action: str,
+    value: str,
+    ntp_policy: str,
+    ntp_servers_raw: str,
+) -> tuple[Optional[Dict[str, Any]], List[str]]:
+    """Valida los parámetros de una programación con las reglas del panel.
+
+    Las programaciones se crean en otra pantalla y se disparan sin nadie
+    delante. Sin esta validación podrían saltarse restricciones que la
+    ejecución manual sí aplica: ``TIME`` con NTP ``keep``, una acción que la
+    tarea no admite, una zona horaria inexistente o un usuario vacío.
+    """
+    errors: List[str] = []
+    admin_user = (admin_user or "").strip()
+    action = (action or "").strip().upper()
+    value = (value or "").strip()
+    ntp_policy = (ntp_policy or "keep").strip().lower() or "keep"
+
+    if task is None or task.get("status") != "active":
+        errors.append("Selecciona una tarea activa del catálogo.")
+    else:
+        if action not in (task.get("actions") or ["TZ", "TIME"]):
+            errors.append(
+                f"La tarea '{task.get('name', '')}' no admite la acción "
+                f"{action}."
+            )
+        if task.get("fixed_value") and action == "TZ":
+            value = str(task["fixed_value"])
+        if task.get("destructive"):
+            errors.append(
+                "Las tareas destructivas requieren aprobación manual; no se "
+                "pueden programar."
+            )
+
+    if not admin_user:
+        errors.append("El usuario administrador es obligatorio.")
+    if action not in {"TZ", "TIME"}:
+        errors.append("Acción no válida.")
+    if ntp_policy not in NTP_POLICIES:
+        errors.append("Política NTP no válida.")
+
+    ntp_servers: List[str] = []
+    if ntp_policy == "configure":
+        ntp_servers, ntp_error = _parse_ntp_servers(ntp_servers_raw)
+        if ntp_error:
+            errors.append(ntp_error)
+        if not ntp_servers:
+            ntp_servers = list(DEFAULT_NTP_SERVERS)
+            if not ntp_servers:
+                errors.append(
+                    "La política NTP 'configure' requiere al menos un "
+                    "servidor NTP."
+                )
+
+    if action == "TZ":
+        if not value:
+            errors.append("La zona horaria es obligatoria.")
+        elif not _TIMEZONE_RE.fullmatch(value):
+            errors.append("Formato de zona horaria inválido.")
+        elif not timezone_exists(value):
+            errors.append(f"Zona horaria desconocida: {value}.")
+    elif action == "TIME":
+        if not value:
+            errors.append("La hora exacta es obligatoria.")
+        else:
+            try:
+                parsed = datetime.strptime(
+                    value.replace(" ", "T"), "%Y-%m-%dT%H:%M"
+                )
+                value = parsed.strftime("%Y-%m-%dT%H:%M")
+            except ValueError:
+                errors.append(
+                    "Formato de hora inválido; use AAAA-MM-DDTHH:MM."
+                )
+        if ntp_policy == "keep" and TIME_REQUIRE_NTP_OFF:
+            errors.append(
+                "TIME con NTP en política keep no está permitido al "
+                "ejecutar: el reloj podría revertirse. Usa off, restore o "
+                "configure."
+            )
+
+    if errors:
+        return None, errors
+    return (
+        {
+            "admin_user": admin_user,
+            "action": action,
+            "value": value,
+            "ntp_policy": ntp_policy,
+            "ntp_servers": ntp_servers,
+        },
+        [],
+    )
+
+
 def _parse_operation_form(
     default_mode: str = "execute",
 ) -> tuple[Optional[Dict[str, Any]], List[str]]:
@@ -538,6 +649,13 @@ def _parse_operation_form(
             f"La tarea '{task.get('name', task_id)}' no admite la acción "
             f"{action}."
         )
+
+    # Las tareas con valor fijo (p. ej. la tarjeta Zona horaria) lo imponen
+    # en el servidor: el campo oculto del formulario no es confiable. Solo
+    # aplica a TZ, que es el tipo de valor fijo del catálogo; para TIME se
+    # valida la hora que envió el operador.
+    if task is not None and task.get("fixed_value") and action == "TZ":
+        value = str(task["fixed_value"])
 
     if mode not in {"preview", "execute"}:
         errors.append("Modo de operación no válido.")
@@ -1318,6 +1436,8 @@ def _try_ldap_login(
     """
     # Una cuenta local preexistente con ese nombre nunca se autentica vía
     # LDAP: evita que un uid del directorio tome un rol local (p. ej. admin).
+    # El mensaje al usuario es genérico (no revela qué nombres son cuentas
+    # locales); el detalle queda en el evento de auditoría y el log.
     if user is not None and user.auth_source == "local":
         AuthEvent.record(
             username,
@@ -1326,11 +1446,10 @@ def _try_ldap_login(
             "El nombre corresponde a una cuenta local; se negó el login LDAP",
             db_path=get_db_path(),
         )
-        flash(
-            "Ese nombre corresponde a una cuenta local del sistema: "
-            "registra tu contraseña local.",
-            "danger",
+        logger.info(
+            "Login LDAP rechazado: %r es una cuenta local", username
         )
+        flash("Usuario o contraseña incorrectos.", "danger")
         return
 
     if user is not None and not user.is_active:
@@ -1376,13 +1495,32 @@ def _try_ldap_login(
     if user is None:
         # Cuenta sombra corporativa: sin contraseña local, rol base y el
         # admin local decide el rol definitivo en /usuarios.
-        user = User.create_or_update(
-            username,
-            "",
-            db_path=get_db_path(),
-            role=config.LDAP_DEFAULT_ROLE,
-            auth_source="ldaps",
-        )
+        try:
+            user = User.create_or_update(
+                username,
+                "",
+                db_path=get_db_path(),
+                role=config.LDAP_DEFAULT_ROLE,
+                auth_source="ldaps",
+            )
+        except ValueError:
+            # Carrera con la creación local: el upsert se negó a
+            # sobrescribir una cuenta local que apareció entre la consulta
+            # y el INSERT. Mensaje genérico; sin sesión.
+            AuthEvent.record(
+                username,
+                client_ip,
+                "login_rejected_local_account",
+                "Conflicto de origen al crear la sombra LDAPS: la cuenta ya "
+                "es local",
+                db_path=get_db_path(),
+            )
+            logger.warning(
+                "Login LDAP rechazado por conflicto de origen para %r",
+                username,
+            )
+            flash("Usuario o contraseña incorrectos.", "danger")
+            return
         first_login = True
         AuthEvent.record(
             username,
@@ -1445,7 +1583,8 @@ def login():
                 user, client_ip, "login_success", "Inicio de sesión correcto"
             )
         elif (
-            password
+            username
+            and password
             and load_ldap_access_setting()
             and ldap_auth.ldap_configured()
         ):
@@ -1525,7 +1664,7 @@ def task_view(task_id):
         common_timezones=COMMON_TIMEZONES,
         ntp_policies=NTP_POLICIES,
         default_ntp_servers=", ".join(DEFAULT_NTP_SERVERS),
-        default_admin_user=ADMIN_USERNAME,
+        default_admin_user=TARGET_ADMIN_USERNAME,
         prefill=prefill,
         selected_task=task,
         inventory_groups=inventory_groups,
@@ -1730,7 +1869,12 @@ def programaciones():
     if request.method == "POST":
         if not current_user.has_role("admin"):
             abort(403)
-        action = request.form.get("action", "").strip()
+        # ``op`` identifica la operación del formulario (crear/activar/
+        # eliminar); ``action`` es la acción operativa de la programación
+        # (TZ/TIME). Antes ambos usaban ``action`` y el formulario de alta
+        # enviaba dos valores: la programación quedaba guardada con
+        # ``action="create"`` y fallaba al dispararse.
+        action = request.form.get("op", "").strip()
         if action == "toggle":
             schedule = Schedule.get(
                 request.form.get("schedule_id", "0"), db_path=db_path
@@ -1801,6 +1945,22 @@ def programaciones():
                 if ip_error or not pinned_ip:
                     flash(ip_error or "IP objetivo no válida.", "danger")
                     return redirect(url_for("programaciones"))
+            # Mismas reglas que la ejecución manual: una programación no
+            # puede saltarse la política de hora/NTP ni usar una acción que
+            # la tarea no admite.
+            validated, schedule_errors = _validate_scheduled_params(
+                tasks[task_id],
+                request.form.get("admin_user", ""),
+                request.form.get("action", "TZ"),
+                request.form.get("value", ""),
+                request.form.get("ntp_policy", "keep"),
+                request.form.get("ntp_servers", ""),
+            )
+            if schedule_errors:
+                for error in schedule_errors:
+                    flash(error, "danger")
+                return redirect(url_for("programaciones"))
+            assert validated is not None
             schedule_params = _approval_params(
                 {
                     "target": (
@@ -1812,21 +1972,15 @@ def programaciones():
                     "target_group_id": target_group_id,
                     "task_id": task_id,
                     "task_name": tasks[task_id]["name"],
-                    "admin_user": request.form.get("admin_user", "").strip(),
+                    "admin_user": validated["admin_user"],
                     "origin": "stored",
-                    "action": request.form.get("action", "TZ").strip().upper(),
-                    "value": request.form.get("value", "").strip(),
+                    "action": validated["action"],
+                    "value": validated["value"],
                     "time_mode": "utc",
                     "time_zone": "",
                     "time_fold": None,
-                    "ntp_policy": request.form.get("ntp_policy", "keep")
-                    .strip()
-                    .lower(),
-                    "ntp_servers": [
-                        token
-                        for token in request.form.get("ntp_servers", "").split(",")
-                        if token.strip()
-                    ],
+                    "ntp_policy": validated["ntp_policy"],
+                    "ntp_servers": validated["ntp_servers"],
                     "sync_rtc": _form_bool("sync_rtc"),
                     "force": _form_bool("force"),
                 }
@@ -1980,6 +2134,26 @@ def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
         )
         return False
 
+    # Defensa en profundidad: una fila antigua o editada a mano no debe
+    # saltarse las reglas que la ejecución manual aplica.
+    validated, errors = _validate_scheduled_params(
+        get_task(schedule["task_id"]),
+        params.get("admin_user", ""),
+        params.get("action", "TZ"),
+        params.get("value", ""),
+        params.get("ntp_policy", "keep"),
+        ",".join(str(server) for server in (params.get("ntp_servers") or [])),
+    )
+    if errors:
+        Schedule.mark_run(
+            schedule["id"],
+            error="; ".join(errors)[:300],
+            disable=True,
+            db_path=db_path,
+        )
+        return False
+    assert validated is not None
+
     target = params.get("target", "")
     if params.get("target_mode") == "group":
         if params.get("target_group_id") is None:
@@ -2009,18 +2183,18 @@ def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
             execute_with_progress,
             tid,
             target,
-            params.get("admin_user", ADMIN_USERNAME),
+            validated["admin_user"],
             "stored",
             master_password,
-            params.get("action", "TZ"),
-            params.get("value", ""),
+            validated["action"],
+            validated["value"],
             [],
             mode="execute",
             time_mode=params.get("time_mode", "utc"),
             time_zone=params.get("time_zone", ""),
             time_fold=params.get("time_fold"),
-            ntp_policy=params.get("ntp_policy", "keep"),
-            ntp_servers=params.get("ntp_servers") or [],
+            ntp_policy=validated["ntp_policy"],
+            ntp_servers=validated["ntp_servers"],
             sync_rtc=bool(params.get("sync_rtc")),
             force=bool(params.get("force")),
             operator=f"agenda:{schedule['name']}",
@@ -2974,6 +3148,38 @@ def execute_with_progress(
             )
             return
 
+        # Provisionamiento opcional de known_hosts. Está desactivado por
+        # defecto porque aceptar automáticamente una huella en el primer
+        # contacto debilita el modelo TOFU.
+        if connection == "ssh" and HOST_KEY_CHECKING and SSH_HOST_KEYS_AUTO:
+            try:
+                key_status = ensure_host_keys(hosts)
+            except Exception:  # pragma: no cover - salvaguarda
+                logger.exception("No se pudo provisionar known_hosts")
+                inv_errors.append(
+                    "Aviso: no se pudo provisionar known_hosts; se usará el "
+                    "fichero existente."
+                )
+            else:
+                missing = sorted(
+                    host for host, ok in key_status.items() if not ok
+                )
+                if missing:
+                    preview = ", ".join(missing[:5])
+                    extra = (
+                        f" y {len(missing) - 5} más"
+                        if len(missing) > 5
+                        else ""
+                    )
+                    inv_errors.append(
+                        f"Aviso: sin huella SSH para {preview}{extra}; Ansible "
+                        "fallará si el host no está ya en known_hosts."
+                    )
+                else:
+                    inv_errors.append(
+                        f"Huellas SSH verificadas en {len(key_status)} host(s)."
+                    )
+
         update_task(
             tid,
             {
@@ -3559,6 +3765,30 @@ def usuarios_ldaps():
         return redirect(url_for("usuarios"))
 
     enabled = not load_ldap_access_setting()
+    # Al ACTIVAR, comprueba antes que el bind del directorio funciona: no
+    # dejar ON un acceso que en cada login dirá "Servidor LDAP no disponible".
+    if enabled:
+        try:
+            ldap_auth.test_search_bind()
+        except ldap_auth.LdapError as exc:
+            logger.error(
+                "Activación de LDAPS abortada: bind de búsqueda falló: %s",
+                exc,
+            )
+            AuthEvent.record(
+                current_user.username,
+                _client_ip(),
+                "ldap_access_activate_failed",
+                str(exc),
+                db_path=get_db_path(),
+            )
+            flash(
+                "No se pudo activar el acceso LDAPS: el directorio no "
+                f"aceptó el binding de búsqueda ({exc}). Revisa la URL, el "
+                "bind y la contraseña/CA en .env.docker e inténtalo de nuevo.",
+                "danger",
+            )
+            return redirect(url_for("usuarios"))
     persist_ldap_access(enabled)
     AuthEvent.record(
         current_user.username,
@@ -3590,12 +3820,33 @@ def usuarios_rol():
         flash("No puedes cambiar tu propio rol desde aquí.", "danger")
         return redirect(url_for("usuarios"))
 
-    if not User.get_by_username(username, db_path=get_db_path()):
+    target = User.get_by_username(username, db_path=get_db_path())
+    if not target:
         flash(f"El usuario '{username}' no existe.", "danger")
         return redirect(url_for("usuarios"))
 
+    new_role = request.form.get("role") or ""
+    # Salva siempre un admin LOCAL activo: un admin LDAPS (dependiente del
+    # directorio) no puede dejar el sistema sin administración local.
+    if (
+        target.is_admin
+        and target.is_active
+        and target.auth_source == "local"
+        and new_role != "admin"
+        and User.count_active_local_admins_excluding(
+            username, db_path=get_db_path()
+        )
+        == 0
+    ):
+        flash(
+            f"'{username}' es el último administrador local activo: no "
+            "puedes retirarle el rol admin.",
+            "danger",
+        )
+        return redirect(url_for("usuarios"))
+
     try:
-        User.set_role(username, request.form.get("role") or "", db_path=get_db_path())
+        User.set_role(username, new_role, db_path=get_db_path())
     except ValueError as exc:
         flash(str(exc), "danger")
         return redirect(url_for("usuarios"))
@@ -3604,8 +3855,7 @@ def usuarios_rol():
         username,
         _client_ip(),
         "role_updated",
-        f"El admin '{current_user.username}' fijó rol "
-        f"'{request.form.get('role')}'",
+        f"El admin '{current_user.username}' fijó rol " f"'{new_role}'",
         db_path=get_db_path(),
     )
     flash(f"Rol de '{username}' actualizado.", "success")
@@ -3631,8 +3881,28 @@ def usuarios_estado():
         flash("No puedes desactivar tu propia cuenta.", "danger")
         return redirect(url_for("usuarios"))
 
-    if not User.get_by_username(username, db_path=get_db_path()):
+    if User.get_by_username(username, db_path=get_db_path()) is None:
         flash(f"El usuario '{username}' no existe.", "danger")
+        return redirect(url_for("usuarios"))
+
+    target = User.get_by_username(username, db_path=get_db_path())
+    # Salva siempre un admin LOCAL activo: un admin LDAPS no puede
+    # desactivar la única cuenta de administración local del sistema.
+    if (
+        not is_active
+        and target.is_admin
+        and target.is_active
+        and target.auth_source == "local"
+        and User.count_active_local_admins_excluding(
+            username, db_path=get_db_path()
+        )
+        == 0
+    ):
+        flash(
+            f"'{username}' es el último administrador local activo: no "
+            "puedes desactivarlo.",
+            "danger",
+        )
         return redirect(url_for("usuarios"))
 
     User.set_active(username, is_active, db_path=get_db_path())
@@ -3802,12 +4072,24 @@ def register_cli(flask_app: Flask) -> None:
             raise click.ClickException(
                 f"La contraseña debe tener al menos {ADMIN_PASSWORD_MIN_LENGTH} caracteres."
             )
-        User.create_or_update(
-            username, password, db_path=get_db_path(), role=role
+        db_path = get_db_path()
+        user = User.create_or_update(
+            username, password, db_path=db_path, role=role
         )
-        click.echo(
-            f"Usuario '{username}' creado/actualizado con rol '{role}'."
-        )
+        # ``create_or_update`` no cambia el rol de una cuenta existente para
+        # no degradar roles de forma implícita (p. ej. en el primer login
+        # LDAPS). El CLI sí es una acción explícita del operador: aplica el
+        # rol pedido y lo informa.
+        if user.role != role:
+            User.set_role(username, role, db_path=db_path)
+            click.echo(
+                f"Usuario '{username}' actualizado: rol cambiado de "
+                f"'{user.role}' a '{role}'."
+            )
+        else:
+            click.echo(
+                f"Usuario '{username}' creado/actualizado con rol '{role}'."
+            )
 
     @flask_app.cli.command("reconcile-batches")
     def reconcile_batches_command():

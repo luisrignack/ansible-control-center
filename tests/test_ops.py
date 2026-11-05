@@ -638,3 +638,174 @@ def test_group_ssh_key_used_in_execution(operator_client, monkeypatch, tmp_path)
     assert response.status_code == 302
     _wait_for_task(client, response.headers["Location"].rstrip("/").split("/")[-1])
     assert seen.get("apply_private_key") == str(key_path)
+
+
+# ---------------------------------------------------------------------------
+# Endurecimiento de programaciones y credenciales cifradas
+# ---------------------------------------------------------------------------
+def test_scheduler_secret_roundtrip_creates_key_0600(
+    client, monkeypatch, tmp_path
+):
+    import config as config_module
+
+    secrets_dir = tmp_path / "scheduler-secrets"
+    monkeypatch.setattr(config_module, "SECRETS_DIR", str(secrets_dir))
+
+    token = scheduler_module.encrypt_secret("clave-maestra")
+    assert token and token != "clave-maestra"
+    assert scheduler_module.decrypt_secret(token) == "clave-maestra"
+
+    key_file = secrets_dir / "scheduler_password.key"
+    assert key_file.exists()
+    assert (key_file.stat().st_mode & 0o777) == 0o600
+
+
+def _future_run_at() -> str:
+    return (datetime.now(timezone.utc) + timedelta(hours=1)).strftime(
+        "%Y-%m-%dT%H:%M"
+    )
+
+
+def _schedule_payload(**overrides):
+    data = {
+        "op": "create",
+        "name": "ventana",
+        "task_id": "zona-todas",
+        "run_at": _future_run_at(),
+        "recurrence": "once",
+        "target_mode": "manual",
+        "target_ip": "10.42.0.50",
+        "admin_user": "root",
+        "master_password": "clave-maestra",
+        "action": "TZ",
+        "value": "UTC",
+        "ntp_policy": "keep",
+    }
+    data.update(overrides)
+    return data
+
+
+def test_schedule_create_uses_op_and_forces_fixed_value(client):
+    _login(client)
+    response = _post(
+        client,
+        "/programaciones",
+        _schedule_payload(value="Europe/Madrid"),
+        follow_redirects=True,
+    )
+    assert "Programación &#39;ventana&#39; creada" in response.get_data(as_text=True)
+    schedule = Schedule.all(db_path=app_module.get_db_path())[0]
+    assert schedule.params["action"] == "TZ"
+    assert schedule.params["value"] == "America/Caracas"
+    assert schedule.params["admin_user"] == "root"
+
+
+def test_schedule_create_rejects_action_not_allowed_by_task(client):
+    _login(client)
+    response = _post(
+        client,
+        "/programaciones",
+        _schedule_payload(action="TIME", value="2026-12-01T10:00"),
+        follow_redirects=True,
+    )
+    assert "no admite la acción TIME" in response.get_data(as_text=True)
+    assert Schedule.all(db_path=app_module.get_db_path()) == []
+
+
+def test_schedule_create_rejects_unknown_timezone(client, monkeypatch):
+    _login(client)
+    # La tarea fija America/Caracas; se usa una tarea de prueba para poder
+    # enviar una zona distinta sin que la reemplace el valor fijo.
+    from services.task_catalog import _register_test_task
+
+    _register_test_task(
+        {
+            "id": "tz-libre",
+            "name": "TZ libre",
+            "status": "active",
+            "min_role": "admin",
+            "destructive": False,
+            "platforms": ["linux"],
+            "actions": ["TZ", "TIME"],
+        },
+        monkeypatch,
+    )
+    response = _post(
+        client,
+        "/programaciones",
+        _schedule_payload(task_id="tz-libre", value="America/Atlantida"),
+        follow_redirects=True,
+    )
+    assert "Zona horaria desconocida" in response.get_data(as_text=True)
+    assert Schedule.all(db_path=app_module.get_db_path()) == []
+
+
+def test_launch_scheduled_disables_invalid_stored_params(client):
+    db_path = app_module.get_db_path()
+    Schedule.create(
+        "vieja",
+        "zona-todas",
+        datetime.now(timezone.utc) + timedelta(hours=1),
+        {
+            "target": "10.42.0.51",
+            "target_mode": "manual",
+            "task_id": "zona-todas",
+            "admin_user": "root",
+            "action": "TIME",
+            "value": "2026-12-01T10:00",
+            "ntp_policy": "keep",
+        },
+        db_path=db_path,
+    )
+    schedule = Schedule.all(db_path=db_path)[0]
+    params = dict(schedule.params)
+    params["master_password_enc"] = scheduler_module.encrypt_secret("clave")
+    launched = app_module.launch_scheduled(
+        {
+            "id": schedule.id,
+            "name": schedule.name,
+            "task_id": schedule.task_id,
+        },
+        params,
+    )
+    assert launched is False
+    schedule = Schedule.all(db_path=db_path)[0]
+    assert not schedule.enabled
+    assert "no admite la acción TIME" in schedule.last_error
+
+
+def test_manual_execution_forces_task_fixed_value(client, monkeypatch):
+    """El valor fijo del catálogo no depende del campo oculto del formulario."""
+    _login(client)
+    captured = {}
+
+    class FakeQueue:
+        def submit(self, task_id, func, /, *args, **kwargs):
+            captured["task_id"] = task_id
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(app_module, "get_job_queue", lambda: FakeQueue())
+
+    response = _post(
+        client,
+        "/",
+        data={
+            "task": "zona-todas",
+            "target_ip": "10.42.0.60",
+            "admin_user": "root",
+            "password_origin": "temporal",
+            "action": "TZ",
+            # Un operador podría editar el campo oculto; el servidor debe
+            # imponer el valor fijo de la tarea.
+            "value": "Europe/Madrid",
+            "mode": "execute",
+            "password_file": (__import__("io").BytesIO(b"clave\n"), "p.txt"),
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 302
+    # Posiciones de execute_with_progress: tid, target, admin_user, origin,
+    # master_password, action, value, ...
+    assert captured["args"][6] == "America/Caracas"

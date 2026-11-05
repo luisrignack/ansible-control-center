@@ -160,7 +160,15 @@ class User(UserMixin):
         role: str = "admin",
         auth_source: str = "local",
     ) -> "User":
-        """Crea el usuario o actualiza su contraseña si ya existe.
+        """Crea el usuario o actualiza sus credenciales si ya existe.
+
+        Sobre una cuenta **existente del mismo ``auth_source``** solo
+        actualiza ``password_hash``, ``is_active`` y el bloqueo; el ``role``
+        y el ``auth_source`` no se tocan (el upsert no puede degradar ROLES
+        implicitamente). Si la cuenta existe con **otro** ``auth_source``
+        (p. ej. aparecio una cuenta local mientras un primer login LDAP
+        creaba la sombra), lanza ``ValueError`` para que el llamador
+        rechaze el intento en lugar de sobrescribir la cuenta.
 
         Con ``auth_source='ldaps'`` la cuenta es una sombra corporativa: no
         lleva contraseña local (``password_hash`` vacío) y su contraseña la
@@ -195,10 +203,9 @@ class User(UserMixin):
                 ON CONFLICT(username) DO UPDATE SET
                     password_hash = excluded.password_hash,
                     is_active = excluded.is_active,
-                    role = excluded.role,
-                    auth_source = excluded.auth_source,
                     failed_attempts = 0,
                     locked_until = NULL
+                WHERE users.auth_source = excluded.auth_source
                 """,
                 (
                     username,
@@ -211,6 +218,12 @@ class User(UserMixin):
             )
 
         user = cls.get_by_username(username, db_path=db_path)
+        if user is not None and user.auth_source != auth_source:
+            raise ValueError(
+                f"La cuenta '{username}' ya existe con origen "
+                f"'{user.auth_source}': no se puede re-crear como "
+                f"'{auth_source}'."
+            )
         assert user is not None
         return user
 
@@ -277,6 +290,28 @@ class User(UserMixin):
                 (1 if active else 0, username),
             )
             return bool(cursor.rowcount)
+
+    @classmethod
+    def count_active_local_admins_excluding(
+        cls, username: str, db_path: str = None
+    ) -> int:
+        """Admins LOCALES activos distintos de ``username``.
+
+        Lo usan las rutas de /usuarios para impedir que quede sin cuenta de
+        administración local el sistema (el admin LDAPS depende del
+        directorio; si deja de alcanzarse, nadie recupera el control).
+        """
+        if db_path is None:
+            db_path = _default_db_path()
+        with get_connection(db_path) as conn:
+            return int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM users "
+                    "WHERE role = 'admin' AND is_active = 1 "
+                    "AND auth_source = 'local' AND username != ?",
+                    (username,),
+                ).fetchone()[0]
+            )
 
 
 class AuthEvent:

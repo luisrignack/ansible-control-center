@@ -106,6 +106,8 @@ flask --app app init-admin
 | `ACC_LOG_DIR` | `/var/log/ansible-control-center` | Logs |
 | `ACC_DRY_RUN` | `1` | Modo simulación inicial (luego se controla desde la interfaz) |
 | `ACC_HOST_KEY_CHECKING` | `1` | Verificación estricta de host SSH |
+| `ACC_SSH_HOST_KEYS_AUTO` | `0` | Rellenar `known_hosts` con `ssh-keyscan` (debilita TOFU; solo redes de confianza) |
+| `ACC_KNOWN_HOSTS_FILE` | vacío | Ruta alternativa de `known_hosts`; vacío usa `$HOME/.ssh/known_hosts` |
 | `ACC_DEBUG` | `0` | Depurador Flask |
 | `ACC_COOKIE_SECURE` | `0` | `1` detrás de HTTPS |
 | `ACC_TRUST_PROXY` | `0` | `1` solo tras proxy de confianza |
@@ -455,7 +457,7 @@ Prueba la restauración periódicamente. El procedimiento completo está en
 - SQLite en modo WAL: al copiar la base de datos en caliente, copia también
   `acc.db-wal` y `acc.db-shm`, o detén el servicio antes.
 - Las migraciones son no destructivas y se aplican al arrancar
-  (`PRAGMA user_version`). Esquema actual: **v6**. Haz copia de seguridad antes
+  (`PRAGMA user_version`). Esquema actual: **v10**. Haz copia de seguridad antes
   de actualizar. Una base creada por una versión más nueva aborta el arranque
   en lugar de degradarse.
 - El SSE y la consola se sirven desde memoria, con instantáneas en SQLite para

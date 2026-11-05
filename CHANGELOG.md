@@ -5,6 +5,48 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Corrección de hallazgos de seguridad y programaciones] — 2026-11-05
+
+### Corregido
+
+- **Clave de cifrado de programaciones**: `services/scheduler.py` creaba la
+  clave Fernet asignando `key_file.chmod = key_file.chmod` (no cambiaba los
+  permisos) y escribía el fichero con el `umask` del proceso. Ahora se crea de
+  forma atómica con `O_EXCL` y modo `0600`, se tolera la carrera entre
+  workers y se normalizan los permisos de claves ya existentes. La suite
+  verifica el modo `0600`.
+- **`known_hosts` automático**: `services/ssh_host_keys.py` usaba una ruta
+  incorrecta (`~/.ssh/known_hosts` construida a mano), invocaba `ssh-keyscan`
+  con opciones no válidas y tenía código duplicado/inaccesible. Se reescribió
+  con la sintaxis correcta (`-p`, `-T`, `-t`), escritura atómica `0600`,
+  deduplicación y escaneo paralelo. El aprovisionamiento queda **desactivado
+  por defecto** (`ACC_SSH_HOST_KEYS_AUTO=0`) para no debilitar TOFU; se puede
+  fijar `ACC_KNOWN_HOSTS_FILE`.
+- **Validación de programaciones**: crear o disparar una programación ahora
+  aplica las mismas reglas que la ejecución manual (tarea activa, acción
+  admitida, valor fijo de la tarea, usuario obligatorio, zona IANA existente,
+  formato de hora y bloqueo de `TIME` + NTP `keep`). Una fila antigua o
+  editada a mano se desactiva con el error en `last_error` en vez de
+  ejecutarse.
+- **Valor fijo del catálogo**: el servidor impone `fixed_value` para `TZ`
+  (`America/Caracas`); ya no confía en el campo oculto del formulario.
+- **Formulario de programaciones**: la operación (`create`/`toggle`/`delete`)
+  usa el campo `op`, separado de la acción operativa (`action=TZ|TIME`). Antes
+  el alta enviaba dos campos `action` y podía guardar `action="create"`.
+- **`init-admin`**: `--role` se aplica también a cuentas existentes (acción
+  explícita del operador) y se informa del cambio; `create_or_update` sigue
+  sin degradar roles de forma implícita.
+- **Dependencia `cryptography`**: se declara explícitamente en
+  `requirements.txt` porque `services/scheduler.py` la importa directamente.
+- **UI de clave SSH**: se retira `.ppk` del selector de subida; el validador
+  solo acepta claves OpenSSH/PEM y el formato PuTTY no es compatible.
+- **Import duplicado** de `atexit` en `app.py`.
+
+### Pruebas
+
+- Nuevas pruebas en `tests/test_ops.py`, `tests/test_ssh_host_keys.py` y
+  `tests/test_cli_admin.py`. Suite completa: **250 passed, 1 skipped**.
+
 ## [Documentación del paquete numerada y sin duplicar] — 2026-11-05
 
 ### Cambiado

@@ -269,3 +269,43 @@ def test_invalid_allowlist_entry_is_a_configuration_error():
 
     with pytest.raises(ValueError, match="ALLOWED_NETWORKS"):
         config_module._parse_allowed_networks("10.0.0.0/24, no-es-una-red")
+
+
+def test_resolve_target_accepts_comma_separated_entries():
+    hosts = resolve_target(
+        "192.168.50.10, 192.168.50.0/30, 192.168.50.10",
+        max_hosts=256,
+        min_prefix=22,
+    )
+    assert hosts == ["192.168.50.10", "192.168.50.1", "192.168.50.2"]
+
+
+def test_pin_target_normalizes_comma_separated_entries():
+    pinned, error = pin_target(
+        " 172.17.128.118 - 172.17.128.120 , 10.1.1.5 ",
+        max_hosts=256,
+        min_prefix=22,
+    )
+    assert error is None
+    assert pinned == "172.17.128.118-172.17.128.120,10.1.1.5"
+
+
+def test_pin_target_rejects_comma_list_above_max_hosts():
+    pinned, error = pin_target(
+        "10.0.0.0/30,10.0.1.0/30,10.0.2.0/30",
+        max_hosts=4,
+        min_prefix=22,
+    )
+    assert pinned is None
+    assert "máximo" in error
+
+
+def test_resolve_target_rejects_comma_list_above_max_hosts():
+    assert (
+        resolve_target(
+            "10.0.0.0/30,10.0.1.0/30,10.0.2.0/30",
+            max_hosts=4,
+            min_prefix=22,
+        )
+        == []
+    )

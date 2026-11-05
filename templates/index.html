@@ -99,13 +99,15 @@
                         <div id="targetManualField">
                             <input type="text" class="form-control" id="targetIp" name="target_ip"
                                 value="{{ prefill.get('target_ip', '') }}"
-                                placeholder="172.17.128.118-172.17.128.235"
+                                placeholder="172.17.128.118-172.17.128.235, 192.168.1.10"
                                 inputmode="text" autocomplete="off" spellcheck="false"
                                 aria-describedby="targetHelp targetError" required>
                             <div class="form-text" id="targetHelp">
                                 Rango inclusivo: <code>172.17.128.118-172.17.128.235</code>.
                                 También una IP (<code>192.168.1.10</code>) o un CIDR
                                 (<code>192.168.1.0/24</code>).
+                                Puedes juntar varias entradas separadas por comas:
+                                <code>192.168.1.10, 192.168.1.20-192.168.1.30, 10.0.0.0/28</code>.
                             </div>
                             <div class="invalid-feedback" id="targetError"></div>
                         </div>
@@ -437,7 +439,14 @@ const defaultNtpServers = {{ default_ntp_servers | tojson }};
 const dryRunEnabled = {{ dry_run | tojson }};
 const maxHosts = {{ max_hosts | tojson }};
 
+function splitTargetList(value) {
+    return (value || '').split(',').map((piece) => piece.trim()).filter(Boolean);
+}
+
 function describeTarget(value) {
+    if (value.includes(',')) {
+        return value + ' (' + splitTargetList(value).length + ' entradas)';
+    }
     if (value.includes('/')) return value + ' (CIDR)';
     if (value.includes('-')) return value + ' (rango)';
     return value;
@@ -465,7 +474,11 @@ function normalizeIpv4(ip) {
 }
 
 function normalizeTarget(value) {
-    let target = (value || '').trim();
+    const raw = (value || '').trim();
+    if (raw.includes(',')) {
+        return splitTargetList(raw).map((piece) => normalizeTarget(piece)).join(',');
+    }
+    let target = raw;
     if (!/^\d/.test(target) || target.includes(':')) return target;
     if (target.includes('-')) {
         const parts = target.split('-');
@@ -483,9 +496,44 @@ function normalizeTarget(value) {
     return target;
 }
 
+function targetHostCount(value) {
+    const target = (value || '').trim();
+    if (target.includes('-')) {
+        const parts = target.split('-');
+        if (parts.length === 2 && isValidIpv4(parts[0].trim()) && isValidIpv4(parts[1].trim())) {
+            const count = ipv4ToInt(parts[1].trim()) - ipv4ToInt(parts[0].trim()) + 1;
+            return count > 0 ? count : 1;
+        }
+        return 1;
+    }
+    if (target.includes('/')) {
+        const parts = target.split('/');
+        const prefix = Number(parts[1]);
+        if (parts.length === 2 && isValidIpv4(parts[0].trim())
+                && Number.isInteger(prefix) && prefix >= 0 && prefix <= 32) {
+            return Math.max(Math.pow(2, 32 - prefix) - 2, 1);
+        }
+    }
+    return 1;
+}
+
 function validateTarget(value) {
     const target = (value || '').trim();
     if (!target) return 'La IP o rango es obligatorio.';
+    if (target.includes(',')) {
+        const pieces = splitTargetList(target);
+        if (!pieces.length) return 'La IP o rango es obligatorio.';
+        let total = 0;
+        for (const piece of pieces) {
+            const error = validateTarget(piece);
+            if (error) return piece + ': ' + error;
+            total += targetHostCount(piece);
+        }
+        if (total > maxHosts) {
+            return 'Las entradas suman ' + total + ' hosts; el máximo es ' + maxHosts + '.';
+        }
+        return '';
+    }
     // IPv6 se valida en el servidor; aquí solo se comprueba el formato básico.
     if (target.includes(':')) return '';
     if (target.includes('-')) {
@@ -530,8 +578,14 @@ function validateTarget(value) {
 function targetMaskAllows(value) {
     const trimmed = value.replace(/^\s+/, '');
     if (!/^\d/.test(trimmed)) return true; // hostname o IPv6
+    if (/[^0-9.\-\/, ]/.test(value)) return false;
+    return value.split(',').every((piece) => singleTargetMaskAllows(piece));
+}
 
-    if (/[^0-9.\-/ ]/.test(value)) return false;
+function singleTargetMaskAllows(value) {
+    const trimmed = value.replace(/^\s+/, '');
+    if (!/^\d/.test(trimmed)) return true; // hostname o IPv6
+
     if ((value.match(/-/g) || []).length > 1) return false;
     if ((value.match(/\//g) || []).length > 1) return false;
     if (value.includes('-') && value.includes('/')) return false;
@@ -828,11 +882,17 @@ execForm.addEventListener('submit', (event) => {
         ? ntp.options[ntp.selectedIndex].text
         : 'sin cambios (keep)';
 
-    document.getElementById('confirmHosts').textContent = target.includes('/')
-        ? 'todos los hosts del CIDR ' + target
-        : (target.includes('-')
-            ? 'todos los hosts del rango ' + target
-            : 'el host ' + target);
+    let confirmHosts;
+    if (target.includes(',')) {
+        confirmHosts = 'todos los hosts de las ' + splitTargetList(target).length + ' entradas';
+    } else if (target.includes('/')) {
+        confirmHosts = 'todos los hosts del CIDR ' + target;
+    } else if (target.includes('-')) {
+        confirmHosts = 'todos los hosts del rango ' + target;
+    } else {
+        confirmHosts = 'el host ' + target;
+    }
+    document.getElementById('confirmHosts').textContent = confirmHosts;
     document.getElementById('confirmTarget').textContent = target || '—';
     document.getElementById('confirmAction').textContent =
         action.options[action.selectedIndex].text;

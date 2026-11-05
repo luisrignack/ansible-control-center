@@ -22,7 +22,7 @@
     <div class="card-body p-4">
         <form method="post" action="{{ url_for('programaciones') }}" class="row g-3">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="action" value="create">
+            <input type="hidden" name="op" value="create">
             <div class="col-md-3">
                 <label for="scheduleName" class="form-label fw-medium">Nombre</label>
                 <input type="text" class="form-control" id="scheduleName" name="name"
@@ -156,7 +156,7 @@
                         <td class="text-end">
                             <form method="post" action="{{ url_for('programaciones') }}" class="d-inline">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <input type="hidden" name="action" value="toggle">
+                                <input type="hidden" name="op" value="toggle">
                                 <input type="hidden" name="schedule_id" value="{{ item.id }}">
                                 <button type="submit" class="icon-btn"
                                     title="{{ 'Desactivar' if item.enabled else 'Activar' }}">
@@ -166,7 +166,7 @@
                             <form method="post" action="{{ url_for('programaciones') }}" class="d-inline"
                                 onsubmit="return confirm('¿Eliminar la programación {{ item.name }}?');">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <input type="hidden" name="action" value="delete">
+                                <input type="hidden" name="op" value="delete">
                                 <input type="hidden" name="schedule_id" value="{{ item.id }}">
                                 <button type="submit" class="icon-btn" title="Eliminar">
                                     <i class="bi bi-trash" aria-hidden="true"></i>

@@ -125,11 +125,20 @@ docker compose exec app sh -c \
 docker compose exec app chmod 600 /home/acc/.ssh/known_hosts
 ```
 
-También puedes pasar las líneas al arrancar con `ACC_KNOWN_HOSTS`, o
-desactivar la verificación de forma consciente:
+También puedes pasar las líneas al arrancar con `ACC_KNOWN_HOSTS`, indicar
+otro fichero con `ACC_KNOWN_HOSTS_FILE`, o desactivar la verificación de forma
+consciente:
 
 ```env
 ACC_HOST_KEY_CHECKING=0
+```
+
+La app puede rellenar `known_hosts` con `ssh-keyscan`, pero está **desactivado
+por defecto** porque aceptar una huella en el primer contacto debilita TOFU.
+Actívalo solo en redes de gestión de confianza:
+
+```env
+ACC_SSH_HOST_KEYS_AUTO=1
 ```
 
 Las contraseñas candidatas se guardan cifradas con `ansible-vault` en el volumen
