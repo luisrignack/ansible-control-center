@@ -389,6 +389,33 @@ def test_live_console_streams_redacts_and_compacts_markers(
     )
 
 
+def test_preview_failure_is_not_counted_as_real_error(client, monkeypatch):
+    _login(client)
+    monkeypatch.setattr(
+        app_module, "resolve_target", lambda _target: ["10.0.0.55"]
+    )
+    monkeypatch.setattr(
+        app_module,
+        "inspect_host",
+        lambda **_kwargs: {"success": False, "error": "Sin conexión"},
+    )
+
+    task_id = _start_execution(client, "preview")
+    status = _wait_for_task(client, task_id)
+
+    assert status["overall_result"] == "preview"
+    batch = ExecutionBatch.get_batch(
+        status["batch_id"], db_path=app_module.get_db_path()
+    )
+    assert batch is not None
+    assert batch.status == "preview"
+    assert batch.error_count == 1
+
+    stats = ExecutionBatch.get_stats(db_path=app_module.get_db_path())
+    assert stats["error"] == 0
+    assert stats["failure"] == 0
+
+
 def test_dry_run_visible_and_persisted(client, monkeypatch):
     _login(client)
     monkeypatch.setattr(
@@ -770,6 +797,25 @@ def test_duplicate_submission_is_idempotent(client, monkeypatch, task_hora_multi
         db_path=app_module.get_db_path()
     )
     assert len(batches) == 1
+
+
+def test_operation_ids_persist_in_sqlite(client):
+    """La reserva sobrevive a reinicios y no depende de la memoria."""
+    operation_id = "operacion-persistente"
+    assert app_module._claim_operation_id(operation_id) is None
+    app_module._complete_operation_id(operation_id, "tarea-1234")
+
+    with app_module.get_connection(app_module.get_db_path()) as conn:
+        row = conn.execute(
+            "SELECT task_id FROM operation_ids WHERE operation_id = ?",
+            (operation_id,),
+        ).fetchone()
+    assert row is not None and row["task_id"] == "tarea-1234"
+
+    # No hay caché en memoria que borrar: la segunda consulta va a SQLite.
+    assert app_module._claim_operation_id(operation_id) == "tarea-1234"
+    app_module._release_operation_id(operation_id)
+    assert app_module._claim_operation_id(operation_id) is None
 
 
 def test_task_state_survives_memory_loss(client, monkeypatch):

@@ -491,13 +491,30 @@ class Schedule:
         error: str = "",
         next_run: Optional[datetime] = None,
         disable: bool = False,
+        retry_delay_seconds: int = 0,
         db_path: str = None,
     ) -> None:
-        """Registra el disparo de una programación y calcula la siguiente."""
+        """Registra el disparo de una programación y calcula la siguiente.
+
+        Un error transitorio (por ejemplo, la cola llena) se registra pero no
+        desactiva la programación. Para no reintentar en bucle cada escaneo se
+        puede indicar ``retry_delay_seconds``: la ``run_at`` se pospone ese
+        tiempo conservando la programación activa. Los errores permanentes
+        deben seguir pasando ``disable=True``.
+        """
         if db_path is None:
             db_path = _default_db_path()
+        enabled = 0 if disable else 1
+        scheduled_at: Optional[str] = None
+        if next_run is not None:
+            scheduled_at = next_run.isoformat(timespec="seconds")
+        elif retry_delay_seconds > 0:
+            retry_at = datetime.now(timezone.utc) + timedelta(
+                seconds=int(retry_delay_seconds)
+            )
+            scheduled_at = retry_at.isoformat(timespec="seconds")
         with get_connection(db_path) as conn:
-            if next_run is not None:
+            if scheduled_at is not None:
                 conn.execute(
                     """
                     UPDATE schedules
@@ -509,8 +526,8 @@ class Schedule:
                         _now(),
                         batch_id or "",
                         (error or "")[:300],
-                        next_run.isoformat(timespec="seconds"),
-                        0 if disable or bool(error) else 1,
+                        scheduled_at,
+                        enabled,
                         int(schedule_id),
                     ),
                 )
@@ -526,7 +543,7 @@ class Schedule:
                         _now(),
                         batch_id or "",
                         (error or "")[:300],
-                        0 if disable or bool(error) else 1,
+                        enabled,
                         int(schedule_id),
                     ),
                 )

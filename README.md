@@ -25,8 +25,8 @@ El procedimiento completo está en [AGENTS.md](AGENTS.md).
 ## Estado actual
 
 Fases **P0–P4, P4.1, P4.2 y bloque de operación continua** completadas.
-Suite de pruebas: **250 tests en verde y 1 integración SSH opcional omitida
-por defecto** (251 recopilados). Incluye empaquetado Docker con Nginx y TLS.
+Suite de pruebas: **264 tests en verde y 1 integración SSH opcional omitida
+por defecto** (265 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 | Fase | Contenido |
 |---|---|

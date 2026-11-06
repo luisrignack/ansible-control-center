@@ -313,6 +313,61 @@ def test_stats_separate_real_and_simulated_batches(db_path):
     assert stats["simulated"] == 1
 
 
+def test_preview_failures_do_not_contaminate_real_stats(db_path):
+    """Los fallos de una inspección no cuentan como errores de ejecución."""
+    init_schema(db_path)
+
+    # Un fallo de vista previa (el host no autentica) es un lote preview.
+    ExecutionBatch.create_batch(
+        batch_id="preview-error",
+        operator="admin",
+        action="TZ",
+        value="UTC",
+        target="10.0.0.9",
+        status="preview",
+        dry_run=False,
+        db_path=db_path,
+    )
+    ExecutionBatch.add_host_result(
+        batch_id="preview-error",
+        host="10.0.0.9",
+        result="error",
+        error="Sin conexión",
+        db_path=db_path,
+    )
+    ExecutionBatch.finish_batch(
+        "preview-error", status="preview", db_path=db_path
+    )
+
+    stats = ExecutionBatch.get_stats(db_path=db_path)
+    assert stats["error"] == 0
+    assert stats["failure"] == 0
+    assert stats["preview"] == 0
+
+    # Un error de una ejecución real sí se conserva.
+    ExecutionBatch.create_batch(
+        batch_id="real-error",
+        operator="admin",
+        action="TZ",
+        value="UTC",
+        target="10.0.0.10",
+        status="running",
+        dry_run=False,
+        db_path=db_path,
+    )
+    ExecutionBatch.add_host_result(
+        batch_id="real-error",
+        host="10.0.0.10",
+        result="error",
+        error="Playbook falló",
+        db_path=db_path,
+    )
+    ExecutionBatch.finish_batch("real-error", db_path=db_path)
+
+    stats = ExecutionBatch.get_stats(db_path=db_path)
+    assert stats["error"] == 1
+
+
 def test_migrates_v3_batches_to_dry_run_column(db_path):
     """Los lotes creados antes de P4.1 quedan como ejecuciones reales."""
     conn = sqlite3.connect(db_path)

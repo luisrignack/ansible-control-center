@@ -5,6 +5,40 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Corrección de hallazgos de prioridad media] — 2026-11-05
+
+### Corregido
+
+- **Estadísticas de vista previa**: los lotes `preview` conservan ese estado
+  al cerrarse y `ExecutionBatch.get_stats()` ya no suma sus fallos a los
+  contadores de ejecuciones reales.
+- **Programaciones ante errores transitorios**: `Schedule.mark_run()` deja de
+  desactivar una agenda por el mero hecho de recibir un error. La cola llena y
+  los fallos inesperados del lanzador se reintentan con espera (300 s) y la
+  programación sigue activa; los errores permanentes siguen desactivándola.
+- **Informe por tarea**: solo se usa el último lote global si es legacy (sin
+  `task_id`), y el PDF se etiqueta como “última corrida general”. Nunca se
+  presenta el lote de otra tarea como propio.
+- **Estado de usuarios**: `usuarios_estado()` consulta la cuenta una sola vez y
+  maneja el caso de que ya no exista.
+- **WinRM**: la validación del certificado es configurable con
+  `ACC_WINRM_SERVER_CERT_VALIDATION` y valor seguro por defecto `validate`.
+- **`known_hosts` concurrente**: el ciclo leer-modificar-reemplazar se protege
+  con `fcntl.flock()` sobre un fichero `.lock` hermano.
+- **Salida de Ansible**: `_run_streaming()` conserva solo las últimas
+  `ACC_MAX_OUTPUT_BUFFER_LINES` líneas (2000 por defecto); el callback de
+  consola sigue recibiendo todas.
+- **Idempotencia**: las reservas de operación se persisten en la nueva tabla
+  `operation_ids` (esquema v11), con `INSERT OR IGNORE` atómico y limpieza por
+  TTL. Sobreviven a reinicios y son compartidas por varios workers.
+
+### Pruebas
+
+- Nuevas pruebas en `tests/test_db.py`, `tests/test_ops.py`, `tests/test_p4.py`,
+  `tests/test_report_about.py`, `tests/test_ssh_host_keys.py`,
+  `tests/test_ansible_runner.py` y `tests/test_windows.py`.
+  Suite completa: **264 passed, 1 skipped**.
+
 ## [Corrección de hallazgos de seguridad y programaciones] — 2026-11-05
 
 ### Corregido

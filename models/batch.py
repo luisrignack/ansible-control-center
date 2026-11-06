@@ -369,28 +369,31 @@ class ExecutionBatch:
             )
             rows = conn.execute(
                 """
-                SELECT b.dry_run AS dry_run, h.result AS result,
-                       COUNT(*) AS total
+                SELECT b.status AS batch_status, b.dry_run AS dry_run,
+                       h.result AS result, COUNT(*) AS total
                 FROM execution_hosts h
                 JOIN execution_batches b ON b.batch_id = h.batch_id
-                GROUP BY b.dry_run, h.result
+                GROUP BY b.status, b.dry_run, h.result
                 """
             ).fetchall()
 
         real = {
             row["result"]: int(row["total"])
             for row in rows
-            if not row["dry_run"]
+            if row["batch_status"] != "preview" and not row["dry_run"]
         }
         # Una vista previa es una inspección real aunque el lote se cree en
-        # modo DRY_RUN; no debe contarse como cambio simulado.
+        # modo DRY_RUN; no debe contarse como cambio simulado. Sus fallos
+        # tampoco contaminan los contadores de ejecuciones reales.
         preview = sum(
             int(row["total"]) for row in rows if row["result"] == "preview"
         )
         simulated = sum(
             int(row["total"])
             for row in rows
-            if row["dry_run"] and row["result"] != "preview"
+            if row["batch_status"] != "preview"
+            and row["dry_run"]
+            and row["result"] != "preview"
         )
         return {
             "batches": batches,

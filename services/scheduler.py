@@ -22,6 +22,9 @@ from typing import Any, Callable, Dict, Optional
 logger = logging.getLogger("acc")
 
 SCAN_INTERVAL = 15.0
+# Espera antes de reintentar una programación tras un error transitorio
+# (cola llena, fallo inesperado del lanzador). No se desactiva la agenda.
+SCHEDULE_RETRY_DELAY_SECONDS = 300
 
 _thread: Optional[threading.Thread] = None
 _no_stop = threading.Event()
@@ -124,8 +127,14 @@ def scan_once(
                 launched += 1
         except Exception as exc:  # pragma: no cover - salvaguarda
             logger.exception("Programación %s falló al lanzar", schedule["id"])
+            # Un fallo del lanzador puede ser transitorio (por ejemplo, la
+            # cola de trabajos). Se registra y se reintenta con espera en
+            # lugar de apagar la programación de forma permanente.
             Schedule.mark_run(
-                schedule["id"], error=str(exc), disable=True, db_path=db_path,
+                schedule["id"],
+                error=str(exc),
+                retry_delay_seconds=SCHEDULE_RETRY_DELAY_SECONDS,
+                db_path=db_path,
             )
     return launched
 

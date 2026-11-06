@@ -191,11 +191,10 @@ def _active_task_count() -> int:
 
 
 # Idempotencia de envío: una operación solo se procesa una vez. El formulario
-# incluye un UUID oculto y aquí se recuerda el task_id asociado durante una
-# ventana corta. Es un estado por proceso (la app usa un worker por defecto).
-_OPERATION_IDS: Dict[str, Dict[str, Any]] = {}
-_OPERATION_IDS_LOCK = threading.Lock()
+# incluye un UUID oculto y la reserva se guarda en SQLite, de modo que también
+# sobrevive a reinicios y es compartida por varios workers.
 _OPERATION_ID_TTL = 3600
+_MAX_OPERATION_IDS = 5000
 
 # Estados que cierran el stream SSE.
 TERMINAL_STATES = {
@@ -1200,45 +1199,66 @@ def remove_task(tid: str) -> None:
 
 
 def _claim_operation_id(operation_id: str) -> Optional[str]:
-    """Reserva un envío idempotente.
+    """Reserva un envío idempotente en SQLite.
 
     Devuelve ``None`` si la operación es nueva. Si ya existía, devuelve el
     ``task_id`` asociado o ``""`` mientras el primer envío aún se está creando.
+    ``INSERT OR IGNORE`` hace la reserva atómica incluso con varios workers.
     """
     if not operation_id:
         return None
 
-    now = time.monotonic()
-    with _OPERATION_IDS_LOCK:
-        expired = [
-            key
-            for key, entry in _OPERATION_IDS.items()
-            if now - entry["created"] > _OPERATION_ID_TTL
-        ]
-        for key in expired:
-            _OPERATION_IDS.pop(key, None)
-
-        existing = _OPERATION_IDS.get(operation_id)
-        if existing is not None:
-            return existing.get("task_id", "")
-
-        _OPERATION_IDS[operation_id] = {"created": now, "task_id": ""}
-        if len(_OPERATION_IDS) > 5000:
-            oldest = min(
-                _OPERATION_IDS, key=lambda key: _OPERATION_IDS[key]["created"]
+    now = datetime.now(timezone.utc)
+    cutoff = (
+        now - timedelta(seconds=_OPERATION_ID_TTL)
+    ).isoformat(timespec="seconds")
+    with get_connection(get_db_path()) as conn:
+        conn.execute(
+            "DELETE FROM operation_ids WHERE created_at < ?", (cutoff,)
+        )
+        cursor = conn.execute(
+            """
+            INSERT OR IGNORE INTO operation_ids
+                (operation_id, created_at, task_id)
+            VALUES (?, ?, '')
+            """,
+            (operation_id, now.isoformat(timespec="seconds")),
+        )
+        if cursor.rowcount == 1:
+            # Acota la tabla sin tocar las reservas recientes.
+            total = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM operation_ids"
+                ).fetchone()[0]
             )
-            _OPERATION_IDS.pop(oldest, None)
-        return None
+            if total > _MAX_OPERATION_IDS:
+                conn.execute(
+                    """
+                    DELETE FROM operation_ids WHERE operation_id IN (
+                        SELECT operation_id FROM operation_ids
+                        ORDER BY created_at ASC
+                        LIMIT ?
+                    )
+                    """,
+                    (total - _MAX_OPERATION_IDS,),
+                )
+            return None
+        row = conn.execute(
+            "SELECT task_id FROM operation_ids WHERE operation_id = ?",
+            (operation_id,),
+        ).fetchone()
+    return row["task_id"] if row is not None else ""
 
 
 def _complete_operation_id(operation_id: str, tid: str) -> None:
     """Asocia el task_id definitivo a un envío ya reservado."""
     if not operation_id:
         return
-    with _OPERATION_IDS_LOCK:
-        entry = _OPERATION_IDS.get(operation_id)
-        if entry is not None:
-            entry["task_id"] = tid
+    with get_connection(get_db_path()) as conn:
+        conn.execute(
+            "UPDATE operation_ids SET task_id = ? WHERE operation_id = ?",
+            (tid, operation_id),
+        )
 
 
 def _release_operation_id(operation_id: str) -> None:
@@ -1249,8 +1269,11 @@ def _release_operation_id(operation_id: str) -> None:
     """
     if not operation_id:
         return
-    with _OPERATION_IDS_LOCK:
-        _OPERATION_IDS.pop(operation_id, None)
+    with get_connection(get_db_path()) as conn:
+        conn.execute(
+            "DELETE FROM operation_ids WHERE operation_id = ?",
+            (operation_id,),
+        )
 
 
 def generate_progress_events(task_id: str):
@@ -1698,12 +1721,19 @@ def task_report_pdf(task_id: str):
 
     db_path = get_db_path()
     batch = ExecutionBatch.get_latest_by_task(task_id, db_path=db_path)
+    report_task_name = task["name"]
     if batch is None:
-        # Lotes anteriores a la migración v9 no guardan task_id: en ese caso
-        # el informe recurre a la última corrida registrada en general (el
-        # PDF indica tarea y objetivo reales, así que nunca resulta ambiguo).
+        # Solo se recurre al último lote global si es anterior a la migración
+        # v9 (no guarda ``task_id``). Nunca se presenta el lote de otra tarea
+        # como si fuera el de esta; en ese caso el informe se etiqueta como
+        # "última corrida general".
         batches = ExecutionBatch.get_batches(limit=1, db_path=db_path)
-        batch = batches[0] if batches else None
+        candidate = batches[0] if batches else None
+        if candidate is not None and not candidate.task_id:
+            batch = candidate
+            report_task_name = (
+                f"{task['name']} (última corrida general)"
+            )
     if batch is None:
         flash(
             "Esta tarea aún no tiene ejecuciones registradas: lanza una "
@@ -1718,7 +1748,7 @@ def task_report_pdf(task_id: str):
     pdf_bytes = build_execution_report(
         batch,
         host_results,
-        task_name=task["name"],
+        task_name=report_task_name,
     )
     filename = f"informe-{task_id}-{batch.batch_id[:8]}.pdf"
     return Response(
@@ -2219,9 +2249,12 @@ def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
         )
     except JobQueueFull as exc:
         remove_task(tid)
+        # Fallo transitorio de capacidad: no se desactiva la programación; se
+        # pospone el siguiente intento para no martillear la cola.
         Schedule.mark_run(
             schedule["id"],
             error=f"Cola llena: {str(exc)[:120]}",
+            retry_delay_seconds=scheduler.SCHEDULE_RETRY_DELAY_SECONDS,
             db_path=db_path,
         )
         return False
@@ -3360,7 +3393,15 @@ def execute_with_progress(
 
         if cancel_event is not None and cancel_event.is_set():
             outcome = "cancelled"
-        explicit_status = outcome if outcome in {"cancelled", "incomplete"} else None
+        if outcome in {"cancelled", "incomplete"}:
+            explicit_status = outcome
+        elif mode == "preview":
+            # El lote nace como ``preview`` y debe conservar esa marca aunque
+            # alguna inspección falle: así sus errores no se suman a las
+            # estadísticas de ejecuciones reales.
+            explicit_status = "preview"
+        else:
+            explicit_status = None
         batch = ExecutionBatch.finish_batch(
             batch_id=batch_id,
             total_hosts=len(hosts),
@@ -3914,11 +3955,11 @@ def usuarios_estado():
         flash("No puedes desactivar tu propia cuenta.", "danger")
         return redirect(url_for("usuarios"))
 
-    if User.get_by_username(username, db_path=get_db_path()) is None:
+    target = User.get_by_username(username, db_path=get_db_path())
+    if target is None:
         flash(f"El usuario '{username}' no existe.", "danger")
         return redirect(url_for("usuarios"))
 
-    target = User.get_by_username(username, db_path=get_db_path())
     # Salva siempre un admin LOCAL activo: un admin LDAPS no puede
     # desactivar la única cuenta de administración local del sistema.
     if (

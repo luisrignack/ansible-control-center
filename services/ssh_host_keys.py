@@ -27,10 +27,12 @@
 from __future__ import annotations
 
 import concurrent.futures
+import fcntl
 import logging
 import os
 import subprocess
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -107,6 +109,36 @@ def _read_known_hosts(path: Path) -> str:
         return path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
+
+
+@contextmanager
+def _known_hosts_lock(target: Path):
+    """Bloqueo entre procesos para el ciclo leer-modificar-reemplazar.
+
+    Se usa un fichero ``.lock`` hermano y no el propio ``known_hosts``: el
+    reemplazo atómico con ``os.replace`` cambia el inodo del destino y un
+    bloqueo sobre el inodo viejo dejaría de proteger a los demás procesos.
+    """
+    lock_path = target.with_name(target.name + ".lock")
+    handle = None
+    try:
+        handle = open(lock_path, "a+", encoding="utf-8")
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    except OSError as exc:  # pragma: no cover - FS sin soporte de bloqueo
+        logger.warning(
+            "update_known_hosts: no se pudo bloquear %s: %s", lock_path, exc
+        )
+        if handle is not None:
+            handle.close()
+        yield
+        return
+    try:
+        yield
+    finally:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
 
 
 def _normalize_scan_types(types: Optional[Iterable[str]]) -> Tuple[str, ...]:
@@ -213,51 +245,60 @@ def update_known_hosts(
     existente se conserva.
     """
     target = path or known_hosts_path()
-    existing = _read_known_hosts(target)
-    existing_fingerprints = {
-        f"{host}|{key_type}|{key}"
-        for host, key_type, key in parse_known_hosts(existing)
-    }
-
-    lines_to_add: List[str] = []
-    for host, key_type, key in keys:
-        fingerprint = f"{host}|{key_type}|{key}"
-        if fingerprint in existing_fingerprints:
-            continue
-        existing_fingerprints.add(fingerprint)
-        lines_to_add.append(f"{host} {key_type} {key}")
-
-    if not lines_to_add:
-        logger.debug("update_known_hosts: sin líneas nuevas para %s", target)
-        return target
-
     try:
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     except OSError as exc:
-        logger.warning("update_known_hosts: no se pudo crear %s: %s", target.parent, exc)
+        logger.warning(
+            "update_known_hosts: no se pudo crear %s: %s", target.parent, exc
+        )
         return target
 
-    new_text = existing.rstrip("\n")
-    if new_text:
-        new_text += "\n"
-    new_text += "\n".join(lines_to_add) + "\n"
+    # Todo el ciclo leer-modificar-reemplazar ocurre bajo el bloqueo: dos
+    # lotes concurrentes no pueden pisarse las claves recién añadidas.
+    with _known_hosts_lock(target):
+        existing = _read_known_hosts(target)
+        existing_fingerprints = {
+            f"{host}|{key_type}|{key}"
+            for host, key_type, key in parse_known_hosts(existing)
+        }
 
-    # Escritura atómica: un lector (Ansible) nunca ve un fichero a medias.
-    fd, tmp_name = tempfile.mkstemp(
-        dir=str(target.parent), prefix=".known_hosts-", text=True
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(new_text)
-        os.chmod(tmp_name, 0o600)
-        os.replace(tmp_name, target)
-    except OSError as exc:  # pragma: no cover - permisos/FS exóticos
-        logger.warning("update_known_hosts: no se pudo escribir %s: %s", target, exc)
+        lines_to_add: List[str] = []
+        for host, key_type, key in keys:
+            fingerprint = f"{host}|{key_type}|{key}"
+            if fingerprint in existing_fingerprints:
+                continue
+            existing_fingerprints.add(fingerprint)
+            lines_to_add.append(f"{host} {key_type} {key}")
+
+        if not lines_to_add:
+            logger.debug(
+                "update_known_hosts: sin líneas nuevas para %s", target
+            )
+            return target
+
+        new_text = existing.rstrip("\n")
+        if new_text:
+            new_text += "\n"
+        new_text += "\n".join(lines_to_add) + "\n"
+
+        # Escritura atómica: un lector (Ansible) nunca ve un fichero a medias.
+        fd, tmp_name = tempfile.mkstemp(
+            dir=str(target.parent), prefix=".known_hosts-", text=True
+        )
         try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        return target
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(new_text)
+            os.chmod(tmp_name, 0o600)
+            os.replace(tmp_name, target)
+        except OSError as exc:  # pragma: no cover - permisos/FS exóticos
+            logger.warning(
+                "update_known_hosts: no se pudo escribir %s: %s", target, exc
+            )
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            return target
 
     logger.info(
         "update_known_hosts: añadidas %d línea(s) a %s",

@@ -201,6 +201,24 @@ def test_report_falls_back_to_last_batch_without_task_id(client):
     assert response.status_code == 200
     text = response.data.decode("cp1252", errors="replace")
     assert "10.99.0.5" in text
+    # El fallback se etiqueta para no atribuir el lote a la tarea solicitada.
+    assert "última corrida general" in text
+
+
+def test_report_does_not_use_another_tasks_batch(client):
+    """Sin lote propio no se presenta el de otra tarea como si fuera suyo."""
+    _login(client)
+    otra_id = _create_batch(task_id="hora", target="10.77.0.7")
+    ExecutionBatch.add_host_result(
+        otra_id, "10.77.0.7", "success", db_path=app_module.get_db_path()
+    )
+
+    response = client.get(
+        "/tarea/zona-todas/informe.pdf", follow_redirects=True
+    )
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert "aún no tiene ejecuciones registradas" in body
 
 
 def test_report_without_batches_redirects_with_message(client):

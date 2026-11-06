@@ -457,7 +457,7 @@ Prueba la restauración periódicamente. El procedimiento completo está en
 - SQLite en modo WAL: al copiar la base de datos en caliente, copia también
   `acc.db-wal` y `acc.db-shm`, o detén el servicio antes.
 - Las migraciones son no destructivas y se aplican al arrancar
-  (`PRAGMA user_version`). Esquema actual: **v10**. Haz copia de seguridad antes
+  (`PRAGMA user_version`). Esquema actual: **v11**. Haz copia de seguridad antes
   de actualizar. Una base creada por una versión más nueva aborta el arranque
   en lugar de degradarse.
 - El SSE y la consola se sirven desde memoria, con instantáneas en SQLite para

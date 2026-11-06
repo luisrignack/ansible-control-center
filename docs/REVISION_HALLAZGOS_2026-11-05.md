@@ -40,6 +40,19 @@ carrera, problemas de seguridad o incoherencias no cubiertas por las pruebas.
 | 5 | XSS en manejadores inline y confirmaciones bloqueadas por CSP | Aplicado |
 | 6 | El PDF ignora el orden “fallidos primero” | Aplicado |
 
+## Resumen de prioridad media
+
+| # | Hallazgo | Estado |
+|---|---|---|
+| 7 | Los fallos de vista previa contaminan las estadísticas reales | Aplicado |
+| 8 | Una cola llena desactiva permanentemente la programación | Aplicado |
+| 9 | El informe de una tarea puede mostrar el lote de otra | Aplicado |
+| 10 | Doble consulta al activar/desactivar usuarios | Aplicado |
+| 11 | Validación de certificado WinRM desactivada de forma fija | Aplicado |
+| 12 | `known_hosts` puede perder claves con lotes concurrentes | Aplicado |
+| 13 | Salida de Ansible acumulada sin límite en memoria | Aplicado |
+| 14 | La reserva de idempotencia es solo en memoria | Aplicado |
+
 ---
 
 ## Hallazgos de prioridad alta
@@ -372,6 +385,24 @@ DRY RUN la razón de un host correcto es “Simulación: sin cambios aplicados�
 
 ---
 
+## Implementación de prioridad media (2026-11-05)
+
+| Archivo | Cambio |
+|---|---|
+| `models/batch.py` | `get_stats()` excluye los lotes `preview` de los contadores reales y simulados |
+| `app.py` | Los lotes preview conservan su estado; informe sin *fallback* entre tareas; una sola consulta de usuario; idempotencia persistida |
+| `models/ops.py` | `mark_run()` distingue errores permanentes de transitorios y admite reintento con espera |
+| `services/scheduler.py` | Reintento con backoff constante ante fallos transitorios |
+| `config.py` | `ACC_WINRM_SERVER_CERT_VALIDATION` y `ACC_MAX_OUTPUT_BUFFER_LINES` |
+| `services/ansible_runner.py` | Validación TLS configurable; buffer de salida acotado |
+| `services/password_tester.py` | Validación TLS configurable en el ping WinRM |
+| `services/ssh_host_keys.py` | Bloqueo `flock` durante leer-modificar-reemplazar |
+| `models/db.py` | Esquema v11 con tabla `operation_ids` |
+| `.env.example` | Documentación de las nuevas variables |
+| `tests/*` | Pruebas de estadísticas, reintentos, informes, WinRM, bloqueo, buffer e idempotencia |
+
+---
+
 ## Hallazgos de prioridad media
 
 ### 7. Los fallos de vista previa contaminan las estadísticas reales
@@ -383,7 +414,14 @@ lote de vista previa se crea con `dry_run=0`, así que `get_stats()` lo cuenta
 como ejecución real. **Corrección:** filtrar por estado/modo del lote o usar un
 resultado específico `preview_error`.
 
-**Estado:** Pendiente.
+**Estado:** Aplicado (2026-11-05).
+
+**Implementación:** los lotes de vista previa conservan `status='preview'` al
+cerrarse, incluso si alguna inspección falla. `ExecutionBatch.get_stats()`
+excluye los lotes `preview` de los contadores reales y simulados; `preview`
+sigue contando solo inspecciones correctas. Se añadieron
+`test_preview_failures_do_not_contaminate_real_stats` y
+`test_preview_failure_is_not_counted_as_real_error`.
 
 ### 8. Una cola llena desactiva permanentemente la programación
 
@@ -394,7 +432,14 @@ cuando hay error. Un problema transitorio de capacidad la apaga para siempre.
 **Corrección:** distinguir errores permanentes de transitorios y reintentar con
 backoff.
 
-**Estado:** Pendiente.
+**Estado:** Aplicado (2026-11-05).
+
+**Implementación:** `Schedule.mark_run()` ya no desactiva por el mero hecho de
+recibir un error. Los fallos transitorios (`JobQueueFull` y excepciones del
+lanzador) se registran y posponen `run_at` con
+`retry_delay_seconds=SCHEDULE_RETRY_DELAY_SECONDS` (300 s por defecto),
+manteniendo la programación activa. Los errores permanentes siguen pasando
+`disable=True`. Se añadieron pruebas de error transitorio y permanente.
 
 ### 9. El informe de una tarea puede mostrar el lote de otra
 
@@ -404,7 +449,13 @@ Si no hay lote para la tarea, se usa la última ejecución global y se le pasa e
 nombre de la tarea solicitada. **Corrección:** no hacer *fallback* silencioso o
 etiquetar el informe como “última corrida general” con el `task_id` real.
 
-**Estado:** Pendiente.
+**Estado:** Aplicado (2026-11-05).
+
+**Implementación:** solo se usa el último lote global si no tiene `task_id`
+(anterior a la migración v9) y el informe se titula
+“<tarea> (última corrida general)”. Si el último lote pertenece a otra tarea,
+no se reutiliza. Se añadieron `test_report_does_not_use_another_tasks_batch` y
+la comprobación de la etiqueta en el caso legacy.
 
 ### 10. Doble consulta y condición de carrera al activar/desactivar usuarios
 
@@ -414,7 +465,10 @@ Se llama dos veces a `User.get_by_username()`. Entre ambas el usuario podría
 desaparecer y `target` quedaría `None`. **Corrección:** consultar una sola vez y
 comprobar `None`.
 
-**Estado:** Pendiente.
+**Estado:** Aplicado (2026-11-05).
+
+**Implementación:** `usuarios_estado()` consulta el usuario una sola vez y
+reutiliza el objeto; si no existe, avisa y redirige sin segundo acceso.
 
 ### 11. Validación de certificado WinRM desactivada de forma fija
 
@@ -425,7 +479,12 @@ Se fuerza `ansible_winrm_server_cert_validation: ignore`. **Corrección:** hacer
 configurable con valor seguro por defecto y permitir `ignore` solo de forma
 explícita.
 
-**Estado:** Pendiente.
+**Estado:** Aplicado (2026-11-05).
+
+**Implementación:** nueva variable `ACC_WINRM_SERVER_CERT_VALIDATION`
+(`validate` por defecto, `ignore` opcional) usada por el ping y por los
+playbooks. Documentada en `.env.example`. Se añadió una prueba del valor seguro
+por defecto y otra de que el payload usa la configuración.
 
 ### 12. `known_hosts` puede perder claves con lotes concurrentes
 
@@ -434,7 +493,12 @@ explícita.
 Lectura, modificación y reemplazo atómicos, pero sin bloqueo entre procesos.
 **Corrección:** usar `fcntl.flock()` durante todo el ciclo.
 
-**Estado:** Pendiente.
+**Estado:** Aplicado (2026-11-05).
+
+**Implementación:** `update_known_hosts()` adquiere `fcntl.flock(LOCK_EX)` sobre
+un fichero `.lock` hermano durante todo el ciclo leer-modificar-reemplazar. Se
+usa un fichero aparte porque `os.replace` cambia el inodo del destino. Se
+añadieron pruebas del bloqueo y de actualizaciones concurrentes.
 
 ### 13. Salida de Ansible acumulada sin límite en memoria
 
@@ -444,7 +508,12 @@ Lectura, modificación y reemplazo atómicos, pero sin bloqueo entre procesos.
 **Corrección:** conservar una cola acotada o volcar la salida a un archivo
 temporal.
 
-**Estado:** Pendiente.
+**Estado:** Aplicado (2026-11-05).
+
+**Implementación:** `_run_streaming()` conserva las últimas
+`ACC_MAX_OUTPUT_BUFFER_LINES` líneas (2000 por defecto) en un `deque`; el
+callback de consola sigue recibiendo todas las líneas. Se añadió
+`test_streaming_output_buffer_is_bounded`.
 
 ### 14. La reserva de idempotencia es solo en memoria
 
@@ -454,7 +523,12 @@ temporal.
 no es válido con varios workers. **Corrección:** persistir las operaciones en
 SQLite o documentar el límite de un solo worker.
 
-**Estado:** Pendiente.
+**Estado:** Aplicado (2026-11-05).
+
+**Implementación:** nueva tabla `operation_ids` (esquema v11) con
+`INSERT OR IGNORE` para una reserva atómica compartida entre workers y
+persistente tras reinicios. La limpieza por TTL se hace contra `created_at` y la
+tabla se acota a 5000 filas. Se añadió `test_operation_ids_persist_in_sqlite`.
 
 ---
 
@@ -497,30 +571,35 @@ SQLite o documentar el límite de un solo worker.
 5. Sustituir los `onclick`/`onsubmit` inline por `data-confirm`.
 6. Corregir el orden de filas del PDF.
 
-### Siguiente iteración
+### Siguiente iteración (aplicada el 2026-11-05)
 
-7. Separar errores de vista previa de las estadísticas reales.
-8. No desactivar programaciones por errores transitorios de cola.
-9. Eliminar el *fallback* engañoso del informe por tarea.
-10. Hacer configurable la validación TLS de WinRM.
-11. Bloquear `known_hosts` durante la actualización.
-12. Acotar la salida de Ansible y persistir la idempotencia si se prevé escalar.
+7. ~~Separar errores de vista previa de las estadísticas reales.~~
+8. ~~No desactivar programaciones por errores transitorios de cola.~~
+9. ~~Eliminar el *fallback* engañoso del informe por tarea.~~
+10. ~~Hacer configurable la validación TLS de WinRM.~~
+11. ~~Bloquear `known_hosts` durante la actualización.~~
+12. ~~Acotar la salida de Ansible.~~
+13. ~~Persistir la idempotencia en SQLite.~~
 
 ### Arquitectura
 
 La configuración actual usa **un solo worker** de Gunicorn porque el estado de
-las tareas, la cola, el rate limiter, las operaciones idempotentes y el
-programador viven en memoria. Es una decisión coherente para el tamaño actual,
-pero conviene documentarla como límite: para alta disponibilidad o varios
-workers habrá que mover ese estado a SQLite/Redis y elegir un líder para el
-programador.
+las tareas, la cola, el rate limiter y el programador viven en memoria. La
+idempotencia ya se persiste en SQLite y es válida con varios workers, pero para
+alta disponibilidad o varios workers habrá que mover el resto del estado a
+SQLite/Redis y elegir un líder para el programador.
+
+**Limitaciones pendientes:** *claim* atómico de programaciones para varios
+workers, transacción conjunta aprobación + creación del lote, estado
+`simulated` independiente de `success` y revocación de sesiones por cambio de
+contraseña o rol (`auth_version`).
 
 ---
 
 ## Cómo verificar este documento
 
 1. Ejecutar `.venv/bin/python -m pytest -q` y comprobar que no hay regresiones.
-   Resultado esperado en esta revisión: `254 passed, 1 skipped`.
+   Resultado esperado en esta revisión: `264 passed, 1 skipped`.
 2. Revisar la tabla de estado al inicio y los campos **Estado** de cada
    hallazgo.
 3. Para los hallazgos marcados como aplicados, revisar el código en las rutas
@@ -546,3 +625,4 @@ programador.
 |---|---|---|
 | 2026-11-05 | Documento creado con los hallazgos de la revisión | Revisión automatizada |
 | 2026-11-05 | Aplicados los seis hallazgos de prioridad alta y añadidas pruebas de regresión | Revisión automatizada |
+| 2026-11-05 | Aplicados los ocho hallazgos de prioridad media (7–14) y añadidas pruebas | Revisión automatizada |

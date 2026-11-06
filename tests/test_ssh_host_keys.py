@@ -2,6 +2,7 @@
 # Pruebas del provisionamiento opcional de known_hosts (sin red).
 from __future__ import annotations
 
+import concurrent.futures
 import subprocess
 
 import config as config_module
@@ -115,3 +116,36 @@ def test_ensure_host_keys_reports_unreachable(monkeypatch, tmp_path):
 
     assert host_keys.ensure_host_keys(["10.0.0.9"]) == {"10.0.0.9": False}
     assert not path.exists()
+
+
+def test_update_known_hosts_takes_interprocess_lock(monkeypatch, tmp_path):
+    path = tmp_path / "known_hosts"
+    calls = []
+    real_flock = host_keys.fcntl.flock
+
+    def fake_flock(fd, operation):
+        calls.append(operation)
+        return real_flock(fd, operation)
+
+    monkeypatch.setattr(host_keys.fcntl, "flock", fake_flock)
+    host_keys.update_known_hosts(
+        [("10.0.0.5", "ssh-ed25519", "NEW")], path=path
+    )
+
+    assert host_keys.fcntl.LOCK_EX in calls
+    assert path.with_name(path.name + ".lock").exists()
+
+
+def test_concurrent_known_hosts_updates_keep_all_keys(tmp_path):
+    path = tmp_path / "known_hosts"
+    keys = [
+        (f"10.0.1.{index}", "ssh-ed25519", f"KEY{index}")
+        for index in range(1, 21)
+    ]
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda key: host_keys.update_known_hosts([key], path=path), keys))
+
+    text = path.read_text(encoding="utf-8")
+    for host, _key_type, key in keys:
+        assert f"{host} ssh-ed25519 {key}" in text

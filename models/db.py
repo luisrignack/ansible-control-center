@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 def _secure_sqlite_files(path: str) -> None:
@@ -431,6 +431,26 @@ def _migrate_v10(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v11(conn: sqlite3.Connection) -> None:
+    """Reservas de idempotencia persistentes entre reinicios.
+
+    Antes vivían solo en memoria: un reinicio permitía reenviar la misma
+    operación y varios workers no compartían la reserva.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS operation_ids (
+            operation_id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL,
+            task_id TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_operation_ids_created
+            ON operation_ids (created_at);
+        """
+    )
+
+
 def init_schema(db_path: str) -> None:
     """Crea o migra el esquema de forma idempotente y no destructiva.
 
@@ -460,6 +480,7 @@ def init_schema(db_path: str) -> None:
         _migrate_v8(conn)
         _migrate_v9(conn)
         _migrate_v10(conn)
+        _migrate_v11(conn)
         # No se rebaja la versión de una base creada por una versión más nueva.
         if version < SCHEMA_VERSION:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

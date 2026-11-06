@@ -19,6 +19,7 @@ import re
 import subprocess
 import threading
 import time
+from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
@@ -29,10 +30,12 @@ from config import (
     DRY_RUN,
     HOST_KEY_CHECKING,
     INSPECT_PLAYBOOK_FILE,
+    MAX_OUTPUT_BUFFER_LINES,
     PLAYBOOK_FILE,
     PLAYBOOK_TIMEOUT,
     TIME_VERIFY_TOLERANCE,
     WINRM_PORT,
+    WINRM_SERVER_CERT_VALIDATION,
     WINRM_TRANSPORT,
     WINDOWS_APPLY_PLAYBOOK_FILE,
     WINDOWS_INSPECT_PLAYBOOK_FILE,
@@ -146,7 +149,9 @@ def _invoke_playbook(
         payload["ansible_connection"] = "winrm"
         payload["ansible_port"] = str(WINRM_PORT)
         payload["ansible_winrm_transport"] = WINRM_TRANSPORT
-        payload["ansible_winrm_server_cert_validation"] = "ignore"
+        payload["ansible_winrm_server_cert_validation"] = (
+            WINRM_SERVER_CERT_VALIDATION
+        )
 
     with secure_temp_file(
         json.dumps(payload), prefix=".ansible-vars-", suffix=".json"
@@ -189,7 +194,8 @@ def _run_streaming(
     Se usa un hilo lector para no bloquear el pipe si el proceso escribe mucho.
     El proceso se sondea cada 200 ms para poder atender una cancelación sin
     esperar al timeout completo. Al expirar o cancelarse se mata y se propaga
-    la excepción correspondiente.
+    la excepción correspondiente. La copia en memoria se acota a
+    ``MAX_OUTPUT_BUFFER_LINES`` líneas: el callback sigue recibiendo todas.
     """
     process = subprocess.Popen(
         cmd,
@@ -199,7 +205,7 @@ def _run_streaming(
         bufsize=1,
         env=env,
     )
-    lines: List[str] = []
+    lines: deque = deque(maxlen=max(100, int(MAX_OUTPUT_BUFFER_LINES)))
 
     def _reader() -> None:
         assert process.stdout is not None

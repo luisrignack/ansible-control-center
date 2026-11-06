@@ -172,6 +172,19 @@ WINRM_TRANSPORT = (
 if WINRM_TRANSPORT not in {"basic", "ntlm", "credssp"}:
     WINRM_TRANSPORT = "ntlm"
 
+# Validación del certificado presentado por WinRM. ``validate`` es el valor
+# seguro por defecto; ``ignore`` solo debe activarse de forma explícita para
+# laboratorios con certificados autofirmados. Con WinRM sobre HTTP (5985)
+# Ansible no usa el certificado, pero el valor se mantiene coherente.
+WINRM_SERVER_CERT_VALIDATION = (
+    os.environ.get("ACC_WINRM_SERVER_CERT_VALIDATION", "validate")
+    .strip()
+    .lower()
+    or "validate"
+)
+if WINRM_SERVER_CERT_VALIDATION not in {"validate", "ignore"}:
+    WINRM_SERVER_CERT_VALIDATION = "validate"
+
 BIN_ANSIBLE = _find_binary("ansible", "ACC_ANSIBLE_BIN")
 BIN_ANSIBLE_PLAYBOOK = _find_binary("ansible-playbook", "ACC_ANSIBLE_PLAYBOOK_BIN")
 BIN_ANSIBLE_VAULT = _find_binary("ansible-vault", "ACC_ANSIBLE_VAULT_BIN")
@@ -388,6 +401,12 @@ MAX_PASSWORD_LENGTH = _env_int(
 PING_TIMEOUT = _env_int("ACC_PING_TIMEOUT", 30, minimum=5, maximum=300)
 PLAYBOOK_TIMEOUT = _env_int("ACC_PLAYBOOK_TIMEOUT", 300, minimum=30, maximum=3600)
 CONNECT_TIMEOUT = _env_int("ACC_CONNECT_TIMEOUT", 10, minimum=3, maximum=120)
+# Líneas de salida de Ansible que se conservan en memoria por ejecución. El
+# callback de consola sigue recibiendo todas las líneas; solo se acota la
+# copia que se devuelve como ``stdout`` para evitar crecimientos sin límite.
+MAX_OUTPUT_BUFFER_LINES = _env_int(
+    "ACC_MAX_OUTPUT_BUFFER_LINES", 2000, minimum=100, maximum=100000
+)
 
 # Retención del historial y del progreso en memoria
 HISTORY_RETENTION_DAYS = _env_int("ACC_HISTORY_DAYS", 180, minimum=1)

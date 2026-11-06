@@ -240,6 +240,12 @@ def test_zona_todas_rejects_action_time(client):
 # ---------------------------------------------------------------------------
 # Runner: winrm en el payload
 # ---------------------------------------------------------------------------
+def test_winrm_cert_validation_defaults_to_secure():
+    from config import WINRM_SERVER_CERT_VALIDATION
+
+    assert WINRM_SERVER_CERT_VALIDATION == "validate"
+
+
 def test_win_ping_module_and_connection_vars(monkeypatch, tmp_path):
     import services.ansible_runner as runner
     import services.password_tester as tester
@@ -265,6 +271,10 @@ def test_win_ping_module_and_connection_vars(monkeypatch, tmp_path):
     assert "raw" in cmd and "echo PING_OK" in cmd
     assert captured["payload"]["ansible_connection"] == "winrm"
     assert captured["payload"]["ansible_winrm_transport"] == runner.WINRM_TRANSPORT
+    assert (
+        captured["payload"]["ansible_winrm_server_cert_validation"]
+        == runner.WINRM_SERVER_CERT_VALIDATION
+    )
     assert int(captured["payload"]["ansible_port"]) == runner.WINRM_PORT
 
 

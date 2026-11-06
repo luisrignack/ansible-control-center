@@ -15,6 +15,7 @@ from config import (
     DRY_RUN,
     PING_TIMEOUT,
     WINRM_PORT,
+    WINRM_SERVER_CERT_VALIDATION,
     WINRM_TRANSPORT,
 )
 from models.password import PasswordRecord
@@ -185,7 +186,9 @@ def test_ansible_ping(
             "ansible_connection": "winrm",
             "ansible_port": str(WINRM_PORT),
             "ansible_winrm_transport": WINRM_TRANSPORT,
-            "ansible_winrm_server_cert_validation": "ignore",
+            "ansible_winrm_server_cert_validation": (
+                WINRM_SERVER_CERT_VALIDATION
+            ),
         }
 
     try:

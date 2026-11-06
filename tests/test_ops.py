@@ -281,6 +281,58 @@ def test_schedule_scan_once_triggers_and_advances(client, monkeypatch):
     assert scheduler_module.scan_once(db_path, fake_launch) == 0
 
 
+def test_schedule_transient_error_keeps_schedule_enabled(client):
+    """Un fallo de capacidad no apaga la programación de forma permanente."""
+    db_path = app_module.get_db_path()
+    schedule = Schedule.create(
+        "cola llena",
+        "zona-todas",
+        datetime.now(timezone.utc) - timedelta(seconds=60),
+        {},
+        recurrence="daily",
+        db_path=db_path,
+    )
+
+    Schedule.mark_run(
+        schedule.id,
+        error="Cola llena",
+        retry_delay_seconds=300,
+        db_path=db_path,
+    )
+
+    updated = Schedule.get(schedule.id, db_path=db_path)
+    assert updated is not None
+    assert updated.enabled
+    assert updated.last_error == "Cola llena"
+    retry_at = datetime.fromisoformat(updated.run_at)
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=timezone.utc)
+    assert retry_at > datetime.now(timezone.utc)
+
+
+def test_schedule_permanent_error_disables(client):
+    db_path = app_module.get_db_path()
+    schedule = Schedule.create(
+        "permanente",
+        "zona-todas",
+        datetime.now(timezone.utc) - timedelta(seconds=60),
+        {},
+        recurrence="daily",
+        db_path=db_path,
+    )
+
+    Schedule.mark_run(
+        schedule.id,
+        error="Configuración inválida",
+        disable=True,
+        db_path=db_path,
+    )
+
+    updated = Schedule.get(schedule.id, db_path=db_path)
+    assert updated is not None
+    assert not updated.enabled
+
+
 def test_schedule_next_run_after_long_downtime_is_in_the_future(client):
     """Una caída de varios días no debe encadenar ejecuciones históricas."""
     db_path = app_module.get_db_path()

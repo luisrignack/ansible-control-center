@@ -2,6 +2,7 @@
 # Pruebas de inyección segura de credenciales en Ansible.
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
@@ -276,3 +277,35 @@ def test_streaming_timeout_kills_process(tmp_path, monkeypatch):
         )
 
     assert lines == ["inicio"]
+
+
+def test_streaming_output_buffer_is_bounded(monkeypatch):
+    """Solo se conservan las últimas líneas; el callback recibe todas."""
+    monkeypatch.setattr(ansible_runner, "MAX_OUTPUT_BUFFER_LINES", 100)
+    total = 150
+
+    class FakeProcess:
+        def __init__(self):
+            self.stdout = io.StringIO(
+                "".join(f"line-{index}\n" for index in range(total))
+            )
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):  # pragma: no cover - no se usa en este caso
+            pass
+
+    monkeypatch.setattr(
+        ansible_runner.subprocess, "Popen", lambda *a, **k: FakeProcess()
+    )
+    seen = []
+    process = ansible_runner._run_streaming(
+        ["fake"], {}, 5, seen.append
+    )
+
+    assert len(seen) == total
+    kept = process.stdout.splitlines()
+    assert len(kept) == 100
+    assert kept[0] == f"line-{total - 100}"
+    assert kept[-1] == f"line-{total - 1}"
