@@ -437,9 +437,12 @@ def build_execution_report(
                           size=9, color=GRAY)
         y -= 18
     else:
-        for index, row in enumerate(host_rows, start=1):
+        for index, row in enumerate(ordered_rows, start=1):
             if row.result == "success":
-                reason = "Ajuste aplicado y verificado"
+                if getattr(batch, "dry_run", False):
+                    reason = "Simulación: sin cambios aplicados"
+                else:
+                    reason = "Ajuste aplicado y verificado"
             else:
                 reason = classify_failure_reason(row.error, row.result)
             station = row.host

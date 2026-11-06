@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional
 from config import (
     BIN_ANSIBLE,
     CONNECT_TIMEOUT,
+    # ``DRY_RUN`` se conserva como atributo del módulo para el interruptor
+    # global, pero el ping ya no lo consulta: es una operación de solo lectura.
     DRY_RUN,
     PING_TIMEOUT,
     WINRM_PORT,
@@ -165,15 +167,9 @@ def test_ansible_ping(
         result["error"] = "Operación cancelada por el usuario."
         return result
 
-    if DRY_RUN:
-        return {
-            "success": True,
-            "host": host,
-            "output": "[DRY RUN] ping simulado",
-            "error": "",
-            "dry_run": True,
-        }
-
+    # El ping es una operación de solo lectura. Incluso en DRY RUN se ejecuta
+    # de verdad para no presentar credenciales o hosts inalcanzables como
+    # válidos; la simulación se aplica únicamente al cambio de configuración.
     if not password and not private_key:
         result["error"] = "No se proporcionó contraseña ni clave SSH."
         return result

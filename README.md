@@ -14,6 +14,14 @@ Windows, con backup previo de `/etc/timezone`.
 
 ---
 
+## Regla de oro del proyecto
+
+Toda modificación debe terminar con **commit y push a GitHub**. Una tarea no
+se considera terminada hasta que el cambio está publicado en `origin/master`.
+El procedimiento completo está en [AGENTS.md](AGENTS.md).
+
+---
+
 ## Estado actual
 
 Fases **P0–P4, P4.1, P4.2 y bloque de operación continua** completadas.

@@ -281,6 +281,44 @@ def test_schedule_scan_once_triggers_and_advances(client, monkeypatch):
     assert scheduler_module.scan_once(db_path, fake_launch) == 0
 
 
+def test_schedule_next_run_after_long_downtime_is_in_the_future(client):
+    """Una caída de varios días no debe encadenar ejecuciones históricas."""
+    db_path = app_module.get_db_path()
+    schedule = Schedule.create(
+        "recuperación",
+        "zona-todas",
+        datetime.now(timezone.utc) - timedelta(seconds=60),
+        {},
+        recurrence="daily",
+        db_path=db_path,
+    )
+    schedule.run_at = (
+        datetime.now(timezone.utc) - timedelta(days=3)
+    ).isoformat(timespec="seconds")
+
+    next_run = schedule.next_run_from()
+
+    assert next_run is not None
+    assert next_run > datetime.now(timezone.utc)
+    assert next_run <= datetime.now(timezone.utc) + timedelta(
+        days=1, seconds=5
+    )
+
+
+def test_deactivated_user_session_is_rejected(client):
+    """Desactivar una cuenta invalida su sesión en la siguiente petición."""
+    _login(client)
+    assert client.get("/").status_code == 200
+
+    User.set_active(
+        "admin", False, db_path=app_module.get_db_path()
+    )
+
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 302
+    assert "/login" in response.headers["Location"]
+
+
 def test_schedule_task_not_active_disables(client):
     db_path = app_module.get_db_path()
     Schedule.create(
@@ -411,17 +449,26 @@ def test_approval_flow_create_approve_consume(client):
     assert "pendiente" in solo[1]
     assert "doble aprobación" in solo[1]
 
-    same_person, same_error = None, None
-
+    # El solicitante no puede aprobar su propia solicitud.
     decided, decide_error = ApprovalRequest.decide(
         req.id, approver="operador", approve=True, db_path=db_path
     )
+    assert decided is None
+    assert "solicitante" in decide_error
+    assert ApprovalRequest.get(req.id, db_path=db_path).status == "pending"
+
+    # Un admin distinto sí puede aprobarla.
+    decided, decide_error = ApprovalRequest.decide(
+        req.id, approver="admin", approve=True, db_path=db_path
+    )
     assert decide_error is None
+    assert decided.status == "approved"
+
     # El aprobador no puede coincidir con el ejecutor (two-person rule).
     same_person = ApprovalRequest.consume_if_approved(
         "kaspersky",
         _approval_params(),
-        executor="operador",
+        executor="admin",
         approves_by_differs=True,
         ttl_minutes=30,
         db_path=db_path,
@@ -429,16 +476,7 @@ def test_approval_flow_create_approve_consume(client):
     assert not same_person[0]
     assert "two-person" in same_person[1]
 
-    # Con una aprobación de un admin distinto la ejecución se habilita.
-    req2 = ApprovalRequest.create(
-        "kaspersky", _approval_params(), requested_by="operador", db_path=db_path
-    )
-    decided2, decide_error2 = ApprovalRequest.decide(
-        req2.id, approver="admin", approve=True, db_path=db_path
-    )
-    assert decide_error2 is None
-    assert decided2.status == "approved"
-
+    # Con un ejecutor distinto del aprobador la ejecución se habilita.
     consumed, consume_error = ApprovalRequest.consume_if_approved(
         "kaspersky",
         _approval_params(),
@@ -448,7 +486,7 @@ def test_approval_flow_create_approve_consume(client):
         db_path=db_path,
     )
     assert consumed and consume_error is None
-    got = ApprovalRequest.get(req2.id, db_path=db_path)
+    got = ApprovalRequest.get(req.id, db_path=db_path)
     assert got.status == "consumed"
 
     # Un solo uso: la segunda ejecución vuelve a requerir aprobación.
@@ -461,10 +499,7 @@ def test_approval_flow_create_approve_consume(client):
         db_path=db_path,
     )
     assert not again[0]
-    # La solicitud consumida ya no vale; la fila vieja aprobada por el mismo
-    # ejecutor tampoco cuenta. Basta con que el mensage diga que no hay
-    # aprobación válida (usada o two-person rule).
-    assert "ya se usó" in again[1] or "two-person" in again[1]
+    assert "ya se usó" in again[1]
 
 
 def test_approval_params_must_match(client):

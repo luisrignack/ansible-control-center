@@ -372,9 +372,10 @@ def run_ansible_playbook(
                 f"[DRY RUN] Se habría ejecutado {path} en {host} "
                 f"(acción={action}, valor={value}, usuario={user})"
             ),
-            ok_count=1,
-            changed_count=1,
+            ok_count=0,
+            changed_count=0,
             dry_run=True,
+            simulated=True,
             playbook_path=path,
         )
 
@@ -632,8 +633,11 @@ def apply_host(
                 f"(modo={time_mode}, ntp={ntp_policy})"
             ),
             dry_run=True,
-            changed=True,
-            verified=True,
+            simulated=True,
+            # No se ha aplicado ni verificado nada en el host: no se debe
+            # presentar como un cambio confirmado.
+            changed=False,
+            verified=False,
             before_state=None,
             after_state=None,
             warnings="",

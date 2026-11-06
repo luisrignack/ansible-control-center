@@ -532,12 +532,22 @@ class Schedule:
                 )
 
     def next_run_from(self, base: Optional[datetime] = None) -> Optional[datetime]:
-        """Próxima ejecución tras un disparo, según la recurrencia."""
+        """Próxima ejecución tras un disparo, según la recurrencia.
+
+        La base nunca puede ser anterior a ``ahora``: si la aplicación estuvo
+        caída varios días, no se encadenan ejecuciones históricas una tras
+        otra. Las ejecuciones perdidas se consolidan en un único disparo y la
+        siguiente queda siempre en el futuro.
+        """
+        if self.recurrence not in (SCHEDULE_DAILY, SCHEDULE_WEEKLY):
+            return None
+        moment = base or _parse_utc(self.run_at)
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        moment = max(moment, datetime.now(timezone.utc))
         if self.recurrence == SCHEDULE_DAILY:
-            return (base or _parse_utc(self.run_at)) + timedelta(days=1)
-        if self.recurrence == SCHEDULE_WEEKLY:
-            return (base or _parse_utc(self.run_at)) + timedelta(days=7)
-        return None
+            return moment + timedelta(days=1)
+        return moment + timedelta(days=7)
 
 
 def _parse_utc(value: str) -> datetime:
@@ -669,12 +679,17 @@ class ApprovalRequest:
         approver = (approver or "").strip()
         if not approver:
             return None, "El aprobador es obligatorio."
+        if req.requested_by and req.requested_by == approver:
+            return None, (
+                "El aprobador debe ser distinto del solicitante "
+                "(two-person rule)."
+            )
         with get_connection(db_path) as conn:
-            conn.execute(
+            cursor = conn.execute(
                 """
                 UPDATE approvals
                 SET status = ?, approver = ?, decided_at = ?, note = ?
-                WHERE id = ?
+                WHERE id = ? AND status = ? AND consumed_at IS NULL
                 """,
                 (
                     APPROVAL_APPROVED if approve else APPROVAL_REJECTED,
@@ -682,8 +697,11 @@ class ApprovalRequest:
                     _now(),
                     (note or "").strip()[:300],
                     int(request_id),
+                    APPROVAL_PENDING,
                 ),
             )
+            if cursor.rowcount != 1:
+                return None, "La solicitud ya fue decidida."
         return cls.get(request_id, db_path=db_path), None
 
     @classmethod
@@ -699,7 +717,9 @@ class ApprovalRequest:
         """Consume una aprobación válida para esta ejecución.
 
         Casar tarea + hash de parámetros + estado ``approved`` + aprobador
-        distinto del ejecutor + dentro del TTL. Es de un solo uso.
+        distinto del solicitante y del ejecutor + dentro del TTL. El consumo
+        es atómico: solo una ejecución puede pasar de ``approved`` a
+        ``consumed``.
         """
         if db_path is None:
             db_path = _default_db_path()
@@ -722,6 +742,16 @@ class ApprovalRequest:
                         "Esta tarea requiere doble aprobación: hay una "
                         "solicitud pendiente, espera la decisión de un admin."
                     )
+                elif req.status == APPROVAL_CONSUMED:
+                    best_error = (
+                        "La aprobación ya se usó; solicita otra."
+                    )
+                continue
+            if req.requested_by and req.approver == req.requested_by:
+                best_error = (
+                    "La aprobación no es válida: el aprobador debe ser "
+                    "distinto del solicitante (two-person rule)."
+                )
                 continue
             if approves_by_differs and req.approver == executor:
                 best_error = (
@@ -737,9 +767,23 @@ class ApprovalRequest:
                 best_error = "La aprobación ya se usó; solicita otra."
                 continue
             with get_connection(db_path) as conn:
-                conn.execute(
-                    "UPDATE approvals SET status = ?, consumed_at = ? WHERE id = ?",
-                    (APPROVAL_CONSUMED, _now(), int(req.id)),
+                cursor = conn.execute(
+                    """
+                    UPDATE approvals
+                    SET status = ?, consumed_at = ?
+                    WHERE id = ? AND status = ? AND consumed_at IS NULL
+                    """,
+                    (
+                        APPROVAL_CONSUMED,
+                        _now(),
+                        int(req.id),
+                        APPROVAL_APPROVED,
+                    ),
                 )
+                if cursor.rowcount != 1:
+                    best_error = (
+                        "La aprobación ya se usó; solicita otra."
+                    )
+                    continue
             return True, None
         return False, best_error

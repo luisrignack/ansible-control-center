@@ -164,7 +164,7 @@
                                 </button>
                             </form>
                             <form method="post" action="{{ url_for('programaciones') }}" class="d-inline"
-                                onsubmit="return confirm('¿Eliminar la programación {{ item.name }}?');">
+                                data-confirm="¿Eliminar esta programación?">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="op" value="delete">
                                 <input type="hidden" name="schedule_id" value="{{ item.id }}">

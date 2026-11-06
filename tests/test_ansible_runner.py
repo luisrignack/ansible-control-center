@@ -114,6 +114,29 @@ def test_missing_password_fails_without_invoking_ansible(monkeypatch):
     assert "contraseña" in result["error"].lower()
 
 
+def test_ping_runs_even_in_dry_run(monkeypatch):
+    """El ping es de solo lectura: DRY RUN no debe fingir credenciales válidas."""
+    monkeypatch.setattr(password_tester, "DRY_RUN", True)
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        return _capture_vars_file(
+            captured,
+            cmd,
+            stdout='10.0.0.2 | SUCCESS => {"ping": "pong"}\n',
+            **kwargs,
+        )
+
+    monkeypatch.setattr(password_tester.subprocess, "run", fake_run)
+    result = password_tester.test_ansible_ping(
+        host="10.0.0.2", user="ubuntu", password="clave-ping"
+    )
+
+    assert result["success"] is True
+    assert result.get("dry_run") is not True
+    assert captured["vars"]["ansible_password"] == "clave-ping"
+
+
 def test_ping_uses_extra_vars_and_cleans_up(monkeypatch):
     monkeypatch.setattr(password_tester, "DRY_RUN", False)
     captured = {}

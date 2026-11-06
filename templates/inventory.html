@@ -156,13 +156,13 @@
                 </div>
                 <div class="col-12 col-md-5">
                     <form method="post" action="{{ url_for('inventario') }}"
-                        class="row g-2 align-items-end">
+                        class="row g-2 align-items-end"
+                        data-confirm="¿Eliminar este grupo y todos sus hosts?">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="action" value="delete_group">
                         <input type="hidden" name="group_id" value="{{ group.id }}">
                         <div class="col-12 d-grid">
-                            <button type="submit" class="btn btn-outline-danger"
-                                onclick="return confirm('¿Eliminar el grupo {{ group.name }} y sus hosts?');">Eliminar grupo</button>
+                            <button type="submit" class="btn btn-outline-danger">Eliminar grupo</button>
                         </div>
                     </form>
                 </div>

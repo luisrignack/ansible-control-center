@@ -238,7 +238,25 @@ def test_temporal_txt_requires_txt_file(client):
     assert b".txt" in response.data
 
 
-def test_temporal_txt_execution_records_history(client):
+def test_temporal_txt_execution_records_history(client, monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "test_ansible_ping",
+        lambda **_kwargs: {"success": True, "error": ""},
+    )
+    monkeypatch.setattr(
+        app_module,
+        "apply_host",
+        lambda host, **_kwargs: {
+            "success": True,
+            "host": host,
+            "error": "",
+            "before_state": {"timezone": "UTC", "ntp": False, "epoch": 0},
+            "after_state": {"timezone": "UTC", "ntp": False, "epoch": 0},
+            "changed": True,
+            "verified": True,
+        },
+    )
     _login(client)
     response = _post(
         client,

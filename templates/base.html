@@ -231,6 +231,19 @@
 
 <script nonce="{{ csp_nonce }}">
 (function () {
+    // Confirmaciones sin manejadores inline: compatibles con la CSP basada en
+    // nonce y sin interpolar datos de usuario dentro de JavaScript.
+    document.addEventListener('submit', function (event) {
+        const form = event.target;
+        if (!(form instanceof HTMLFormElement)) return;
+        const submitter = event.submitter;
+        const message = (submitter && submitter.dataset.confirm)
+            || form.dataset.confirm;
+        if (message && !window.confirm(message)) {
+            event.preventDefault();
+        }
+    });
+
     const root = document.documentElement;
     const themeBtn = document.getElementById('themeBtn');
     const themeIcon = document.getElementById('themeIcon');

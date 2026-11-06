@@ -2,6 +2,8 @@
 # Pruebas de CSRF, rate limiting y límites de red (fase P3).
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 import app as app_module
@@ -38,6 +40,20 @@ def test_csrf_rejects_empty_token():
         generate_csrf_token()
         assert not validate_csrf_token(None)
         assert not validate_csrf_token("")
+
+
+def test_templates_do_not_use_inline_event_handlers():
+    """La CSP basada en nonce bloquea los handlers inline; usar data-confirm."""
+    templates = Path(__file__).resolve().parent.parent / "templates"
+    offenders = []
+    for template in templates.rglob("*.html"):
+        content = template.read_text(encoding="utf-8")
+        if "onclick=" in content or "onsubmit=" in content:
+            offenders.append(template.name)
+    assert offenders == []
+
+    base = (templates / "base.html").read_text(encoding="utf-8")
+    assert "dataset.confirm" in base
 
 
 def test_rate_limiter_blocks_and_recovers(monkeypatch):

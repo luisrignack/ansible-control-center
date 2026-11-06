@@ -1241,6 +1241,18 @@ def _complete_operation_id(operation_id: str, tid: str) -> None:
             entry["task_id"] = tid
 
 
+def _release_operation_id(operation_id: str) -> None:
+    """Libera una reserva que no llegó a crear ninguna tarea.
+
+    Se usa cuando la aprobación falta o la cola está llena, para que el
+    operador pueda reintentar con el mismo ``operation_id`` sin esperar al TTL.
+    """
+    if not operation_id:
+        return
+    with _OPERATION_IDS_LOCK:
+        _OPERATION_IDS.pop(operation_id, None)
+
+
 def generate_progress_events(task_id: str):
     yield sse_retry(1500)
     start = time.time()
@@ -1346,9 +1358,14 @@ def _security_headers(response):
 @login_manager.user_loader
 def load_user(user_id: str):
     try:
-        return User.get_by_id(int(user_id), db_path=get_db_path())
+        user = User.get_by_id(int(user_id), db_path=get_db_path())
     except (TypeError, ValueError):
         return None
+    # Una cuenta desactivada pierde el acceso de inmediato, aunque conserve la
+    # cookie de sesión o la cookie "remember" de Flask-Login.
+    if user is None or not user.is_active:
+        return None
+    return user
 
 
 # ---------------------------------------------------------------------------
@@ -2274,6 +2291,30 @@ def handle_execution(default_mode: str = "execute"):
     if task is not None and task.get("min_role") == "admin":
         if not current_user.has_role("admin"):
             abort(403)
+    # La idempotencia se comprueba antes de consumir una aprobación: un doble
+    # clic o un reintento no debe gastar una autorización de un solo uso.
+    operation_id = request.form.get("operation_id", "").strip()
+    duplicate = _claim_operation_id(operation_id)
+    if duplicate is not None:
+        if duplicate:
+            if _wants_json():
+                return (
+                    jsonify(
+                        {
+                            "status": "duplicate",
+                            "task_id": duplicate,
+                            "message": "Operación ya enviada",
+                        }
+                    ),
+                    409,
+                )
+            return redirect(url_for("progress_page", task_id=duplicate))
+        message = "La operación ya se está procesando; espera unos segundos."
+        if _wants_json():
+            return jsonify({"status": "duplicate", "message": message}), 409
+        flash(message, "warning")
+        return redirect(url_for("index"))
+
     if task is not None and task.get("destructive") and form["mode"] == "execute":
         approved, approval_error = ApprovalRequest.consume_if_approved(
             form["task_id"],
@@ -2284,6 +2325,7 @@ def handle_execution(default_mode: str = "execute"):
             db_path=get_db_path(),
         )
         if not approved:
+            _release_operation_id(operation_id)
             message = approval_error or "Se requiere doble aprobación para esta tarea."
             if "pendiente" not in message and "ha expirado" not in message and "ya se usó" not in message:
                 approval_params = _approval_params(form)
@@ -2316,29 +2358,6 @@ def handle_execution(default_mode: str = "execute"):
                     403,
                 )
             return redirect(url_for("task_view", task_id=form["task_id"]))
-
-
-    operation_id = request.form.get("operation_id", "").strip()
-    duplicate = _claim_operation_id(operation_id)
-    if duplicate is not None:
-        if duplicate:
-            if _wants_json():
-                return (
-                    jsonify(
-                        {
-                            "status": "duplicate",
-                            "task_id": duplicate,
-                            "message": "Operación ya enviada",
-                        }
-                    ),
-                    409,
-                )
-            return redirect(url_for("progress_page", task_id=duplicate))
-        message = "La operación ya se está procesando; espera unos segundos."
-        if _wants_json():
-            return jsonify({"status": "duplicate", "message": message}), 409
-        flash(message, "warning")
-        return redirect(url_for("index"))
 
     tid = create_task()
     _complete_operation_id(operation_id, tid)
@@ -2378,6 +2397,7 @@ def handle_execution(default_mode: str = "execute"):
         )
     except JobQueueFull as exc:
         remove_task(tid)
+        _release_operation_id(operation_id)
         message = (
             "El servicio está ocupado con demasiadas operaciones. "
             "Espera a que termine alguna e inténtalo de nuevo."
@@ -2907,16 +2927,29 @@ def _run_apply_batch(
                 success = True
                 used_hash = short_hash
                 last_apply_error = ""
-                _append_log(
-                    log_lines,
-                    f"Playbook OK en {host} (hash {short_hash})",
-                )
-                _append_console(
-                    console_lines,
-                    tid,
-                    "Playbook y verificación OK",
-                    host=host,
-                )
+                if result.get("dry_run") or result.get("simulated"):
+                    _append_log(
+                        log_lines,
+                        f"Simulación OK en {host} (hash {short_hash}): "
+                        "no se aplicó ningún cambio",
+                    )
+                    _append_console(
+                        console_lines,
+                        tid,
+                        "SIMULACIÓN: credencial válida; no se aplicó ningún cambio",
+                        host=host,
+                    )
+                else:
+                    _append_log(
+                        log_lines,
+                        f"Playbook OK en {host} (hash {short_hash})",
+                    )
+                    _append_console(
+                        console_lines,
+                        tid,
+                        "Playbook y verificación OK",
+                        host=host,
+                    )
                 break
 
             # La contraseña es válida pero el cambio/verificación falló:
