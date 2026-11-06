@@ -210,7 +210,19 @@ ACC_HSTS=1
 ## 6. Acceso SSH a los equipos objetivo
 
 La app ejecuta Ansible desde el contenedor. Necesita `known_hosts` con las
-claves de los hosts si `ACC_HOST_KEY_CHECKING=1`:
+claves de los hosts si `ACC_HOST_KEY_CHECKING=1`. El `docker-compose.yml`
+incluido activa `ACC_SSH_HOST_KEYS_AUTO=1`: antes de cada lote se añaden las
+huellas que falten, incluidas las IPs nuevas, y el volumen `acc_ssh` las
+conserva entre reinicios.
+
+Para precargar de una vez todos los hosts SSH del inventario:
+
+```bash
+docker compose exec app flask --app app sync-known-hosts
+```
+
+También puedes pasar las líneas al arrancar con `ACC_KNOWN_HOSTS`, indicar
+otro fichero con `ACC_KNOWN_HOSTS_FILE`, o añadir huellas manualmente:
 
 ```bash
 docker compose exec app sh -c \
@@ -218,14 +230,10 @@ docker compose exec app sh -c \
 docker compose exec app chmod 600 /home/acc/.ssh/known_hosts
 ```
 
-También puedes pasar las líneas al arrancar con `ACC_KNOWN_HOSTS`, indicar
-otro fichero con `ACC_KNOWN_HOSTS_FILE`, o desactivar la verificación de forma
-consciente (`ACC_HOST_KEY_CHECKING=0`).
-
-La app puede rellenar `known_hosts` con `ssh-keyscan`, pero está desactivado
-por defecto porque aceptar una huella en el primer contacto debilita TOFU.
-Actívalo solo en redes de gestión de confianza con
-`ACC_SSH_HOST_KEYS_AUTO=1`.
+El aprovisionamiento automático acepta la huella en el primer contacto
+(TOFU): úsalo solo en redes de gestión de confianza. Para máxima seguridad,
+precarga huellas verificadas fuera de banda o usa certificados SSH de host.
+No desactives `ACC_HOST_KEY_CHECKING` en producción.
 
 ---
 

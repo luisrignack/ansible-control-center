@@ -4171,6 +4171,40 @@ def register_cli(flask_app: Flask) -> None:
         count = ExecutionBatch.reconcile_orphans(db_path=get_db_path())
         click.echo(f"Lotes huérfanos reconciliados: {count}")
 
+    @flask_app.cli.command("sync-known-hosts")
+    def sync_known_hosts_command():
+        """Precarga en known_hosts las huellas SSH de todo el inventario.
+
+        Es opcional: con ``ACC_SSH_HOST_KEYS_AUTO=1`` cada ejecución ya
+        aprovisiona las huellas que falten, incluidas IPs nuevas. Este comando
+        sirve para dejar el despliegue listo de una vez.
+        """
+        db_path = get_db_path()
+        hosts = []
+        for group in HostGroup.all(db_path=db_path):
+            if (group.connection or "ssh") != "ssh":
+                continue
+            for inv_host in HostGroup.hosts_of(
+                group.id, db_path=db_path
+            ):
+                hosts.append(inv_host.address)
+        hosts = sorted(set(hosts))
+        if not hosts:
+            click.echo("No hay hosts SSH en el inventario.")
+            return
+
+        status = ensure_host_keys(hosts)
+        ok = sum(1 for value in status.values() if value)
+        click.echo(f"Huellas disponibles: {ok}/{len(status)}")
+        missing = sorted(host for host, value in status.items() if not value)
+        if missing:
+            click.echo("Sin huella (host caído o SSH no accesible):")
+            for host in missing:
+                click.echo(f"  - {host}")
+            raise click.ClickException(
+                "No se pudieron obtener todas las huellas SSH."
+            )
+
 
 # ---------------------------------------------------------------------------
 # Factory

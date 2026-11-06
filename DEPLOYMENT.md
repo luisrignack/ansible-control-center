@@ -106,7 +106,7 @@ flask --app app init-admin
 | `ACC_LOG_DIR` | `/var/log/ansible-control-center` | Logs |
 | `ACC_DRY_RUN` | `1` | Modo simulación inicial (luego se controla desde la interfaz) |
 | `ACC_HOST_KEY_CHECKING` | `1` | Verificación estricta de host SSH |
-| `ACC_SSH_HOST_KEYS_AUTO` | `0` | Rellenar `known_hosts` con `ssh-keyscan` (debilita TOFU; solo redes de confianza) |
+| `ACC_SSH_HOST_KEYS_AUTO` | `0` | Rellenar `known_hosts` con `ssh-keyscan` (debilita TOFU; solo redes de confianza). El `docker-compose.yml` incluido lo activa por defecto (`1`). |
 | `ACC_KNOWN_HOSTS_FILE` | vacío | Ruta alternativa de `known_hosts`; vacío usa `$HOME/.ssh/known_hosts` |
 | `ACC_DEBUG` | `0` | Depurador Flask |
 | `ACC_COOKIE_SECURE` | `0` | `1` detrás de HTTPS |
@@ -450,9 +450,13 @@ Prueba la restauración periódicamente. El procedimiento completo está en
 - La contraseña de conexión de Ansible se pasa en un fichero temporal `0600`
   mediante `--extra-vars @fichero`; nunca va en la línea de comandos ni en los
   logs. El fichero se borra tras cada intento.
-- Por defecto se verifica la clave SSH del host. Si los equipos no están en
-  `known_hosts`, añádelos con `ssh-keyscan` o define
-  `ACC_HOST_KEY_CHECKING=0` de forma consciente (menos seguro).
+- Por defecto se verifica la clave SSH del host. En el despliegue Docker,
+  `ACC_SSH_HOST_KEYS_AUTO=1` añade automáticamente al `known_hosts` la huella
+  de cada host que falte, incluidas IPs nuevas, antes de cada lote. El volumen
+  `acc_ssh` conserva las huellas entre reinicios. Si prefieres precargar todo
+  el inventario de una vez:
+  `docker compose exec app flask --app app sync-known-hosts`.
+  No uses `ACC_HOST_KEY_CHECKING=0` salvo en un laboratorio aislado.
 - El modo temporal `.txt` procesa el archivo en memoria; no se guarda en disco.
 - SQLite en modo WAL: al copiar la base de datos en caliente, copia también
   `acc.db-wal` y `acc.db-shm`, o detén el servicio antes.

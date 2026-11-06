@@ -5,6 +5,22 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Aprovisionamiento automático de known_hosts] — 2026-11-05
+
+### Corregido
+
+- **Primer SSH fallaba por host key**: con `ACC_HOST_KEY_CHECKING=1` y
+  autenticación por contraseña, Ansible rechaza el host si su huella no está
+  en `known_hosts`. El `docker-compose.yml` ahora activa
+  `ACC_SSH_HOST_KEYS_AUTO=1` por defecto: antes de cada lote se escanean solo
+  los hosts cuya huella falte, incluidas IPs nuevas, y se añaden al volumen
+  `acc_ssh` de forma atómica y con bloqueo entre procesos.
+- **Nuevo comando** `flask --app app sync-known-hosts`: precarga las huellas
+  de todos los hosts SSH del inventario.
+- Documentadas las variables `ACC_SSH_HOST_KEYS_AUTO` y
+  `ACC_KNOWN_HOSTS_FILE` en `.env.example`, `.env.docker.example`,
+  `DEPLOYMENT.md` y la guía portable.
+
 ## [Corrección de hallazgos de prioridad media] — 2026-11-05
 
 ### Corregido
