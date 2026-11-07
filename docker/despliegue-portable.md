@@ -363,6 +363,7 @@ Vistas útiles de la interfaz (según rol):
 | Ejecución bloqueada en un host `critical` | Fuera de la ventana de mantenimiento | Ajusta la ventana en `/inventario` o autoriza una excepción con motivo (solo admin) |
 | WinRM no conecta | Puerto, transporte o certificado | Revisa 5985/5986, `ACC_WINRM_TRANSPORT` y `ACC_WINRM_SERVER_CERT_VALIDATION` |
 | «Actualización del sistema» no se puede ejecutar | Tarjeta en estado “En preparación” | Usa el procedimiento `apt-get` de §10 mientras no se habilite la acción `APT` |
+| El tapiz falla en una estación | Sin GNOME/dconf, sin `gsettings` o imagen no válida | Comprueba que sea Linux con GNOME; la imagen se valida por firma (PNG/JPEG/WebP/GIF/BMP) y el informe PDF indica la causa |
 
 ---
 
@@ -391,6 +392,13 @@ Vistas útiles de la interfaz (según rol):
   permanente en Linux y Windows; antes del cambio guarda
   `/etc/timezone.bak` en la estación y una copia en el volumen
   `acc_data` (`/data/timezone_backups/<lote>/<estación>/`).
+- **Tapiz oficial (Linux/GNOME)**: sube una imagen PNG, JPEG, WebP, GIF o BMP
+  (máximo `ACC_MAX_UPLOAD_BYTES`, 2 MB por defecto). La imagen se valida por
+  su firma real, se guarda con permisos `0600` fuera de la raíz web y se
+  borra al terminar el lote. El fondo se publica en
+  `/etc/dconf/db/local.d/00-acc-tapiz` y se aplica a las sesiones GNOME
+  activas: persiste tras reiniciar y al iniciar sesión. No se puede programar
+  (la programación no transporta la imagen) y no soporta Windows.
 - **Criticidad y ventanas**: cada grupo del inventario tiene criticidad
   (`low`/`medium`/`high`/`critical`) y, opcionalmente, una ventana en UTC.
   Una ejecución real sobre hosts `critical` fuera de su ventana se bloquea y

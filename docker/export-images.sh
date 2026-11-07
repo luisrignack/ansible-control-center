@@ -159,6 +159,11 @@ DESPUÉS DEL ARRANQUE
   - La tarjeta «Zona horaria» aplica America/Caracas (UTC-4) permanente en
     Linux y Windows; guarda copia del /etc/timezone anterior en el volumen
     de datos.
+  - La tarjeta «Tapiz oficial» permite subir una imagen (PNG/JPEG/WebP/GIF/
+    BMP, máximo 2 MB) y la aplica como fondo en estaciones Linux con GNOME.
+    El fondo se publica como valor predeterminado del sistema: sobrevive al
+    reinicio y se aplica a los usuarios que inicien sesión. La tarjeta
+    incluye un informe PDF con estación, fecha/hora y causa del error.
   - Estaciones Windows: requieren WinRM (5985/tcp con NTLM o 5986/tcp con
     TLS) y una cuenta de administrador local (guía 02, §6).
   - Inventario: asigna criticidad y ventana de mantenimiento en UTC. Los
