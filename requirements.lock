@@ -1,0 +1,31 @@
+# Lock de dependencias directas de Ansible Control Center.
+#
+# Reproduce las versiones exactas con las que se validó esta revisión. Las
+# dependencias transitivas las resuelve pip; el objetivo es que dos
+# instalaciones no usen versiones distintas de Flask, Ansible o cryptografía.
+# Mantener sincronizado con requirements.txt al actualizar dependencias.
+#
+# Uso: pip install -r requirements.lock
+
+# --- Backend web ---
+Flask==3.1.3
+Flask-Login==0.6.3
+Werkzeug==3.1.9
+python-dotenv==1.2.4
+
+# --- Servidor de producción ---
+gunicorn==23.0.0
+
+# --- Automatización ---
+ansible-core==2.19.15
+pywinrm==0.5.0
+
+# --- Cifrado de credenciales programadas ---
+cryptography==50.0.2
+
+# --- Autenticación corporativa (LDAPS) ---
+ldap3==2.9.1
+
+# --- Pruebas ---
+pytest==8.4.2
+pytest-cov==6.3.0

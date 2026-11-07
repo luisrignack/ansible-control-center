@@ -218,13 +218,16 @@ class User(UserMixin):
             )
 
         user = cls.get_by_username(username, db_path=db_path)
-        if user is not None and user.auth_source != auth_source:
+        if user is None:  # pragma: no cover - el upsert acaba de ejecutarse
+            raise RuntimeError(
+                f"No se pudo recuperar el usuario recién creado: {username}"
+            )
+        if user.auth_source != auth_source:
             raise ValueError(
                 f"La cuenta '{username}' ya existe con origen "
                 f"'{user.auth_source}': no se puede re-crear como "
                 f"'{auth_source}'."
             )
-        assert user is not None
         return user
 
     _SELECT = (

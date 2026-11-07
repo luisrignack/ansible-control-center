@@ -239,6 +239,8 @@ source .venv/bin/activate
 
 # Si tu equipo usa un mirror corporativo y no estás en esa red:
 # PIP_CONFIG_FILE=/dev/null python -m pip install -r requirements.txt
+# Para reproducir las versiones exactas validadas:
+# python -m pip install -r requirements.lock
 python -m pip install -r requirements.txt
 
 # Base de datos y usuario administrador
@@ -338,8 +340,10 @@ una `ACC_SECRET_KEY` aleatoria.
 | `ACC_JOB_SHUTDOWN_GRACE` | `10` | Espera de apagado ordenado (s) |
 | `ACC_MAX_MEMORY_TASKS` | `200` | Instantáneas de tarea en memoria |
 | `ACC_MAX_TASK_STATE_ROWS` | `500` | Filas máximas de `task_state` |
+| `ACC_TASK_PERSIST_INTERVAL` | `2` | Intervalo mínimo entre escrituras de consola/log en SQLite (s; `0` desactiva el agrupado) |
 | `ACC_HISTORY_DAYS` | `180` | Retención del historial de lotes (días) |
 | `ACC_AUTH_EVENT_DAYS` | `365` | Retención de eventos de autenticación (días) |
+| `ACC_RETENTION_INTERVAL_HOURS` | `24` | Cada cuántas horas el scheduler reaplica la retención (1–720) |
 | `ACC_LOGIN_LOCKOUT_THRESHOLD` | `5` | Fallos de login antes de bloquear la cuenta |
 | `ACC_LOGIN_LOCKOUT_MINUTES` | `15` | Duración del bloqueo (min) |
 
@@ -658,12 +662,16 @@ Define `hora_estado` con: `timezone`, `ntp`, `ntp_synchronized`,
 - **Sistemas soportados**: Ubuntu/Debian con systemd (`timedatectl`) y
   Windows por WinRM. No hay playbooks para RHEL, macOS ni dispositivos de red.
 - **Programaciones sin calendario complejo**: solo única, diaria o semanal.
-- **Retención al arrancar**: las instantáneas de tareas se purgan según
+- **Retención periódica**: las instantáneas de tareas se purgan según
   `ACC_JOB_RETENTION_HOURS`, el historial de lotes según
   `ACC_HISTORY_DAYS`, los eventos de acceso según
   `ACC_AUTH_EVENT_DAYS` y `task_state` se recorta a
-  `ACC_MAX_TASK_STATE_ROWS`. No hay un temporizador periódico: la purga se
-  aplica al iniciar el proceso (solo en procesos con rol `all`/`worker`).
+  `ACC_MAX_TASK_STATE_ROWS`. Además de aplicarse al arrancar, el scheduler la
+  reaplica cada `ACC_RETENTION_INTERVAL_HOURS` (24 h por defecto) sin
+  necesidad de reiniciar.
+- **Cancelación con propiedad**: un operador solo puede cancelar las
+  operaciones que lanzó; un administrador puede cancelar cualquiera. La
+  denegación y la cancelación quedan en `auth_events`.
 - **Sin API/CLI de ejecución**: solo endpoints internos de la interfaz.
 - **IPv6**: `ipaddress` lo acepta, pero el flujo con Ansible no está probado.
 
@@ -701,6 +709,8 @@ Módulos:
   existentes.
 - `test_report_about.py`: informe PDF y página de diagnóstico.
 - `test_dry_run_switch.py`: persistencia del interruptor de simulación.
+- `test_mejoras_2026_11_06_parte2.py`: validador único manual/programado,
+  ownership de cancelación, retención periódica y persistencia agrupada.
 - `test_ssh_container.py`: integración opcional con un contenedor SSH; se
   omite salvo `ACC_RUN_SSH_TESTS=1` y Docker disponible.
 

@@ -28,7 +28,10 @@ jobs:
           python -m pip install -r requirements.txt
 
       - name: Comprobar sintaxis
-        run: python -m compileall -q app.py config.py models services tests
+        run: python -m compileall -q app.py config.py models services tests tools
+
+      - name: Gate de calidad
+        run: python tools/quality_check.py
 
       - name: Validar YAML de Ansible
         run: |
@@ -48,3 +51,21 @@ jobs:
           python -m pytest -q \
             --cov=app --cov=config --cov=models --cov=services \
             --cov-report=term-missing --cov-fail-under=55
+
+  lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Instalar versiones fijadas
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.lock
+          python -m pip check

@@ -101,12 +101,14 @@ from config import (
     REMEMBER_COOKIE_SAMESITE,
     REMEMBER_COOKIE_SECURE,
     REMEMBER_COOKIE_DURATION_SECONDS,
+    RETENTION_INTERVAL_HOURS,
     ROLES,
     SECURITY_HEADERS_ENABLED,
     SESSION_COOKIE_HTTPONLY,
     SESSION_COOKIE_SAMESITE,
     SESSION_COOKIE_SECURE,
     SECRETS_DIR,
+    TASK_PERSIST_INTERVAL_SECONDS,
     TASK_REQUEST_EMAIL,
     TASK_REQUEST_SUBJECT,
     TIME_REQUIRE_NTP_OFF,
@@ -179,6 +181,13 @@ logger = logging.getLogger("acc")
 # ---------------------------------------------------------------------------
 _tasks: Dict[str, Dict[str, Any]] = {}
 _tasks_lock = threading.Lock()
+# Evento por tarea para despertar el stream SSE en cuanto cambia su estado,
+# sin sondeo con ``time.sleep``. El evento se descarta al borrar la tarea.
+_task_events: Dict[str, threading.Event] = {}
+# Última escritura en SQLite por tarea (tiempo monotónico) para agrupar las
+# actualizaciones frecuentes de consola/log.
+_task_persist_times: Dict[str, float] = {}
+_task_persist_lock = threading.Lock()
 _db_path_cache: Optional[str] = None
 
 
@@ -499,20 +508,25 @@ def _parse_ntp_servers(raw: str) -> tuple[List[str], Optional[str]]:
     return servers, None
 
 
-def _validate_scheduled_params(
+def _validate_operation_core(
+    *,
     task: Optional[Dict[str, Any]],
+    task_id: str,
     admin_user: str,
     action: str,
     value: str,
     ntp_policy: str,
     ntp_servers_raw: str,
+    platform: str = "",
+    group_name: str = "",
+    reject_destructive: bool = False,
+    enforce_time_ntp_off: bool = True,
 ) -> tuple[Optional[Dict[str, Any]], List[str]]:
-    """Valida los parámetros de una programación con las reglas del panel.
+    """Reglas comunes a la ejecución manual y las programaciones.
 
-    Las programaciones se crean en otra pantalla y se disparan sin nadie
-    delante. Sin esta validación podrían saltarse restricciones que la
-    ejecución manual sí aplica: ``TIME`` con NTP ``keep``, una acción que la
-    tarea no admite, una zona horaria inexistente o un usuario vacío.
+    Centralizar esta validación evita que una programación acepte algo que el
+    panel rechaza (o al revés): tarea activa, acción admitida, valor fijo,
+    plataforma del grupo, zona/hora válida, política NTP y usuario.
     """
     errors: List[str] = []
     admin_user = (admin_user or "").strip()
@@ -525,15 +539,25 @@ def _validate_scheduled_params(
     else:
         if action not in (task.get("actions") or ["TZ", "TIME"]):
             errors.append(
-                f"La tarea '{task.get('name', '')}' no admite la acción "
+                f"La tarea '{task.get('name', task_id)}' no admite la acción "
                 f"{action}."
             )
         if task.get("fixed_value") and action == "TZ":
             value = str(task["fixed_value"])
-        if task.get("destructive"):
+        if reject_destructive and task.get("destructive"):
             errors.append(
                 "Las tareas destructivas requieren aprobación manual; no se "
                 "pueden programar."
+            )
+        platforms = task.get("platforms") or []
+        if platform and platforms and platform not in platforms:
+            platform_label = "Windows" if platform == "windows" else "Linux"
+            objective = (
+                f"el grupo '{group_name}'" if group_name else "el objetivo"
+            )
+            errors.append(
+                f"La tarea '{task.get('name', task_id)}' no está disponible "
+                f"para {objective} ({platform_label})."
             )
 
     if not admin_user:
@@ -576,7 +600,11 @@ def _validate_scheduled_params(
                 errors.append(
                     "Formato de hora inválido; use AAAA-MM-DDTHH:MM."
                 )
-        if ntp_policy == "keep" and TIME_REQUIRE_NTP_OFF:
+        if (
+            enforce_time_ntp_off
+            and ntp_policy == "keep"
+            and TIME_REQUIRE_NTP_OFF
+        ):
             errors.append(
                 "TIME con NTP en política keep no está permitido al "
                 "ejecutar: el reloj podría revertirse. Usa off, restore o "
@@ -594,6 +622,32 @@ def _validate_scheduled_params(
             "ntp_servers": ntp_servers,
         },
         [],
+    )
+
+
+def _validate_scheduled_params(
+    task: Optional[Dict[str, Any]],
+    admin_user: str,
+    action: str,
+    value: str,
+    ntp_policy: str,
+    ntp_servers_raw: str,
+    platform: str = "",
+    group_name: str = "",
+) -> tuple[Optional[Dict[str, Any]], List[str]]:
+    """Valida una programación con las mismas reglas que la ejecución manual."""
+    return _validate_operation_core(
+        task=task,
+        task_id=(task or {}).get("id", ""),
+        admin_user=admin_user,
+        action=action,
+        value=value,
+        ntp_policy=ntp_policy,
+        ntp_servers_raw=ntp_servers_raw,
+        platform=platform,
+        group_name=group_name,
+        reject_destructive=True,
+        enforce_time_ntp_off=True,
     )
 
 
@@ -644,20 +698,6 @@ def _parse_operation_form(
                 task_id = candidate["id"]
                 break
     task = get_task(task_id) if task_id else None
-    if task is None or task.get("status") != "active":
-        errors.append("Selecciona una tarea activa del catálogo.")
-    elif action not in (task.get("actions") or ["TZ", "TIME"]):
-        errors.append(
-            f"La tarea '{task.get('name', task_id)}' no admite la acción "
-            f"{action}."
-        )
-
-    # Las tareas con valor fijo (p. ej. la tarjeta Zona horaria) lo imponen
-    # en el servidor: el campo oculto del formulario no es confiable. Solo
-    # aplica a TZ, que es el tipo de valor fijo del catálogo; para TIME se
-    # valida la hora que envió el operador.
-    if task is not None and task.get("fixed_value") and action == "TZ":
-        value = str(task["fixed_value"])
 
     if mode not in {"preview", "execute"}:
         errors.append("Modo de operación no válido.")
@@ -708,18 +748,6 @@ def _parse_operation_form(
                     f"El grupo '{group.name}' tiene {group.host_count} hosts "
                     f"y el máximo es {MAX_HOSTS}."
                 )
-            # Compatibilidad tarea/plataforma: la tarea declara qué SO admite
-            # y el grupo declara qué SO es.
-            if (
-                task is not None
-                and task.get("platforms")
-                and group.os_flavor not in task.get("platforms")
-            ):
-                errors.append(
-                    f"La tarea '{task.get('name', task_id)}' no está "
-                    f"disponible para el grupo '{group.name}' "
-                    f"({'Windows' if group.os_flavor == 'windows' else 'Linux'})."
-                )
         # El objetivo real se resuelve en caliente al ejecutar (los hosts del
         # grupo pueden cambiar entre el envío y el disparo del lote).
         target = f"inventory:{target_group_id}" if target_group_id is not None else ""
@@ -731,26 +759,35 @@ def _parse_operation_form(
         else:
             # Guardar la IP literal evita que Ansible vuelva a resolver DNS.
             target = pinned_target
-    if not admin_user:
-        errors.append("El usuario administrador es obligatorio.")
-    if action not in {"TZ", "TIME"}:
-        errors.append("Acción no válida.")
-    if ntp_policy not in NTP_POLICIES:
-        errors.append("Política NTP no válida.")
+    # Mismas reglas que una programación: tarea, acción, valor fijo,
+    # plataforma del grupo, zona/hora, NTP y usuario.
+    validated, core_errors = _validate_operation_core(
+        task=task,
+        task_id=task_id,
+        admin_user=admin_user,
+        action=action,
+        value=value,
+        ntp_policy=ntp_policy,
+        ntp_servers_raw=ntp_servers_raw,
+        platform=group_os_flavor,
+        group_name=group_name,
+        reject_destructive=False,
+        enforce_time_ntp_off=mode == "execute",
+    )
+    errors.extend(core_errors)
+    if validated is not None:
+        admin_user = validated["admin_user"]
+        action = validated["action"]
+        value = validated["value"]
+        ntp_policy = validated["ntp_policy"]
+        ntp_servers = list(validated["ntp_servers"])
+    else:
+        ntp_servers = []
 
     if action == "TIME":
         if time_mode not in {"utc", "local"}:
             errors.append("Semántica de hora no válida (utc o local).")
-        if not value:
-            errors.append("La hora exacta es obligatoria.")
-        else:
-            try:
-                parsed = datetime.strptime(
-                    value.replace(" ", "T"), "%Y-%m-%dT%H:%M"
-                )
-                value = parsed.strftime("%Y-%m-%dT%H:%M")
-            except ValueError:
-                errors.append("Formato de hora inválido; use AAAA-MM-DDTHH:MM.")
+        # El formato de ``value`` ya lo normalizó el validador común.
 
         if time_mode == "local":
             # La hora de pared necesita una zona real y resolver el hueco o el
@@ -803,37 +840,6 @@ def _parse_operation_form(
         time_zone = ""
         time_fold_raw = "auto"
         target_epoch = None
-        if not value:
-            errors.append("La zona horaria es obligatoria.")
-        elif not _TIMEZONE_RE.fullmatch(value):
-            errors.append("Formato de zona horaria inválido.")
-        elif not timezone_exists(value):
-            errors.append(f"Zona horaria desconocida: {value}.")
-
-    # TIME + NTP activo con política keep puede revertirse en segundos. En
-    # ejecución se rechaza por defecto; la vista previa solo advierte.
-    if (
-        mode == "execute"
-        and action == "TIME"
-        and ntp_policy == "keep"
-        and TIME_REQUIRE_NTP_OFF
-    ):
-        errors.append(
-            "TIME con NTP en política keep no está permitido al ejecutar: "
-            "el reloj podría revertirse. Usa off, restore o configure."
-        )
-
-    ntp_servers: List[str] = []
-    if ntp_policy == "configure":
-        ntp_servers, ntp_error = _parse_ntp_servers(ntp_servers_raw)
-        if ntp_error:
-            errors.append(ntp_error)
-        if not ntp_servers:
-            ntp_servers = list(DEFAULT_NTP_SERVERS)
-            if not ntp_servers:
-                errors.append(
-                    "La política NTP 'configure' requiere al menos un servidor NTP."
-                )
 
     temporal_passwords: list[str] = []
     vault_file: Optional[str] = None
@@ -1181,7 +1187,14 @@ def _recover_task_state(stale_minutes: Optional[int] = None) -> None:
         _persist_task(row["task_id"], task)
 
 
-def create_task() -> str:
+def create_task(owner: str = "") -> str:
+    """Crea una tarea en memoria y en SQLite.
+
+    ``owner`` es el usuario que la lanzó. Se usa para que un operador solo
+    pueda cancelar sus propias operaciones; un administrador puede cancelar
+    cualquiera. Las ejecuciones programadas no tienen dueño humano y quedan
+    reservadas a los administradores.
+    """
     task_id = str(uuid.uuid4())
     task = {
         "status": "pending",
@@ -1194,11 +1207,13 @@ def create_task() -> str:
         "overall_result": "unknown",
         "completed": False,
         "dry_run": is_dry_run(),
+        "owner": owner or "",
         "created_at": _utc_now_iso(),
         "updated_at": _utc_now_iso(),
     }
     with _tasks_lock:
         _tasks[task_id] = task
+        _task_events[task_id] = threading.Event()
         # Acota el estado en memoria: las tareas cerradas más antiguas se
         # descartan primero. La instantánea SQLite sigue disponible para el
         # historial reciente.
@@ -1210,6 +1225,9 @@ def create_task() -> str:
             ]
             for key in removable[: max(0, len(_tasks) - MAX_MEMORY_TASKS)]:
                 _tasks.pop(key, None)
+                _task_events.pop(key, None)
+                with _task_persist_lock:
+                    _task_persist_times.pop(key, None)
     _persist_task(task_id, task)
     _trim_task_state_rows()
     return task_id
@@ -1223,12 +1241,38 @@ def update_task(tid: str, updates: Dict[str, Any]) -> None:
         task.update(updates)
         task["updated_at"] = _utc_now_iso()
         snapshot = dict(task)
-    _persist_task(tid, snapshot)
+        event = _task_events.get(tid)
+
+    # Los cambios de estado y la finalización se guardan siempre. La consola
+    # puede generar decenas de líneas por segundo: se agrupan para no escribir
+    # en SQLite en cada una. Un fallo de escritura no interrumpe la operación.
+    force_persist = bool(
+        updates.get("completed")
+        or "status" in updates
+        or "cancellation_requested" in updates
+    )
+    now = time.monotonic()
+    should_persist = force_persist
+    with _task_persist_lock:
+        last = _task_persist_times.get(tid, 0.0)
+        if TASK_PERSIST_INTERVAL_SECONDS <= 0 or now - last >= (
+            TASK_PERSIST_INTERVAL_SECONDS
+        ):
+            should_persist = True
+        if should_persist:
+            _task_persist_times[tid] = now
+    if should_persist:
+        _persist_task(tid, snapshot)
+    if event is not None:
+        event.set()
 
 
 def remove_task(tid: str) -> None:
     with _tasks_lock:
         _tasks.pop(tid, None)
+        _task_events.pop(tid, None)
+    with _task_persist_lock:
+        _task_persist_times.pop(tid, None)
     _delete_persisted_task(tid)
 
 
@@ -1313,7 +1357,7 @@ def _release_operation_id(operation_id: str) -> None:
 def generate_progress_events(task_id: str):
     yield sse_retry(1500)
     start = time.time()
-    max_wait = 300
+    max_wait = 90
     last_payload: Optional[str] = None
 
     while True:
@@ -1342,7 +1386,16 @@ def generate_progress_events(task_id: str):
             )
             return
 
-        time.sleep(1)
+        # Espera a que update_task señale el evento; así el stream reacciona
+        # de inmediato sin bloquear el worker con time.sleep. El límite de 1 s
+        # sigue actuando como red de seguridad ante cambios externos.
+        with _tasks_lock:
+            event = _task_events.get(task_id)
+        if event is not None:
+            event.wait(1.0)
+            event.clear()
+        else:  # pragma: no cover - tarea persistida sin evento en memoria
+            time.sleep(1)
 
 
 # ---------------------------------------------------------------------------
@@ -1459,6 +1512,9 @@ def _finish_session_login(user: "User", client_ip: str, event: str, detail: str)
         db_path=get_db_path(),
     )
     LIMITER.reset(f"login:{client_ip}")
+    # Evita fijación de sesión: se descarta cualquier estado previo antes de
+    # emitir la cookie autenticada.
+    session.clear()
     rotate_csrf_token()
     session.permanent = True
     login_user(user, remember=bool(request.form.get("remember")))
@@ -2012,13 +2068,16 @@ def programaciones():
                 or "manual"
             )
             target_group_id = None
+            schedule_group = None
+            pinned_ip = None
             if target_mode == "group":
                 gid = request.form.get("target_group", "").strip()
-                if gid.isdigit() and HostGroup.get(gid, db_path=db_path):
-                    target_group_id = int(gid)
-                else:
+                if gid.isdigit():
+                    schedule_group = HostGroup.get(gid, db_path=db_path)
+                if schedule_group is None:
                     flash("Selecciona un grupo del inventario válido.", "danger")
                     return redirect(url_for("programaciones"))
+                target_group_id = int(gid)
             else:
                 pinned_ip, ip_error = pin_target(
                     request.form.get("target_ip", "").strip()
@@ -2027,8 +2086,8 @@ def programaciones():
                     flash(ip_error or "IP objetivo no válida.", "danger")
                     return redirect(url_for("programaciones"))
             # Mismas reglas que la ejecución manual: una programación no
-            # puede saltarse la política de hora/NTP ni usar una acción que
-            # la tarea no admite.
+            # puede saltarse la política de hora/NTP, usar una acción que la
+            # tarea no admite ni apuntar a un grupo con otra plataforma.
             validated, schedule_errors = _validate_scheduled_params(
                 tasks[task_id],
                 request.form.get("admin_user", ""),
@@ -2036,12 +2095,13 @@ def programaciones():
                 request.form.get("value", ""),
                 request.form.get("ntp_policy", "keep"),
                 request.form.get("ntp_servers", ""),
+                platform=schedule_group.os_flavor if schedule_group else "",
+                group_name=schedule_group.name if schedule_group else "",
             )
-            if schedule_errors:
+            if schedule_errors or validated is None:
                 for error in schedule_errors:
                     flash(error, "danger")
                 return redirect(url_for("programaciones"))
-            assert validated is not None
             schedule_params = _approval_params(
                 {
                     "target": (
@@ -2216,7 +2276,15 @@ def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
         return False
 
     # Defensa en profundidad: una fila antigua o editada a mano no debe
-    # saltarse las reglas que la ejecución manual aplica.
+    # saltarse las reglas que la ejecución manual aplica. La plataforma se
+    # resuelve con el grupo actual: si cambió, el disparo se rechaza.
+    target_group = None
+    if params.get("target_mode") == "group" and params.get(
+        "target_group_id"
+    ) is not None:
+        target_group = HostGroup.get(
+            params["target_group_id"], db_path=db_path
+        )
     validated, errors = _validate_scheduled_params(
         get_task(schedule["task_id"]),
         params.get("admin_user", ""),
@@ -2224,8 +2292,10 @@ def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
         params.get("value", ""),
         params.get("ntp_policy", "keep"),
         ",".join(str(server) for server in (params.get("ntp_servers") or [])),
+        platform=target_group.os_flavor if target_group else "",
+        group_name=target_group.name if target_group else "",
     )
-    if errors:
+    if errors or validated is None:
         Schedule.mark_run(
             schedule["id"],
             error="; ".join(errors)[:300],
@@ -2233,7 +2303,6 @@ def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
             db_path=db_path,
         )
         return False
-    assert validated is not None
 
     target = params.get("target", "")
     if params.get("target_mode") == "group":
@@ -2350,7 +2419,9 @@ def handle_execution(default_mode: str = "execute"):
             return jsonify({"status": "error", "errors": errors}), 400
         return redirect(url_for("index"))
 
-    assert form is not None  # ``errors`` vacío implica formulario válido.
+    if form is None:  # ``errors`` vacío implica formulario válido.
+        logger.error("El formulario se validó sin errores pero sin resultado")
+        abort(500)
     operator = getattr(current_user, "username", "") or str(current_user.get_id())
 
     # Gate por tarea: rol mínimo y doble aprobación para tareas destructivas.
@@ -2429,7 +2500,7 @@ def handle_execution(default_mode: str = "execute"):
                 )
             return redirect(url_for("task_view", task_id=form["task_id"]))
 
-    tid = create_task()
+    tid = create_task(owner=operator)
     _complete_operation_id(operation_id, tid)
     update_task(
         tid,
@@ -3551,7 +3622,13 @@ def progress_page(task_id: str):
     task = _get_task(task_id)
     if task is None:
         abort(404)
-    return render_template("progress.html", task_id=task_id, task=task)
+    actor = getattr(current_user, "username", "") or str(current_user.get_id())
+    can_cancel = current_user.has_role("admin") or str(
+        task.get("owner") or ""
+    ) == actor
+    return render_template(
+        "progress.html", task_id=task_id, task=task, can_cancel=can_cancel
+    )
 
 
 @app.route("/progress/<task_id>/events")
@@ -3583,10 +3660,33 @@ def api_task_status(task_id: str):
 @app.route("/tasks/<task_id>/cancel", methods=["POST"])
 @roles_required("operator")
 def cancel_task(task_id: str):
-    """Solicita la cancelación cooperativa de una operación en curso."""
+    """Solicita la cancelación cooperativa de una operación en curso.
+
+    Un operador solo puede cancelar las operaciones que lanzó; un
+    administrador puede cancelar cualquiera. Las tareas sin dueño (por
+    ejemplo, una programación desatendida) quedan reservadas a los
+    administradores.
+    """
     task = _get_task(task_id)
     if task is None:
         abort(404)
+
+    actor = getattr(current_user, "username", "") or str(current_user.get_id())
+    owner = str(task.get("owner") or "")
+    if not current_user.has_role("admin") and owner != actor:
+        AuthEvent.record(
+            actor,
+            _client_ip(),
+            "task_cancel_denied",
+            f"tarea={task_id} dueño={owner or '(ninguno)'}",
+            db_path=get_db_path(),
+        )
+        message = "Solo puedes cancelar las operaciones que lanzaste tú."
+        if _wants_json():
+            return jsonify({"success": False, "message": message}), 403
+        flash(message, "danger")
+        return redirect(url_for("progress_page", task_id=task_id))
+
     if task.get("completed") or task.get("cancellation_requested"):
         message = "La operación ya terminó o ya se estaba cancelando."
         if _wants_json():
@@ -3609,7 +3709,16 @@ def cancel_task(task_id: str):
             "message": "Cancelación solicitada; se detendrá al terminar el host actual…",
         },
     )
-    logger.info("Cancelación solicitada para la tarea %s", task_id)
+    AuthEvent.record(
+        actor,
+        _client_ip(),
+        "task_cancel",
+        f"tarea={task_id} dueño={owner or '(ninguno)'}",
+        db_path=get_db_path(),
+    )
+    logger.info(
+        "Cancelación solicitada para la tarea %s por %s", task_id, actor
+    )
     if _wants_json():
         return jsonify(
             {
@@ -3853,7 +3962,9 @@ def history():
 @login_required
 def acerca_de():
     """Página institucional con la fecha del host (hora local del servidor)."""
-    host_date = format_spanish_datetime(datetime.now(), with_time=True)
+    host_date = format_spanish_datetime(
+        datetime.now(timezone.utc), with_time=True
+    )
     return render_template("about.html", host_date=host_date)
 
 
@@ -4252,7 +4363,12 @@ def register_cli(flask_app: Flask) -> None:
             launched = scheduler.scan_once(db_path, launch_scheduled)
             click.echo(f"Programaciones lanzadas: {launched}")
             return
-        thread = scheduler.start(launch_scheduled, lambda: db_path)
+        thread = scheduler.start(
+            launch_scheduled,
+            lambda: db_path,
+            maintenance=_purge_retention,
+            maintenance_interval=RETENTION_INTERVAL_HOURS * 3600,
+        )
         if thread is None:
             raise click.ClickException(
                 "El scheduler no se inició: revisa ACC_SCHEDULER_ENABLED, "
@@ -4416,7 +4532,10 @@ def configure_app(flask_app: Flask) -> Flask:
     if not cli_mode:
         try:
             scheduler.start(
-                launch_scheduled, lambda: str(get_db_path())
+                launch_scheduled,
+                lambda: str(get_db_path()),
+                maintenance=_purge_retention,
+                maintenance_interval=RETENTION_INTERVAL_HOURS * 3600,
             )
         except Exception:  # pragma: no cover - no impedir el arranque
             logger.exception("No se pudo iniciar el programador de ejecuciones")

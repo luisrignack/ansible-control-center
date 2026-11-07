@@ -6,8 +6,10 @@
 recomendaciones de alta prioridad.
 **Ámbito:** código, seguridad, concurrencia, datos, playbooks, pruebas,
 despliegue y documentación.
-**Estado tras este cambio:** correcciones A1–A6 aplicadas; suite completa
-**277 passed, 1 skipped**. Los capítulos 5–7 recogen el trabajo pendiente.
+**Estado tras este cambio:** correcciones A1–A6 y Sprint 2 aplicados (validador
+único, ownership de cancelación, retención periódica, persistencia agrupada,
+SSE con evento y gate de calidad/lockfile). Suite completa
+**287 passed, 1 skipped**. Los capítulos 5–7 recogen el trabajo restante.
 
 ---
 
@@ -160,28 +162,36 @@ anterior, se enviaba al operador una copia que no representaba el estado previo.
 
 ---
 
-## 5. Hallazgos de prioridad media (pendientes)
+## 5. Hallazgos de prioridad media (resueltos en Sprint 2)
 
-1. Validación de programaciones sin comprobación de plataforma del grupo.
-2. SSE bloqueante con `time.sleep(1)` y solo 4 hilos `gthread`.
-3. Retención aplicada únicamente al arrancar.
-4. Persistencia de la tarea completa (incluida consola) en cada actualización.
-5. Cancelación sin *ownership*: cualquier `operator` puede cancelar cualquier
-   tarea por ID.
-6. `assert` en rutas de producción; `python -O` los elimina.
-7. Sesión no limpiada antes de `login_user` (endurecimiento ante fijación).
-8. `datetime.now()` naive en `/acerca-de`.
-9. Secretos en `docker-compose.yml` vía variable de entorno.
-10. Redirección nginx basada en `$host` y ausencia de HSTS en nginx.
-11. Contraseñas candidatas deformadas por `.strip()` y líneas con `#`.
+1. ~~Validación de programaciones sin comprobación de plataforma del grupo.~~
+   Resuelto con `_validate_operation_core()` y validación al disparar.
+2. ~~SSE bloqueante con `time.sleep(1)` y solo 4 hilos `gthread`.~~ Resuelto
+   con un evento por tarea y stream acotado a 90 s.
+3. ~~Retención aplicada únicamente al arrancar.~~ Resuelto en el bucle del
+   scheduler (`ACC_RETENTION_INTERVAL_HOURS`).
+4. ~~Persistencia de la tarea completa en cada actualización.~~ Resuelto con
+   escrituras agrupadas (`ACC_TASK_PERSIST_INTERVAL`).
+5. ~~Cancelación sin *ownership*.~~ Resuelto con `owner` y auditoría.
+6. ~~`assert` en rutas de producción.~~ Eliminados.
+7. ~~Sesión no limpiada antes de `login_user`.~~ Resuelto con
+   `session.clear()`.
+8. ~~`datetime.now()` naive en `/acerca-de`.~~ Resuelto con UTC explícito.
+9. Secretos en `docker-compose.yml` vía variable de entorno (pendiente).
+10. Redirección nginx basada en `$host` y ausencia de HSTS en nginx
+    (pendiente).
+11. Contraseñas candidatas deformadas por `.strip()` y líneas con `#`
+    (pendiente).
 
-## 6. Deuda de calidad y operación (pendiente)
+## 6. Deuda de calidad y operación (parcialmente resuelta)
 
 - `app.py` monolítico: modularizar por *blueprints* de forma incremental.
 - Salida de Ansible basada en marcadores de texto; valorar callback JSON.
-- CI sin `ruff`/`black`, `mypy`, `bandit`, `pip-audit`, `ansible-lint`, build
-  de Docker ni pruebas del compose.
-- `requirements.txt` sin lockfile reproducible.
+- CI con gate de calidad propio y lockfile de dependencias directas. Sigue
+  pendiente añadir `ruff`/`black`, `mypy`, `bandit`, `pip-audit`,
+  `ansible-lint`, build de Docker y pruebas del compose (requieren red o
+  herramientas no disponibles en el entorno de desarrollo).
+- `requirements.lock` añadido con pines exactos de dependencias directas.
 - `pytest-cov` declarado pero ausente del `.venv`; Python local 3.14 frente a
   Docker 3.12 y matriz 3.11–3.13.
 - Faltan `LICENSE`, `SECURITY.md` y `CONTRIBUTING.md`.
@@ -200,12 +210,13 @@ anterior, se enviaba al operador una copia que no representaba el estado previo.
 4. Scheduler con lock, *claim* atómico y roles de proceso.
 5. Backup de timezone siempre actualizado.
 
-### Sprint 2 — operación y calidad
+### Sprint 2 — operación y calidad (aplicado en este cambio)
 
 6. Retención periódica y persistencia *throttled*.
 7. SSE sin bloqueo de hilos.
 8. Validador único manual/programado, incluida plataforma.
-9. CI con lint, tipos, seguridad, build Docker y lockfile.
+9. CI con gate de calidad y lockfile (los linters externos siguen pendientes
+   por falta de red en el entorno de desarrollo).
 10. *Ownership* en cancelación y auditoría.
 
 ### Sprint 3 — estructural

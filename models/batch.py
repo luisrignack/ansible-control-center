@@ -471,7 +471,10 @@ class ExecutionBatch:
             )
 
         batch = ExecutionBatch.get_batch(batch_id, db_path=db_path)
-        assert batch is not None
+        if batch is None:  # pragma: no cover - el INSERT acaba de ejecutarse
+            raise RuntimeError(
+                f"No se pudo recuperar el lote recién creado: {batch_id}"
+            )
         return batch
 
     @staticmethod

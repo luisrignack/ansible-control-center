@@ -125,7 +125,11 @@ inspección, queda como `error` y el resto continúa.
 - La consola permite auto-scroll, limpieza y descarga del log. Los secretos
   conocidos se redactan, los marcadores de estado se compactan y solo se
   conservan las últimas 300 líneas.
-- Si el SSE no está disponible, la página reintenta por polling cada 2 s.
+- Si el SSE no está disponible, la página reintenta por polling cada 2 s. El
+  stream se acota a 90 s y se cierra solo al terminar el lote; si sigue en
+  curso, la página continúa por polling.
+- Un operador solo puede cancelar las operaciones que lanzó; un administrador
+  puede cancelar cualquiera. La cancelación y la denegación quedan auditadas.
 - El detalle final está en `/batches/<batch_id>`.
 - No cierres el proceso ni reinicies el servicio durante un lote: el estado de
   las tareas vive en memoria y el lote puede quedar `running`.
@@ -372,8 +376,10 @@ contraseña maestra esperada.
 `ACC_AUTH_EVENT_DAYS` (365) se aplican al arrancar (solo en procesos con rol
 `all`/`worker`, no en `web`/`cli`): se borran las instantáneas de tareas, los
 lotes y los eventos de acceso más antiguos. `task_state` también se recorta a
-`ACC_MAX_TASK_STATE_ROWS`. No hay un temporizador periódico; para forzar la
-limpieza sin reiniciar, usa el procedimiento manual de §7.1.
+`ACC_MAX_TASK_STATE_ROWS`. El scheduler reaplica esta limpieza cada
+`ACC_RETENTION_INTERVAL_HOURS` (24 h por defecto), así que no hace falta
+reiniciar. Para forzar la limpieza de inmediato, usa el procedimiento manual
+de §7.1.
 
 ### 7.1. Borrar lotes antiguos manualmente
 

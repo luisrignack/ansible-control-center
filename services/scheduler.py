@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -235,10 +236,15 @@ def start(
     launch: Callable[[Any, Dict[str, Any]], bool],
     db_path_provider: Callable[[], str],
     interval: float = SCAN_INTERVAL,
+    maintenance: Optional[Callable[[], None]] = None,
+    maintenance_interval: float = 24 * 3600,
 ) -> Optional[threading.Thread]:
     """Arranca el hilo de revisión si corresponde y no está ya corriendo.
 
-    Respeta ``ACC_SCHEDULER_ENABLED``, ``ACC_ROLE`` y el lock de instancia.
+    ``maintenance`` se ejecuta de forma periódica (cada
+    ``maintenance_interval`` segundos) dentro del mismo hilo: la retención de
+    historial no depende de que el proceso se reinicie. Respeta
+    ``ACC_SCHEDULER_ENABLED``, ``ACC_ROLE`` y el lock de instancia.
     Devuelve el hilo, o ``None`` si este proceso no debe programar.
     """
     from config import PROCESS_ROLE, SCHEDULER_ENABLED
@@ -260,11 +266,22 @@ def start(
     _no_stop.clear()
 
     def _loop() -> None:
+        # El arranque ya aplica la retención una vez; no se repite de
+        # inmediato al entrar en el bucle.
+        last_maintenance = time.monotonic()
         while not _no_stop.is_set():
             try:
                 scan_once(db_path_provider(), launch)
             except Exception:  # pragma: no cover - salvaguarda
                 logger.exception("El programador falló una revisión")
+            if maintenance is not None and (
+                time.monotonic() - last_maintenance >= maintenance_interval
+            ):
+                try:
+                    maintenance()
+                except Exception:  # pragma: no cover - salvaguarda
+                    logger.exception("Fallo el mantenimiento periódico")
+                last_maintenance = time.monotonic()
             _no_stop.wait(interval)
 
     _thread = threading.Thread(target=_loop, name="acc-schedules", daemon=True)

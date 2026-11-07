@@ -499,7 +499,10 @@ class Schedule:
                 "SELECT * FROM schedules WHERE id = ?",
                 (cursor.lastrowid,),
             ).fetchone()
-        assert row is not None
+        if row is None:  # pragma: no cover - el INSERT acaba de ejecutarse
+            raise RuntimeError(
+                f"No se pudo recuperar la programación creada: {name}"
+            )
         return Schedule(row)
 
     @classmethod
@@ -717,7 +720,10 @@ class ApprovalRequest:
                 ),
             )
         got = cls.get(cursor.lastrowid, db_path=db_path)
-        assert got is not None
+        if got is None:  # pragma: no cover - el INSERT acaba de ejecutarse
+            raise RuntimeError(
+                f"No se pudo recuperar la aprobación creada: {task_id}"
+            )
         return got
 
     @classmethod

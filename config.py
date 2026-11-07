@@ -443,12 +443,24 @@ JOB_RETENTION_HOURS = _env_int("ACC_JOB_RETENTION_HOURS", 24, minimum=1)
 AUTH_EVENT_RETENTION_DAYS = _env_int(
     "ACC_AUTH_EVENT_DAYS", 365, minimum=1
 )
+# Cada cuántas horas el scheduler vuelve a aplicar la retención mientras el
+# proceso sigue vivo (al arrancar ya se aplica una vez). Evita que un proceso
+# de larga vida acumule historial aunque no se reinicie.
+RETENTION_INTERVAL_HOURS = _env_int(
+    "ACC_RETENTION_INTERVAL_HOURS", 24, minimum=1, maximum=720
+)
 
 # Límites de memoria y de la tabla de instantáneas de tareas. Evitan que un
 # proceso de larga vida acumule estados de todas las operaciones históricas.
 MAX_MEMORY_TASKS = _env_int("ACC_MAX_MEMORY_TASKS", 200, minimum=10)
 MAX_TASK_STATE_ROWS = _env_int(
     "ACC_MAX_TASK_STATE_ROWS", 500, minimum=10
+)
+# Intervalo mínimo entre escrituras de consola/log en SQLite. Los cambios de
+# estado se guardan siempre; el resto se agrupa para no escribir en cada línea
+# de Ansible. 0 desactiva el agrupado.
+TASK_PERSIST_INTERVAL_SECONDS = _env_int(
+    "ACC_TASK_PERSIST_INTERVAL", 2, minimum=0, maximum=60
 )
 
 # Cola de trabajos: concurrencia acotada y tamaño máximo de la cola.

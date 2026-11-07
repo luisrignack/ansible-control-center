@@ -65,6 +65,12 @@ Formulario (mode=preview)
 
 La vista previa **nunca** llama a `apply_host`.
 
+Tanto la vista previa como la ejecución y las programaciones pasan por
+`_validate_operation_core()`: tarea activa, acción admitida, valor fijo,
+plataforma del grupo, zona/hora, política NTP y usuario. Al disparar una
+programación se vuelve a validar contra el grupo actual (defensa en
+profundidad).
+
 ## 4. Flujo de ejecución
 
 ```
@@ -114,12 +120,15 @@ La contraseña nunca se pasa por `argv`: se escribe en un fichero temporal
 
 ## 6. Modelo de concurrencia
 
-- Cada ejecución lanza un hilo daemon (`execute_with_progress`).
-- El estado de progreso vive en `_tasks` (memoria del proceso).
-- El SSE consulta `_tasks` cada segundo y envía el estado completo.
+- Cada ejecución se encola en la cola acotada (`ACC_JOB_WORKERS` hilos
+  daemon); la cancelación es cooperativa mediante un evento.
+- El estado de progreso vive en `_tasks` (memoria del proceso) y se respalda
+  en `task_state` con escrituras agrupadas para consola/log.
+- El SSE espera un evento por tarea y envía el estado completo; el stream se
+  acota a 90 s.
 - La salida de Ansible se entrega a un buffer acotado (`console`, 300 líneas)
   mediante un hilo lector por proceso; el resumen de hitos va en `log`.
-- Si el SSE falla de forma repetida, la página cae a polling de
+- Si el SSE falla de forma repetida o expira, la página cae a polling de
   `/api/task-status/<task_id>`.
 - Los hosts se procesan secuencialmente.
 - SQLite usa WAL y `busy_timeout` para tolerar escrituras concurrentes.

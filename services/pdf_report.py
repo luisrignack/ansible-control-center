@@ -227,7 +227,12 @@ class PDFDocument:
             )
             content_id = len(objects)
             page_id = 5 + 2 * (index - 1) + 1
-            assert content_id == page_id - 1  # página inmediatamente después
+            if content_id != page_id - 1:  # pragma: no cover - invariante
+                raise RuntimeError(
+                    "Estructura PDF inconsistente: el contenido de la página "
+                    f"{index} quedó en el objeto {content_id}, se esperaba "
+                    f"{page_id - 1}."
+                )
             objects.append(
                 (
                     f"<< /Type /Page /Parent 2 0 R "

@@ -378,7 +378,10 @@ grupos:
 `ACC_HISTORY_DAYS` purga el historial de lotes;
 `ACC_AUTH_EVENT_DAYS` purga la auditoría de acceso;
 `ACC_JOB_RETENTION_HOURS` purga instantáneas de tareas y
-`ACC_MAX_TASK_STATE_ROWS` recorta `task_state`.
+`ACC_MAX_TASK_STATE_ROWS` recorta `task_state`. El scheduler reaplica la
+retención cada `ACC_RETENTION_INTERVAL_HOURS`; `ACC_TASK_PERSIST_INTERVAL`
+agrupa las escrituras frecuentes de consola/log (los cambios de estado se
+guardan siempre).
 
 ---
 
@@ -460,6 +463,7 @@ rtc: str
     "password_hash": str,
     "overall_result": "unknown",
     "completed": bool,
+    "owner": str,  # usuario que la lanzó; "" en programaciones
     "created_at": str,
     # añadidos durante la ejecución:
     "mode", "batch_id", "total_hosts", "operator", "time_mode", "ntp_policy"
@@ -470,7 +474,10 @@ Estados terminales del stream: `completed`, `failed`, `error`, `found`,
 `failure`, `timeout`.
 
 `generate_progress_events(task_id)` emite `retry`, `progress`, `completed` y
-`timeout`.
+`timeout`. Espera cambios con un evento por tarea (hasta 1 s) en lugar de
+dormir, y cierra el stream a los 90 s; el cliente sigue por polling si el
+lote continúa. Un operador solo puede cancelar tareas con `owner` igual a su
+usuario; un administrador puede cancelar cualquiera.
 
 ---
 

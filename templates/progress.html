@@ -111,6 +111,7 @@
     const clearConsole = document.getElementById('clearConsole');
     const downloadLog = document.getElementById('downloadLog');
     const cancelForm = document.getElementById('cancelForm');
+    const canCancel = {{ can_cancel | tojson }};
 
     const STATUS_LABELS = {
         pending: ['Pendiente', 'bg-secondary'],
@@ -159,7 +160,7 @@
         metaNtp.textContent = task.ntp_policy || '—';
 
         const finished = Boolean(task.completed) || task.status === 'not_found';
-        cancelForm.classList.toggle('d-none', finished || task.cancellation_requested);
+        cancelForm.classList.toggle('d-none', !canCancel || finished || task.cancellation_requested);
 
         if (Array.isArray(task.log)) {
             progressLog.textContent = task.log.join('\n') || 'Sin eventos todavía.';

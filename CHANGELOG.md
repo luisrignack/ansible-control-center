@@ -5,6 +5,39 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Unificado de validación, ownership y mantenimiento] — 2026-11-06
+
+### Añadido
+
+- **Validador único** (`_validate_operation_core`): vista previa, ejecución y
+  programaciones comparten tarea activa, acción admitida, valor fijo,
+  plataforma del grupo, zona/hora, NTP y usuario. Las programaciones validan
+  también la plataforma al crearse y al dispararse.
+- **Ownership de cancelación**: `create_task(owner=...)`; un operador solo
+  cancela sus tareas y un administrador cualquiera. La cancelación y la
+  denegación se registran en `auth_events`; el botón se oculta a quien no
+  puede cancelar.
+- **Retención periódica** en el bucle del scheduler
+  (`ACC_RETENTION_INTERVAL_HOURS`, 24 h) además de la purga al arrancar.
+- **Persistencia agrupada**: las actualizaciones de consola/log se escriben en
+  SQLite como máximo cada `ACC_TASK_PERSIST_INTERVAL` (2 s); los cambios de
+  estado y la finalización se guardan siempre.
+- **Gate de calidad** sin dependencias externas (`tools/quality_check.py`) y
+  `requirements.lock` con pines exactos de dependencias directas.
+- Pruebas nuevas en `tests/test_mejoras_2026_11_06_parte2.py`.
+
+### Cambiado
+
+- El SSE espera un evento por tarea en lugar de `time.sleep(1)` y acota el
+  stream a 90 s; el cliente sigue por polling.
+- `session.clear()` antes de `login_user()` para evitar fijación de sesión.
+- `/acerca-de` usa `datetime.now(timezone.utc)`.
+
+### Corregido
+
+- Eliminados los `assert` de rutas de producción en `app.py`, `models/*.py` y
+  `services/*.py`; ahora se usan errores controlados.
+
 ## [Correcciones de alta prioridad del análisis 2026-11-06] — 2026-11-06
 
 Análisis completo en

@@ -208,9 +208,11 @@ def _run_streaming(
     lines: deque = deque(maxlen=max(100, int(MAX_OUTPUT_BUFFER_LINES)))
 
     def _reader() -> None:
-        assert process.stdout is not None
+        stream = process.stdout
+        if stream is None:  # pragma: no cover - Popen siempre lo crea
+            return
         try:
-            for line in iter(process.stdout.readline, ""):
+            for line in iter(stream.readline, ""):
                 lines.append(line)
                 if line_callback is None:
                     continue
@@ -220,7 +222,7 @@ def _run_streaming(
                     logger.exception("Error en el callback de salida de Ansible")
         finally:
             try:
-                process.stdout.close()
+                stream.close()
             except OSError:  # pragma: no cover - cierre defensivo
                 pass
 

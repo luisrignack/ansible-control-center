@@ -76,7 +76,10 @@ El script:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+# Instalación normal (rangos de requirements.txt).
 python -m pip install -r requirements.txt
+# Alternativa reproducible: pines exactos de dependencias directas.
+# python -m pip install -r requirements.lock
 sudo apt install sshpass
 
 sudo install -d -m 0750 /etc/ansible-control-center
@@ -172,6 +175,8 @@ flask --app app init-admin
 | `ACC_AUTH_EVENT_DAYS` | `365` | Retención de eventos de autenticación |
 | `ACC_MAX_TASK_STATE_ROWS` | `500` | Filas máximas de `task_state` |
 | `ACC_JOB_RETENTION_HOURS` | `24` | Retención de instantáneas de tareas |
+| `ACC_RETENTION_INTERVAL_HOURS` | `24` | Cada cuántas horas el scheduler reaplica la retención (1–720) |
+| `ACC_TASK_PERSIST_INTERVAL` | `2` | Intervalo mínimo entre escrituras de consola/log en SQLite (s; `0` desactiva el agrupado) |
 
 Variables específicas de Gunicorn (`gunicorn.conf.py`, no de `config.py`):
 
@@ -271,10 +276,11 @@ gunicorn -c gunicorn.conf.py app:app
 ```
 
 > **SSE y worker `gthread`:** se usa un solo worker con 4 hilos y un `timeout`
-> de 330 s (mayor que el `max_wait` de 300 s del SSE). Así una conexión SSE no
-> bloquea el resto de peticiones. Aun así, el estado de las tareas vive en
-> memoria: no aumentes `ACC_WORKERS` sin moverlo antes a un almacén
-> compartido.
+> de 330 s. El stream SSE se acota a 90 s y despierta con un evento cuando
+> cambia la tarea; al agotarse, la página continúa por polling. Así una
+> conexión SSE no bloquea el resto de peticiones. Aun así, el estado de las
+> tareas vive en memoria: no aumentes `ACC_WORKERS` sin moverlo antes a un
+> almacén compartido.
 >
 > Si el proceso se reinicia, `_tasks` se pierde. Al arrancar, solo se marcan
 > como `error` los lotes `running` sin actividad reciente
@@ -555,7 +561,9 @@ Prueba la restauración periódicamente. El procedimiento completo está en
 - **Cola y cancelación:** los lotes se encolan con concurrencia acotada
   (`ACC_JOB_WORKERS`, `ACC_JOB_QUEUE_SIZE`). Si la cola está
   llena se devuelve un error claro; cada lote se puede cancelar y el proceso
-  espera `ACC_JOB_SHUTDOWN_GRACE` al apagarse.
+  espera `ACC_JOB_SHUTDOWN_GRACE` al apagarse. Un operador solo cancela las
+  operaciones que lanzó; un administrador, cualquiera. La cancelación y la
+  denegación se registran en `auth_events`.
 - **Reconciliación al arrancar:** los lotes `running` se marcan como `error` y
   las tareas incompletas se cierran; también existe
   `flask --app app reconcile-batches`.
@@ -563,7 +571,8 @@ Prueba la restauración periódicamente. El procedimiento completo está en
   (`ACC_JOB_RETENTION_HOURS`), historial de lotes
   (`ACC_HISTORY_DAYS`), eventos de acceso
   (`ACC_AUTH_EVENT_DAYS`) y recorte de `task_state`
-  (`ACC_MAX_TASK_STATE_ROWS`).
+  (`ACC_MAX_TASK_STATE_ROWS`). Se aplica al arrancar y el scheduler la
+  reaplica cada `ACC_RETENTION_INTERVAL_HOURS`.
 - **Sin rollback automático:** el estado previo se guarda, pero revertir es
   manual ([docs/OPERACION.md](docs/OPERACION.md#5-rollback)).
 - **RBAC sin MFA:** roles `viewer`/`operator`/`admin`, bloqueo de cuenta y
