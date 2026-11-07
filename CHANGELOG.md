@@ -24,6 +24,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
   estado y la finalización se guardan siempre.
 - **Gate de calidad** sin dependencias externas (`tools/quality_check.py`) y
   `requirements.lock` con pines exactos de dependencias directas.
+- **Análisis de calidad ISO/IEC 25010:2023** en
+  `docs/ANALISIS_CALIDAD_ISO_25010.md`, con madurez por característica,
+  métricas propuestas y plan priorizado.
 - Pruebas nuevas en `tests/test_mejoras_2026_11_06_parte2.py`.
 
 ### Cambiado

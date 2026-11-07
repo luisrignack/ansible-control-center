@@ -12,6 +12,7 @@
 | [OPERACION](OPERACION.md) | Runbook: lotes, fallos, rollback, retención y mantenimiento |
 | [ANALISIS_Y_RECOMENDACIONES](ANALISIS_Y_RECOMENDACIONES.md) | Análisis profundo por aspecto, riesgos y roadmap |
 | [ANALISIS_PROFUNDO_2026-11-06](ANALISIS_PROFUNDO_2026-11-06.md) | Auditoría 2026-11-06, correcciones de alta prioridad aplicadas y roadmap pendiente |
+| [ANALISIS_CALIDAD_ISO_25010](ANALISIS_CALIDAD_ISO_25010.md) | Análisis de brechas frente a ISO/IEC 25010:2023, métricas y plan priorizado |
 | [ANALISIS](../ANALISIS.md) | Análisis funcional y espacio de opciones |
 | [CHANGELOG](../CHANGELOG.md) | Historial de cambios P0–P4 |
 | [Propuestas de interfaz](propuestas-ui/index.html) | Galería con 10 propuestas de UI para Ansible Control Center |

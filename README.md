@@ -725,6 +725,7 @@ Módulos:
 - [Referencia técnica](docs/REFERENCIA.md)
 - [Operación y runbook](docs/OPERACION.md)
 - [Análisis profundo y recomendaciones](docs/ANALISIS_Y_RECOMENDACIONES.md)
+- [Análisis de calidad ISO/IEC 25010:2023](docs/ANALISIS_CALIDAD_ISO_25010.md)
 - [Análisis funcional y roadmap](ANALISIS.md)
 - [Changelog](CHANGELOG.md)
 
