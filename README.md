@@ -24,9 +24,11 @@ El procedimiento completo está en [AGENTS.md](AGENTS.md).
 
 ## Estado actual
 
-Fases **P0–P4, P4.1, P4.2 y bloque de operación continua** completadas.
-Suite de pruebas: **264 tests en verde y 1 integración SSH opcional omitida
-por defecto** (265 recopilados). Incluye empaquetado Docker con Nginx y TLS.
+Fases **P0–P4, P4.1, P4.2 y bloque de operación continua** completadas,
+junto con las correcciones de alta prioridad del
+[análisis profundo 2026-11-06](docs/ANALISIS_PROFUNDO_2026-11-06.md).
+Suite de pruebas: **277 tests en verde y 1 integración SSH opcional omitida
+por defecto** (278 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 | Fase | Contenido |
 |---|---|
@@ -94,7 +96,9 @@ por defecto** (265 recopilados). Incluye empaquetado Docker con Nginx y TLS.
   un grupo del inventario. La contraseña maestra del vault se guarda cifrada
   con Fernet (`0600`) y las programaciones aplican las mismas validaciones
   que la ejecución manual (tarea activa, acción admitida, valor fijo de la
-  tarea, NTP y zona horaria).
+  tarea, NTP y zona horaria). El disparo usa un *claim* atómico y un lock de
+  instancia, por lo que varios workers no duplican lotes; puede ejecutarse en
+  un proceso dedicado con `flask --app app scheduler` (`ACC_ROLE=worker`).
 - **Doble aprobación**: las tareas marcadas como destructivas requieren la
   aprobación de un administrador distinto del ejecutor, con caducidad
   (`ACC_APPROVAL_TTL_MINUTES`) y un solo uso.
@@ -547,9 +551,13 @@ Resultados: `success`, `failure`, `skipped`, `error`, `preview`.
   clave SSH opcional.
 - `inventory_hosts`: hosts de cada grupo (dirección, etiqueta, alta).
 - `schedules`: programaciones (`run_at`, recurrencia, `params` JSON con la
-  contraseña maestra cifrada, último resultado y error).
-- `approval_requests`: solicitudes de doble aprobación con caducidad,
-  aprobador, estado y consumo único.
+  contraseña maestra cifrada, último resultado y error, y reserva
+  `claimed_at`/`claimed_by` para que solo un proceso lance cada vencimiento).
+- `approvals`: solicitudes de doble aprobación con caducidad, aprobador,
+  estado (`pending`/`approved`/`reserved`/`rejected`/`consumed`) y consumo
+  único.
+- `operation_ids`: reservas de idempotencia de envíos, compartidas entre
+  workers y persistentes.
 - `app_settings`: preferencias persistentes (p. ej. el interruptor DRY RUN o
   el acceso LDAPS).
 
@@ -558,7 +566,7 @@ Resultados: `success`, `failure`, `skipped`, `error`, `preview`.
 `users`, `passwords`, `executions`, `execution_summaries`. El historial
 principal es el lote; `executions` se conserva por compatibilidad.
 
-Esquema actual: `PRAGMA user_version = 10`.
+Esquema actual: `PRAGMA user_version = 12`.
 
 ---
 
@@ -655,7 +663,7 @@ Define `hora_estado` con: `timezone`, `ntp`, `ntp_synchronized`,
   `ACC_HISTORY_DAYS`, los eventos de acceso según
   `ACC_AUTH_EVENT_DAYS` y `task_state` se recorta a
   `ACC_MAX_TASK_STATE_ROWS`. No hay un temporizador periódico: la purga se
-  aplica al iniciar el proceso.
+  aplica al iniciar el proceso (solo en procesos con rol `all`/`worker`).
 - **Sin API/CLI de ejecución**: solo endpoints internos de la interfaz.
 - **IPv6**: `ipaddress` lo acepta, pero el flujo con Ansible no está probado.
 

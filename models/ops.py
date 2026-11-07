@@ -393,6 +393,47 @@ class Schedule:
         return [row for row in rows if cls.is_due(row)]
 
     @classmethod
+    def claim(
+        cls,
+        schedule_id: int,
+        owner: str = "",
+        lease_seconds: int = 300,
+        db_path: str = None,
+    ) -> bool:
+        """Reserva atómicamente una programación vencida para un proceso.
+
+        Solo el proceso que consigue el ``UPDATE`` lanza el lote. La reserva
+        caduca para que un proceso caído no bloquee la programación para
+        siempre. Debe llamarse antes de leer/descifrar parámetros y de
+        :meth:`mark_run`, que limpia la reserva.
+        """
+        if db_path is None:
+            db_path = _default_db_path()
+        now = datetime.now(timezone.utc)
+        cutoff = (now - timedelta(seconds=int(lease_seconds))).isoformat(
+            timespec="seconds"
+        )
+        with get_connection(db_path) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE schedules
+                SET claimed_at = ?, claimed_by = ?
+                WHERE id = ?
+                  AND enabled = 1
+                  AND run_at <= ?
+                  AND (claimed_at IS NULL OR claimed_at < ?)
+                """,
+                (
+                    now.isoformat(timespec="seconds"),
+                    (owner or "")[:120],
+                    int(schedule_id),
+                    now.isoformat(timespec="seconds"),
+                    cutoff,
+                ),
+            )
+            return int(cursor.rowcount or 0) == 1
+
+    @classmethod
     def all(cls, db_path: str = None) -> List["Schedule"]:
         if db_path is None:
             db_path = _default_db_path()
@@ -519,7 +560,8 @@ class Schedule:
                     """
                     UPDATE schedules
                     SET last_run = ?, last_batch = ?, last_error = ?,
-                        run_at = ?, enabled = ?
+                        run_at = ?, enabled = ?, claimed_at = NULL,
+                        claimed_by = NULL
                     WHERE id = ?
                     """,
                     (
@@ -536,7 +578,7 @@ class Schedule:
                     """
                     UPDATE schedules
                     SET last_run = ?, last_batch = ?, last_error = ?,
-                        enabled = ?
+                        enabled = ?, claimed_at = NULL, claimed_by = NULL
                     WHERE id = ?
                     """,
                     (
@@ -579,8 +621,13 @@ def _parse_utc(value: str) -> datetime:
 # ---------------------------------------------------------------------------
 APPROVAL_PENDING = "pending"
 APPROVAL_APPROVED = "approved"
+APPROVAL_RESERVED = "reserved"
 APPROVAL_REJECTED = "rejected"
 APPROVAL_CONSUMED = "consumed"
+
+# Una reserva abandonada (proceso caído entre reservar y confirmar) vuelve a
+# ``approved`` pasado este tiempo.
+APPROVAL_RESERVATION_LEASE_MINUTES = 10
 
 
 class ApprovalRequest:
@@ -722,7 +769,7 @@ class ApprovalRequest:
         return cls.get(request_id, db_path=db_path), None
 
     @classmethod
-    def consume_if_approved(
+    def reserve_if_approved(
         cls,
         task_id: str,
         params: Dict[str, Any],
@@ -730,18 +777,35 @@ class ApprovalRequest:
         approves_by_differs: bool,
         ttl_minutes: int,
         db_path: str = None,
-    ) -> Tuple[bool, Optional[str]]:
-        """Consume una aprobación válida para esta ejecución.
+    ) -> Tuple[Optional[int], Optional[str]]:
+        """Reserva una aprobación válida sin consumirla todavía.
 
-        Casar tarea + hash de parámetros + estado ``approved`` + aprobador
-        distinto del solicitante y del ejecutor + dentro del TTL. El consumo
-        es atómico: solo una ejecución puede pasar de ``approved`` a
-        ``consumed``.
+        Devuelve ``(request_id, None)`` si la reserva se adquirió, o
+        ``(None, error)`` si no hay ninguna aprobación válida. El flujo
+        correcto es: reservar → encolar → :meth:`confirm_reserved`; si el
+        encolado falla, :meth:`release_reserved` devuelve la aprobación a
+        ``approved`` para no gastar una autorización de un solo uso.
+
+        La transición ``approved`` → ``reserved`` es atómica: dos envíos
+        concurrentes no pueden reservar la misma fila.
         """
         if db_path is None:
             db_path = _default_db_path()
         wanted = params_hash(params)
+        now = datetime.now(timezone.utc)
+        lease_cutoff = (
+            now - timedelta(minutes=APPROVAL_RESERVATION_LEASE_MINUTES)
+        ).isoformat(timespec="seconds")
+        # Las reservas abandonadas vuelven a estar disponibles.
         with get_connection(db_path) as conn:
+            conn.execute(
+                """
+                UPDATE approvals
+                SET status = ?, consumed_at = NULL
+                WHERE status = ? AND consumed_at < ?
+                """,
+                (APPROVAL_APPROVED, APPROVAL_RESERVED, lease_cutoff),
+            )
             rows = conn.execute(
                 """
                 SELECT * FROM approvals
@@ -750,6 +814,7 @@ class ApprovalRequest:
                 """,
                 (task_id, wanted),
             ).fetchall()
+
         best_error = "Se requiere aprobación de un administrador para ejecutar esta tarea."
         for row in rows:
             req = cls(row)
@@ -777,7 +842,7 @@ class ApprovalRequest:
                 )
                 continue
             decided = _parse_utc(req.decided_at or req.requested_at)
-            if datetime.now(timezone.utc) > decided + timedelta(minutes=ttl_minutes):
+            if now > decided + timedelta(minutes=ttl_minutes):
                 best_error = "La aprobación ha expirado; solicita una nueva."
                 continue
             if req.consumed_at:
@@ -791,8 +856,8 @@ class ApprovalRequest:
                     WHERE id = ? AND status = ? AND consumed_at IS NULL
                     """,
                     (
-                        APPROVAL_CONSUMED,
-                        _now(),
+                        APPROVAL_RESERVED,
+                        now.isoformat(timespec="seconds"),
                         int(req.id),
                         APPROVAL_APPROVED,
                     ),
@@ -802,5 +867,77 @@ class ApprovalRequest:
                         "La aprobación ya se usó; solicita otra."
                     )
                     continue
-            return True, None
-        return False, best_error
+            return int(req.id), None
+        return None, best_error
+
+    @classmethod
+    def confirm_reserved(
+        cls, request_id: int, db_path: str = None
+    ) -> bool:
+        """Convierte una reserva en consumo definitivo (un solo uso)."""
+        if db_path is None:
+            db_path = _default_db_path()
+        with get_connection(db_path) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE approvals
+                SET status = ?, consumed_at = ?
+                WHERE id = ? AND status = ?
+                """,
+                (
+                    APPROVAL_CONSUMED,
+                    _now(),
+                    int(request_id),
+                    APPROVAL_RESERVED,
+                ),
+            )
+            return int(cursor.rowcount or 0) == 1
+
+    @classmethod
+    def release_reserved(
+        cls, request_id: int, db_path: str = None
+    ) -> bool:
+        """Devuelve una reserva a ``approved`` si el envío no llegó a encolarse."""
+        if db_path is None:
+            db_path = _default_db_path()
+        with get_connection(db_path) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE approvals
+                SET status = ?, consumed_at = NULL
+                WHERE id = ? AND status = ?
+                """,
+                (APPROVAL_APPROVED, int(request_id), APPROVAL_RESERVED),
+            )
+            return int(cursor.rowcount or 0) == 1
+
+    @classmethod
+    def consume_if_approved(
+        cls,
+        task_id: str,
+        params: Dict[str, Any],
+        executor: str,
+        approves_by_differs: bool,
+        ttl_minutes: int,
+        db_path: str = None,
+    ) -> Tuple[bool, Optional[str]]:
+        """Reserva y consume una aprobación válida en una sola llamada.
+
+        Se conserva como API compatible para los flujos que no necesitan
+        separar reserva y confirmación (por ejemplo, pruebas o scripts). El
+        flujo web usa ``reserve_if_approved`` + ``confirm_reserved`` para no
+        gastar la aprobación si el encolado falla.
+        """
+        request_id, error = cls.reserve_if_approved(
+            task_id,
+            params,
+            executor=executor,
+            approves_by_differs=approves_by_differs,
+            ttl_minutes=ttl_minutes,
+            db_path=db_path,
+        )
+        if request_id is None:
+            return False, error
+        if not cls.confirm_reserved(request_id, db_path=db_path):
+            return False, "La aprobación ya se usó; solicita otra."
+        return True, None

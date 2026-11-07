@@ -18,6 +18,11 @@ services:
       ACC_LOG_DIR: /logs
       # En producción exige allowlist, clave de sesión y verificación SSH.
       ACC_ENV: "${ACC_ENV:-production}"
+      # Rol del proceso: con ACC_ROLE=web el scheduler se ejecuta aparte con
+      # `flask --app app scheduler` (ACC_ROLE=worker).
+      ACC_ROLE: "${ACC_ROLE:-all}"
+      ACC_SCHEDULER_ENABLED: "${ACC_SCHEDULER_ENABLED:-1}"
+      ACC_RECOVERY_STALE_MINUTES: "${ACC_RECOVERY_STALE_MINUTES:-15}"
       # Detrás de Nginx: cookies Secure, IP real y proto HTTPS.
       ACC_COOKIE_SECURE: "1"
       ACC_TRUST_PROXY: "1"
@@ -49,6 +54,7 @@ services:
       ACC_LDAP_USERNAME_ATTR: "${ACC_LDAP_USERNAME_ATTR:-uid}"
       ACC_LDAP_TLS_VERIFY: "${ACC_LDAP_TLS_VERIFY:-1}"
       ACC_LDAP_TLS_CA_FILE: "${ACC_LDAP_TLS_CA_FILE:-}"
+      ACC_LDAP_ALLOW_INSECURE: "${ACC_LDAP_ALLOW_INSECURE:-0}"
       ACC_LDAP_DEFAULT_ROLE: "${ACC_LDAP_DEFAULT_ROLE:-viewer}"
       ACC_BIND: 0.0.0.0:8000
       ACC_WORKERS: "1"

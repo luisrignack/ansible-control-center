@@ -99,7 +99,9 @@
         dest: /etc/timezone.bak
         remote_src: true
         mode: preserve
-        force: false
+        # Siempre se sobrescribe: un .bak de un cambio anterior no representa
+        # el estado previo real y el operador recibiría una copia obsoleta.
+        force: true
       when:
         - accion == 'TZ'
         - _hora_tz_file.stat.exists

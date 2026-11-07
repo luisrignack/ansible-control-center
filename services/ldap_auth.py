@@ -102,13 +102,32 @@ def _search_filter(username: str) -> str:
 # ---------------------------------------------------------------------------
 # Conexión
 # ---------------------------------------------------------------------------
-def parse_ldap_url(url: str):
-    """Extrae (host, puerto, use_ssl) desde ``ldaps://host:puerto``."""
+def parse_ldap_url(url: str, allow_insecure: Optional[bool] = None):
+    """Extrae (host, puerto, use_ssl) desde ``ldaps://host:puerto``.
+
+    ``ldap://`` envía la contraseña del usuario sin cifrar y se rechaza por
+    defecto. Solo se admite si ``allow_insecure`` (o
+    ``ACC_LDAP_ALLOW_INSECURE``) es verdadero, de forma consciente.
+    """
     parts = urlsplit(url)
-    scheme = (parts.scheme or "ldaps").lower()
+    scheme = (parts.scheme or "").lower()
     host = parts.hostname or ""
     if not host:
         raise LdapError(f"URL LDAP no válida: {url!r}")
+    if scheme not in {"ldap", "ldaps"}:
+        raise LdapError(
+            f"URL LDAP no válida: {url!r} (esquema soportado: ldaps://)."
+        )
+    if allow_insecure is None:
+        from config import LDAP_ALLOW_INSECURE
+
+        allow_insecure = LDAP_ALLOW_INSECURE
+    if scheme == "ldap" and not allow_insecure:
+        raise LdapError(
+            "ACC_LDAP_URL usa ldap://, que envía la contraseña sin cifrar. "
+            "Usa ldaps:// o define ACC_LDAP_ALLOW_INSECURE=1 de forma "
+            "consciente."
+        )
     use_ssl = scheme == "ldaps"
     port = parts.port or (636 if use_ssl else 389)
     return host, port, use_ssl

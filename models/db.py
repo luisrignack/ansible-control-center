@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 def _secure_sqlite_files(path: str) -> None:
@@ -451,6 +451,17 @@ def _migrate_v11(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v12(conn: sqlite3.Connection) -> None:
+    """Reserva atómica de programaciones entre varios procesos.
+
+    Dos workers podían leer la misma fila vencida y lanzar el lote dos veces.
+    ``claimed_at``/``claimed_by`` permiten que solo uno gane el *claim*; la
+    reserva caduca para que un proceso caído no bloquee la programación.
+    """
+    _ensure_column(conn, "schedules", "claimed_at", "claimed_at TEXT")
+    _ensure_column(conn, "schedules", "claimed_by", "claimed_by TEXT")
+
+
 def init_schema(db_path: str) -> None:
     """Crea o migra el esquema de forma idempotente y no destructiva.
 
@@ -481,6 +492,7 @@ def init_schema(db_path: str) -> None:
         _migrate_v9(conn)
         _migrate_v10(conn)
         _migrate_v11(conn)
+        _migrate_v12(conn)
         # No se rebaja la versión de una base creada por una versión más nueva.
         if version < SCHEMA_VERSION:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

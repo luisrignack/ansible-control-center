@@ -101,6 +101,11 @@ flask --app app init-admin
 | Variable | Por defecto | Descripción |
 |---|---|---|
 | `ACC_SECRET_KEY` | generada | Clave de sesión Flask |
+| `ACC_ENV` | `development` | `production` activa las comprobaciones de seguridad y el modo *fail-closed* de rutas |
+| `ACC_ROLE` | `all` | `all` (web+scheduler), `web` (solo web), `worker` (scheduler+mantenimiento) o `cli` |
+| `ACC_SCHEDULER_ENABLED` | `1` | `0` desactiva el programador en este proceso |
+| `ACC_RECOVERY_STALE_MINUTES` | `15` | Minutos sin actividad para considerar huérfana una tarea o un lote |
+| `ACC_ALLOW_DEV_FALLBACK` | `1` en desarrollo | Permite caer a `instance/` si las rutas no son escribibles. En producción es siempre `0` |
 | `ACC_SECRETS_DIR` | `/etc/ansible-control-center/secrets` | Vault y secretos |
 | `ACC_DATA_DIR` | `/var/lib/ansible-control-center` | SQLite y clave local |
 | `ACC_LOG_DIR` | `/var/log/ansible-control-center` | Logs |
@@ -108,6 +113,9 @@ flask --app app init-admin
 | `ACC_HOST_KEY_CHECKING` | `1` | Verificación estricta de host SSH |
 | `ACC_SSH_HOST_KEYS_AUTO` | `0` | Rellenar `known_hosts` con `ssh-keyscan` (debilita TOFU; solo redes de confianza). El `docker-compose.yml` incluido lo activa por defecto (`1`). |
 | `ACC_KNOWN_HOSTS_FILE` | vacío | Ruta alternativa de `known_hosts`; vacío usa `$HOME/.ssh/known_hosts` |
+| `ACC_LDAP_ENABLED` | `0` | Activa la autenticación corporativa LDAP |
+| `ACC_LDAP_URL` | vacío | Debe usar `ldaps://`; `ldap://` se rechaza por defecto |
+| `ACC_LDAP_ALLOW_INSECURE` | `0` | `1` permite `ldap://` sin cifrar. Solo para laboratorio; en producción no se recomienda |
 | `ACC_DEBUG` | `0` | Depurador Flask |
 | `ACC_COOKIE_SECURE` | `0` | `1` detrás de HTTPS |
 | `ACC_TRUST_PROXY` | `0` | `1` solo tras proxy de confianza |
@@ -184,8 +192,11 @@ ACC_DATA_DIR=./instance/data
 ACC_LOG_DIR=./instance/logs
 ```
 
-Si no se definen y el proceso no puede escribir en `/etc` o `/var`, la app
-usa automáticamente `instance/` y muestra un aviso en el log.
+En **producción** (`ACC_ENV=production`) esas rutas son obligatorias: si el
+proceso no puede escribir en `ACC_DATA_DIR` o `ACC_SECRETS_DIR`, la
+aplicación **no arranca**. No se permite caer a `instance/` para la base de
+datos, el vault, la clave de sesión ni el pepper. El fallback local solo existe
+en desarrollo y con `ACC_ALLOW_DEV_FALLBACK=1` (valor por defecto).
 
 ### Usuario administrador
 
@@ -204,7 +215,7 @@ ejecutar el comando.
 
 ### Esquema de datos y migración
 
-El esquema actual es `PRAGMA user_version = 6`. `flask --app app init-db`
+El esquema actual es `PRAGMA user_version = 12`. `flask --app app init-db`
 aplica migraciones **no destructivas** al arrancar y es idempotente. Si la base
 tiene una versión **más nueva** que la soportada, el arranque se aborta para no
 corromperla.
@@ -265,9 +276,11 @@ gunicorn -c gunicorn.conf.py app:app
 > memoria: no aumentes `ACC_WORKERS` sin moverlo antes a un almacén
 > compartido.
 >
-> Si el proceso se reinicia, `_tasks` se pierde. Al arrancar, los lotes que
-> quedaron `running` se marcan automáticamente como `error`
-> (`flask --app app reconcile-batches` permite forzarlo).
+> Si el proceso se reinicia, `_tasks` se pierde. Al arrancar, solo se marcan
+> como `error` los lotes `running` sin actividad reciente
+> (`ACC_RECOVERY_STALE_MINUTES`, 15 min por defecto), para no cerrar lotes que
+> otro worker sigue ejecutando. `flask --app app reconcile-batches` permite
+> forzarlo manualmente.
 
 ### Servicio systemd
 
@@ -319,6 +332,53 @@ sudo systemctl enable --now ansible-control-center
 sudo systemctl status ansible-control-center
 sudo journalctl -u ansible-control-center -f
 ```
+
+### Programador dedicado y despliegue multi-proceso
+
+El programador de tareas puede vivir en el proceso web (`ACC_ROLE=all`, valor
+por defecto) o separarse para que ningún reinicio de Gunicorn lo interrumpa:
+
+1. En el servicio web define `ACC_ROLE=web`.
+2. Arranca el programador en un proceso aparte con `ACC_ROLE=worker`:
+
+```bash
+sudo -u ansible-control-center env ACC_ROLE=worker \
+  .venv/bin/flask --app app scheduler
+```
+
+`flask --app app scheduler --once` ejecuta una sola revisión y termina (útil
+para cron o diagnóstico). El comando usa el mismo lock `flock`
+(`scheduler.lock` junto a la base de datos) y el *claim* atómico de
+`schedules`, de modo que dos procesos nunca lanzan el mismo lote. Si el lock
+está tomado, el segundo proceso no programa y lo registra en el log.
+
+Unidad systemd de ejemplo para el programador
+(`/etc/systemd/system/ansible-control-center-scheduler.service`):
+
+```ini
+[Unit]
+Description=Ansible Control Center Scheduler
+After=network.target ansible-control-center.service
+Requires=ansible-control-center.service
+
+[Service]
+User=ansible-control-center
+Group=ansible-control-center
+WorkingDirectory=/opt/ansible-control-center
+EnvironmentFile=/opt/ansible-control-center/.env
+Environment=ACC_ROLE=worker
+ExecStart=/opt/ansible-control-center/.venv/bin/flask --app app scheduler
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+> El estado del progreso SSE sigue viviendo en memoria del proceso web. Varios
+> workers de Gunicorn siguen requiriendo mover ese estado a un almacén
+> compartido; `ACC_ROLE` y el lock del scheduler resuelven la duplicación de
+> programaciones, no el estado SSE.
 
 ### Proxy inverso con Nginx
 

@@ -615,26 +615,49 @@ class ExecutionBatch:
         return ExecutionBatch.get_batch(batch_id, db_path=db_path)
 
     @staticmethod
-    def reconcile_orphans(db_path: str = None) -> int:
+    def reconcile_orphans(
+        db_path: str = None, stale_minutes: Optional[int] = None
+    ) -> int:
         """Marca como error los lotes que quedaron ``running`` tras un reinicio.
 
         Los hilos de ejecución son daemon y el estado vive en memoria: si el
         proceso muere, el lote no puede cerrarse solo. Al arrancar se cierran
         los huérfanos para que el historial no muestre lotes eternamente en
         curso. Devuelve cuántos lotes se reconciliaron.
+
+        Con ``stale_minutes`` solo se cierran lotes sin actividad reciente
+        (ni resultados de host dentro de la ventana), para no matar un lote
+        que otro worker está ejecutando.
         """
         if db_path is None:
             db_path = _default_db_path()
 
+        params: List[Any] = [_now()]
+        stale_filter = ""
+        if stale_minutes is not None:
+            cutoff = (
+                datetime.now(timezone.utc)
+                - timedelta(minutes=max(1, int(stale_minutes)))
+            ).isoformat()
+            stale_filter = (
+                " AND created_at < ?"
+                " AND NOT EXISTS ("
+                "   SELECT 1 FROM execution_hosts h"
+                "   WHERE h.batch_id = execution_batches.batch_id"
+                "   AND h.created_at >= ?"
+                " )"
+            )
+            params.extend([cutoff, cutoff])
+
         with get_connection(db_path) as conn:
             cursor = conn.execute(
-                """
+                f"""
                 UPDATE execution_batches
                 SET status = 'error',
                     finished_at = COALESCE(finished_at, ?)
-                WHERE status = 'running'
+                WHERE status = 'running'{stale_filter}
                 """,
-                (_now(),),
+                tuple(params),
             )
             return int(cursor.rowcount or 0)
 

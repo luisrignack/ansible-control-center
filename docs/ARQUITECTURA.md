@@ -29,7 +29,7 @@ Flask (app.py)
 | Componente | Responsabilidad |
 |---|---|
 | `app.py` | Rutas, validación, tareas SSE, workers y CLI |
-| `config.py` | Configuración central, rutas con fallback y logging |
+| `config.py` | Configuración central, rutas *fail-closed* en producción y logging |
 | `models/db.py` | Conexiones SQLite, WAL, busy_timeout y migraciones |
 | `models/batch.py` | Lotes y resultados por host |
 | `models/execution.py` | Historial heredado por host |
@@ -42,6 +42,7 @@ Flask (app.py)
 | `services/secure_temp.py` | Ficheros temporales `0600` |
 | `services/csrf.py` | Token CSRF de sesión |
 | `services/rate_limiter.py` | Ventana deslizante en memoria |
+| `services/scheduler.py` | Disparo de programaciones con lock de instancia y *claim* atómico |
 | `ansible/cambiar_hora.yml` | Cambio + verificación |
 | `ansible/estado_hora.yml` | Inspección de solo lectura |
 | `ansible/tasks/leer_estado.yml` | Lectura de TZ, NTP, hora y RTC |
@@ -122,9 +123,14 @@ La contraseña nunca se pasa por `argv`: se escribe en un fichero temporal
   `/api/task-status/<task_id>`.
 - Los hosts se procesan secuencialmente.
 - SQLite usa WAL y `busy_timeout` para tolerar escrituras concurrentes.
+- El scheduler se protege con un lock `flock` y un *claim* atómico por fila
+  (`schedules.claimed_at`); `ACC_ROLE=web|worker|cli` permite separarlo del
+  servidor web. La recuperación de tareas y lotes solo toca registros
+  estancados (`ACC_RECOVERY_STALE_MINUTES`).
 
-Limitaciones: con varios workers el estado no se comparte; si el proceso muere,
-las tareas se pierden y los lotes pueden quedar `running`.
+Limitaciones: con varios workers el estado de progreso no se comparte; si el
+proceso muere, las tareas se pierden y los lotes pueden quedar `running` hasta
+la reconciliación de registros estancados.
 
 ## 7. Modelo de datos
 

@@ -63,12 +63,17 @@ Campos aceptados por `/`, `/preview` y `/execute`:
 flask --app app init-db
 flask --app app init-admin [--username USUARIO]
 flask --app app reconcile-batches
+flask --app app scheduler [--once]
 ```
 
 - `init-db`: crea o migra el esquema SQLite (idempotente).
-- `reconcile-batches`: cierra los lotes huérfanos en estado `running`.
+- `reconcile-batches`: cierra los lotes huérfanos en estado `running` (con
+  `stale_minutes` por defecto, solo los que no tienen actividad reciente).
 - `init-admin`: crea o actualiza el usuario administrador; pide contraseña y
   exige la longitud mínima configurada.
+- `scheduler`: ejecuta el programador en primer plano; `--once` hace una sola
+  revisión. Recomendado con `ACC_ROLE=worker` y el servicio web en
+  `ACC_ROLE=web`.
 
 ---
 
@@ -180,7 +185,7 @@ Cada entrada descifrada contiene: `index`, `password`, `original`,
 | `get_connection(db_path)` | Context manager con commit/rollback |
 | `init_schema(db_path)` | Migraciones idempotentes; fija `user_version` |
 
-`SCHEMA_VERSION = 3`.
+`SCHEMA_VERSION = 12`.
 
 ### `models/user.py`
 
@@ -301,6 +306,47 @@ FOREIGN KEY (batch_id)
 `idx_executions_timestamp`, `idx_executions_host`, `idx_executions_result`,
 `idx_passwords_creation_date`.
 
+### `schedules`
+
+```sql
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+name TEXT NOT NULL UNIQUE,
+task_id TEXT NOT NULL DEFAULT 'hora',
+run_at TEXT NOT NULL,
+recurrence TEXT NOT NULL DEFAULT 'once',
+enabled INTEGER NOT NULL DEFAULT 1,
+params TEXT NOT NULL DEFAULT '{}',
+last_run TEXT,
+last_batch TEXT,
+last_error TEXT NOT NULL DEFAULT '',
+created_by TEXT NOT NULL DEFAULT '',
+created_at TEXT NOT NULL,
+claimed_at TEXT,
+claimed_by TEXT
+```
+
+`claimed_at`/`claimed_by` (esquema v12) reservan la fila de forma atómica
+entre procesos; `Schedule.mark_run` limpia la reserva.
+
+### `approvals`
+
+```sql
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+task_id TEXT NOT NULL,
+params_hash TEXT NOT NULL,
+params TEXT NOT NULL DEFAULT '{}',
+requested_by TEXT NOT NULL,
+requested_at TEXT NOT NULL,
+status TEXT NOT NULL DEFAULT 'pending',
+approver TEXT,
+decided_at TEXT,
+note TEXT NOT NULL DEFAULT '',
+consumed_at TEXT
+```
+
+Estados: `pending`, `approved`, `reserved`, `rejected`, `consumed`. La reserva
+se confirma solo después de encolar el lote; si el encolado falla se libera.
+
 ---
 
 ## 6. Configuración
@@ -309,6 +355,8 @@ La tabla completa está en [README](../README.md#configuración). Resumen de
 grupos:
 
 - Rutas: `ACC_SECRETS_DIR`, `ACC_DATA_DIR`, `ACC_LOG_DIR`.
+- Entorno y proceso: `ACC_ENV`, `ACC_ROLE`, `ACC_SCHEDULER_ENABLED`,
+  `ACC_RECOVERY_STALE_MINUTES`, `ACC_ALLOW_DEV_FALLBACK`.
 - Sesión: `ACC_SECRET_KEY`, `ACC_SESSION_HOURS`,
   `ACC_REMEMBER_DAYS`, `ACC_COOKIE_SECURE`,
   `ACC_PASSWORD_PEPPER`.
@@ -319,7 +367,7 @@ grupos:
   `ACC_DEFAULT_NTP_SERVERS`.
 - Seguridad: `ACC_CSRF_ENABLED`, `ACC_*_RATE_LIMIT`,
   `ACC_TRUST_PROXY`, `ACC_CSP_ENABLED`,
-  `ACC_HSTS`, `ACC_SECURITY_HEADERS`.
+  `ACC_HSTS`, `ACC_SECURITY_HEADERS`, `ACC_LDAP_ALLOW_INSECURE`.
 - Ansible: `ACC_ANSIBLE_BIN`,
   `ACC_ANSIBLE_PLAYBOOK_BIN`, `ACC_ANSIBLE_VAULT_BIN`,
   `ACC_PING_TIMEOUT`, `ACC_PLAYBOOK_TIMEOUT`,

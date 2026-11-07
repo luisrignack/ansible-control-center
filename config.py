@@ -126,6 +126,31 @@ def _env_secret(name: str) -> str:
 ENVIRONMENT = os.environ.get("ACC_ENV", "development").strip().lower()
 IS_PRODUCTION = ENVIRONMENT == "production"
 
+# En producción las rutas configuradas son obligatorias: si no son
+# escribibles, la aplicación no debe arrancar con una base o un vault
+# "de rebote" en ``instance/``. El fallback es solo para desarrollo.
+ALLOW_DEV_FALLBACK = _env_bool(
+    "ACC_ALLOW_DEV_FALLBACK", not IS_PRODUCTION
+)
+
+# Rol del proceso. Permite separar el servidor web del programador de tareas:
+#   * ``all``    -> web + scheduler + mantenimiento (comportamiento histórico).
+#   * ``web``    -> solo web; el scheduler se ejecuta en otro proceso.
+#   * ``worker`` -> scheduler + mantenimiento (proceso dedicado).
+#   * ``cli``    -> ni scheduler ni mantenimiento (comandos de administración).
+PROCESS_ROLE = os.environ.get("ACC_ROLE", "all").strip().lower()
+if PROCESS_ROLE not in {"all", "web", "worker", "cli"}:
+    PROCESS_ROLE = "all"
+
+SCHEDULER_ENABLED = _env_bool("ACC_SCHEDULER_ENABLED", True)
+
+# Una tarea o un lote sin actualizaciones durante este tiempo se considera
+# huérfano. Evita que un worker recién arrancado cierre operaciones que otro
+# worker está ejecutando legítimamente.
+RECOVERY_STALE_MINUTES = _env_int(
+    "ACC_RECOVERY_STALE_MINUTES", 15, minimum=1, maximum=1440
+)
+
 SECRETS_DIR = _env_path("ACC_SECRETS_DIR", "/etc/ansible-control-center/secrets")
 DATA_DIR = _env_path("ACC_DATA_DIR", "/var/lib/ansible-control-center")
 LOG_DIR = _env_path("ACC_LOG_DIR", "/var/log/ansible-control-center")
@@ -320,6 +345,10 @@ LDAP_RETRIES = _env_int("ACC_LDAP_RETRIES", 2, minimum=1, maximum=5)
 # con ACC_LDAP_TLS_VERIFY=false (certificado autofirmado sin CA a mano).
 LDAP_TLS_VERIFY = _env_bool("ACC_LDAP_TLS_VERIFY", True)
 LDAP_TLS_CA_FILE = os.environ.get("ACC_LDAP_TLS_CA_FILE", "").strip()
+# ``ldap://`` envía la contraseña del usuario sin cifrar. Solo se admite si el
+# operador lo autoriza explícitamente; en producción la configuración segura
+# (LDAPS) es obligatoria.
+LDAP_ALLOW_INSECURE = _env_bool("ACC_LDAP_ALLOW_INSECURE", False)
 # Rol con el que se crea la cuenta sombra en el primer login LDAP. Se admite
 # solo ``viewer`` (la promoción la hace el admin local en /usuarios).
 LDAP_DEFAULT_ROLE = (
@@ -629,6 +658,16 @@ def validate_security_config() -> None:
             "ACC_COOKIE_SECURE=0 permite enviar la cookie de sesión por HTTP. "
             "Actívalo (ACC_COOKIE_SECURE=1) en producción con HTTPS."
         )
+    if (
+        LDAP_ENABLED
+        and not LDAP_URL.lower().startswith("ldaps://")
+        and not LDAP_ALLOW_INSECURE
+    ):
+        problems.append(
+            "ACC_LDAP_URL debe usar ldaps:// en producción: con ldap:// la "
+            "contraseña del usuario viaja sin cifrar. Si es imprescindible, "
+            "define ACC_LDAP_ALLOW_INSECURE=1 de forma consciente."
+        )
     if problems:
         raise RuntimeError("Configuración insegura:\n- " + "\n- ".join(problems))
 
@@ -698,13 +737,20 @@ def _existing_db(candidate: Path, legacy_name: str = "hora_admin.db") -> Path:
 def resolve_db_path() -> Path:
     """Devuelve una ruta de SQLite utilizable.
 
-    En producción usa ``DATA_DIR`` (``/var/lib/ansible-control-center``). Si no hay
-    permisos —por ejemplo al ejecutar ``python app.py`` como usuario normal
-    sin haber lanzado ``install.sh``— cae a ``instance/`` para que el entorno
-    de desarrollo arranque sin sudo.
+    En producción usa ``DATA_DIR`` (``/var/lib/ansible-control-center``) y
+    falla si no es escribible: arrancar con una base de datos en ``instance/``
+    dejaría el historial fuera de las copias de seguridad y con permisos de
+    desarrollo. El fallback local solo se permite en desarrollo y con
+    ``ACC_ALLOW_DEV_FALLBACK=1``.
     """
     if _is_writable_dir(DATA_DIR):
         return _existing_db(DB_PATH)
+    if IS_PRODUCTION or not ALLOW_DEV_FALLBACK:
+        raise RuntimeError(
+            f"El directorio de datos configurado no es escribible: {DATA_DIR}. "
+            "En producción revisa permisos y ACC_DATA_DIR; no se permite caer "
+            "a instance/."
+        )
     if _is_writable_dir(INSTANCE_DIR):
         return _existing_db(INSTANCE_DIR / "acc.db")
     raise RuntimeError(
@@ -716,11 +762,17 @@ def resolve_db_path() -> Path:
 def resolve_vault_file() -> Path:
     """Devuelve una ruta de vault utilizable.
 
-    En producción usa ``SECRETS_DIR``. En desarrollo sin permisos cae a
-    ``instance/secrets/`` para que el flujo de vault funcione sin ``sudo``.
+    En producción usa ``SECRETS_DIR`` y falla si no es escribible. El
+    fallback a ``instance/secrets/`` queda reservado al desarrollo.
     """
     if _is_writable_dir(SECRETS_DIR):
         return VAULT_FILE
+    if IS_PRODUCTION or not ALLOW_DEV_FALLBACK:
+        raise RuntimeError(
+            f"El directorio de secretos configurado no es escribible: "
+            f"{SECRETS_DIR}. En producción revisa permisos y ACC_SECRETS_DIR; "
+            "no se permite caer a instance/."
+        )
     fallback = INSTANCE_DIR / "secrets"
     if _is_writable_dir(fallback):
         return fallback / VAULT_FILENAME
@@ -733,14 +785,18 @@ def resolve_vault_file() -> Path:
 def get_or_create_secret_key() -> str:
     """Devuelve la clave de sesión de Flask, creándola si no existe.
 
-    Prioridad: variable de entorno > archivo local 0600 > clave nueva. Si
-    ``DATA_DIR`` no es escribible se intenta en ``instance/`` (desarrollo).
-    La clave no es la contraseña maestra del Vault ni se registra en logs.
+    Prioridad: variable de entorno > archivo local 0600 > clave nueva. En
+    producción no se cae a ``instance/``: si no se puede persistir la clave,
+    el arranque falla en lugar de usar una clave efímera que invalide las
+    sesiones en cada reinicio.
     """
     if SECRET_KEY:
         return SECRET_KEY
 
-    for key_file in (SECRET_KEY_FILE, INSTANCE_DIR / "flask_secret.key"):
+    candidates = [SECRET_KEY_FILE]
+    if not IS_PRODUCTION and ALLOW_DEV_FALLBACK:
+        candidates.append(INSTANCE_DIR / "flask_secret.key")
+    for key_file in candidates:
         try:
             key_file.parent.mkdir(parents=True, exist_ok=True)
             if key_file.exists():
@@ -754,7 +810,15 @@ def get_or_create_secret_key() -> str:
         except OSError:
             continue
 
-    # Último recurso: clave efímera (las sesiones se invalidan al reiniciar).
+    if IS_PRODUCTION:
+        raise RuntimeError(
+            f"No se pudo leer ni escribir la clave de sesión en "
+            f"{SECRET_KEY_FILE}. Define ACC_SECRET_KEY o revisa permisos de "
+            "ACC_DATA_DIR."
+        )
+
+    # Último recurso en desarrollo: clave efímera (sesiones se invalidan al
+    # reiniciar).
     logging.getLogger("acc").warning(
         "No se pudo persistir la clave de sesión; se usará una clave efímera."
     )
@@ -768,11 +832,16 @@ def get_or_create_password_pepper() -> str:
     Prioridad: variable de entorno > archivo local 0600 > valor efímero. El
     archivo se crea con ``O_EXCL`` para tolerar varios workers arrancando a la
     vez: solo uno escribe y el resto lee el mismo secreto.
+
+    En producción un pepper efímero invalidaría todos los hashes al
+    reiniciar, así que la falta de persistencia es un error de arranque.
     """
     if PASSWORD_PEPPER:
         return PASSWORD_PEPPER
 
-    candidates = (PASSWORD_PEPPER_FILE, INSTANCE_DIR / "password_pepper.key")
+    candidates = [PASSWORD_PEPPER_FILE]
+    if not IS_PRODUCTION and ALLOW_DEV_FALLBACK:
+        candidates.append(INSTANCE_DIR / "password_pepper.key")
     for pepper_file in candidates:
         try:
             pepper_file.parent.mkdir(parents=True, exist_ok=True)
@@ -806,6 +875,13 @@ def get_or_create_password_pepper() -> str:
             return pepper
         except OSError:
             continue
+
+    if IS_PRODUCTION:
+        raise RuntimeError(
+            f"No se pudo leer ni escribir el pepper en "
+            f"{PASSWORD_PEPPER_FILE}. Define ACC_PASSWORD_PEPPER o revisa "
+            "los permisos de ACC_DATA_DIR."
+        )
 
     logging.getLogger("acc").warning(
         "No se pudo persistir el pepper de contraseñas; se usará uno efímero "

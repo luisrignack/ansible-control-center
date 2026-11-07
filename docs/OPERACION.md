@@ -260,8 +260,10 @@ error del motor: revisa host por host y decide si relanzar el subconjunto.
 
 ### 4.6. Lote atascado en `running`
 
-Al arrancar, la aplicación marca los lotes `running` como `error` porque sus
-hilos daemon ya no existen. También puedes forzarlo manualmente:
+Al arrancar, solo se marcan como `error` los lotes `running` **sin actividad
+reciente** (ni resultados de host dentro de `ACC_RECOVERY_STALE_MINUTES`, 15
+min por defecto); así un worker no cierra un lote que otro está ejecutando.
+También puedes forzar la reconciliación manualmente:
 
 ```bash
 sudo -u ansible-control-center .venv/bin/flask --app app reconcile-batches
@@ -367,11 +369,11 @@ contraseña maestra esperada.
 ## 7. Retención y limpieza
 
 `ACC_JOB_RETENTION_HOURS` (24), `ACC_HISTORY_DAYS` (180) y
-`ACC_AUTH_EVENT_DAYS` (365) se aplican al arrancar: se borran las
-instantáneas de tareas, los lotes y los eventos de acceso más antiguos.
-`task_state` también se recorta a `ACC_MAX_TASK_STATE_ROWS`. No hay un
-temporizador periódico; para forzar la limpieza sin reiniciar, usa el
-procedimiento manual de §7.1.
+`ACC_AUTH_EVENT_DAYS` (365) se aplican al arrancar (solo en procesos con rol
+`all`/`worker`, no en `web`/`cli`): se borran las instantáneas de tareas, los
+lotes y los eventos de acceso más antiguos. `task_state` también se recorta a
+`ACC_MAX_TASK_STATE_ROWS`. No hay un temporizador periódico; para forzar la
+limpieza sin reiniciar, usa el procedimiento manual de §7.1.
 
 ### 7.1. Borrar lotes antiguos manualmente
 
@@ -423,7 +425,7 @@ sudo systemctl start ansible-control-center
 ```
 
 `init-db` es idempotente y aplica migraciones no destructivas. El esquema
-actual es `PRAGMA user_version = 7`.
+actual es `PRAGMA user_version = 12`.
 
 ### 8.2. Rotar la contraseña del administrador
 
@@ -469,6 +471,30 @@ ssh-keyscan -H 192.0.2.10 | sudo -u ansible-control-center tee -a ~/.ssh/known_h
 Verifica las huellas por un canal de confianza antes de aceptarlas. No
 desactives la verificación salvo decisión consciente y documentada.
 
+### 8.7. Programador de tareas
+
+- `ACC_ROLE=all` (por defecto) ejecuta web, scheduler y mantenimiento en el
+  mismo proceso. `ACC_ROLE=web` deja el scheduler fuera de Gunicorn y
+  `ACC_ROLE=worker` lo ejecuta en un proceso dedicado.
+- Con `ACC_SCHEDULER_ENABLED=0` no se programa nada en ese proceso.
+- El lock `flock` (`scheduler.lock` junto a la base de datos) garantiza un solo
+  programador activo. Si otro proceso tiene el lock, el comando
+  `flask --app app scheduler` no arranca y lo indica.
+- Cada fila de `schedules` se reclama con un `UPDATE` atómico
+  (`claimed_at`/`claimed_by`, esquema v12). La reserva caduca a los 5 minutos,
+  así que un proceso caído no bloquea la programación para siempre.
+- Para diagnosticar sin esperar al intervalo de 15 s:
+
+```bash
+# Una sola revisión, sin dejar el proceso en primer plano.
+sudo -u ansible-control-center env ACC_ROLE=worker \
+  .venv/bin/flask --app app scheduler --once
+
+# Ver reservas y próximas ejecuciones.
+sqlite3 /var/lib/ansible-control-center/acc.db \
+  "SELECT id, name, run_at, enabled, claimed_at, claimed_by FROM schedules;"
+```
+
 ---
 
 ## 9. Seguridad operativa
@@ -482,9 +508,9 @@ desactives la verificación salvo decisión consciente y documentada.
 - Revisa `/history` tras cada operación sensible.
 - El rate limiting es en memoria y por proceso; con varios workers no es
   global.
-- No hay RBAC, MFA ni auditoría de eventos independiente. Un usuario
-  autenticado puede apuntar a cualquier IP/CIDR permitido por
-  `ACC_ALLOWED_NETWORKS` y los límites globales.
+- Hay roles `viewer`/`operator`/`admin` y auditoría de acceso, pero no MFA ni
+  un sistema RBAC granular: cualquier usuario autenticado puede apuntar a una
+  IP/CIDR permitida por `ACC_ALLOWED_NETWORKS` dentro de los límites globales.
 
 ---
 
@@ -513,7 +539,9 @@ desactives la verificación salvo decisión consciente y documentada.
 - Sin rollback automático.
 - Retención automática al arrancar de lotes, instantáneas y eventos de acceso;
   `task_state` se recorta por número de filas.
-- Estado de tareas en memoria; SSE depende del proceso.
+- Estado de tareas en memoria; SSE depende del proceso. `ACC_ROLE` y el lock
+  del scheduler evitan duplicar programaciones, pero no comparten el progreso
+  SSE entre workers.
 - `TIME` + `keep` se rechaza en ejecución (la vista previa avisa) porque NTP
   puede revertir el cambio.
 - Roles `viewer`/`operator`/`admin`, bloqueo de cuenta y auditoría de acceso;

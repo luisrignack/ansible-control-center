@@ -167,8 +167,13 @@ def _login_ldap(client, fake_ldap, username="jose.cu", password="clave-ldap"):
 def test_parse_ldap_url_supports_ports_and_schemes():
     assert ldap_auth.parse_ldap_url("ldaps://lds.etecsa.cu") == (
         "lds.etecsa.cu", 636, True)
-    assert ldap_auth.parse_ldap_url("ldap://lds.etecsa.cu:389") == (
+    # ldap:// solo se admite de forma explícita; por defecto se rechaza.
+    assert ldap_auth.parse_ldap_url(
+        "ldap://lds.etecsa.cu:389", allow_insecure=True) == (
         "lds.etecsa.cu", 389, False)
+    with pytest.raises(ldap_auth.LdapError, match="sin cifrar"):
+        ldap_auth.parse_ldap_url(
+            "ldap://lds.etecsa.cu:389", allow_insecure=False)
     with pytest.raises(ldap_auth.LdapError):
         ldap_auth.parse_ldap_url("no-es-una-url")
 

@@ -22,6 +22,11 @@ os.environ.setdefault("ACC_LOG_DIR", str(_TMP / "logs"))
 os.environ.setdefault("ACC_SECRET_KEY", "test-secret-key-no-produccion")
 os.environ.setdefault("ACC_DRY_RUN", "1")
 os.environ.setdefault("ACC_DEBUG", "0")
+# El proceso de pruebas no debe arrancar el scheduler ni ejecutar
+# mantenimiento de arranque: cada prueba controla su propia base de datos y
+# un hilo de fondo podría reclamar programaciones de forma no determinista.
+os.environ.setdefault("ACC_ROLE", "cli")
+os.environ.setdefault("ACC_SCHEDULER_ENABLED", "0")
 
 
 @pytest.fixture(autouse=True)

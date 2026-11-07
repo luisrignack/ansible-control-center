@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import secrets
+import sys
 import threading
 import time
 import uuid
@@ -93,7 +94,9 @@ from config import (
     PASSWORD_ORIGINS,
     PASSWORD_ORIGIN_VALUES,
     PERMANENT_SESSION_LIFETIME_SECONDS,
+    PROCESS_ROLE,
     RATE_LIMIT_ENABLED,
+    RECOVERY_STALE_MINUTES,
     REMEMBER_COOKIE_HTTPONLY,
     REMEMBER_COOKIE_SAMESITE,
     REMEMBER_COOKIE_SECURE,
@@ -662,6 +665,9 @@ def _parse_operation_form(
     # Objetivo: manual (IP literal) o grupo del inventario persistente.
     target_group_id: Optional[int] = None
     group_name = ""
+    group_target_hosts: List[str] = []
+    group_os_flavor = ""
+    group_connection = ""
     if target_mode not in {"manual", "group"}:
         errors.append("Modo de objetivo no válido.")
         target_mode = "manual"
@@ -680,6 +686,19 @@ def _parse_operation_form(
             target_group_id = None
         else:
             group_name = group.name
+            group_os_flavor = group.os_flavor
+            group_connection = group.connection
+            # Instantánea ordenada de hosts para que una aprobación quede
+            # ligada al conjunto concreto que el admin autorizó. Si el grupo
+            # cambia después, el hash de la aprobación deja de coincidir.
+            group_target_hosts = sorted(
+                {
+                    host.address
+                    for host in HostGroup.hosts_of(
+                        group.id, db_path=get_db_path()
+                    )
+                }
+            )
             if not group.host_count:
                 errors.append(
                     f"El grupo '{group.name}' no tiene hosts; añádelos en el inventario."
@@ -853,6 +872,9 @@ def _parse_operation_form(
             "target_mode": target_mode,
             "target_group_id": target_group_id,
             "group_name": group_name,
+            "group_os_flavor": group_os_flavor,
+            "group_connection": group_connection,
+            "target_hosts": group_target_hosts,
             "task_id": task_id,
             "task_name": task.get("name", task_id) if task else task_id,
             "admin_user": admin_user,
@@ -1112,23 +1134,35 @@ def _purge_retention() -> None:
         )
 
 
-def _recover_task_state() -> None:
+def _recover_task_state(stale_minutes: Optional[int] = None) -> None:
     """Purga tareas antiguas y cierra las que quedaron en curso.
 
     Al arrancar no puede haber ninguna tarea legítimamente en ejecución en este
-    proceso, así que las instantáneas incompletas se marcan como error.
+    proceso, así que las instantáneas incompletas se marcan como error. Con
+    ``stale_minutes`` solo se tocan las que llevan ese tiempo sin actualizarse:
+    así un worker que arranca no cierra operaciones que otro worker sigue
+    ejecutando.
     """
     cutoff = (
         datetime.now(timezone.utc) - timedelta(hours=JOB_RETENTION_HOURS)
     ).isoformat(timespec="seconds")
+    stale_cutoff = None
+    if stale_minutes is not None:
+        stale_cutoff = (
+            datetime.now(timezone.utc)
+            - timedelta(minutes=int(stale_minutes))
+        ).isoformat(timespec="seconds")
 
     with get_connection(get_db_path()) as conn:
         conn.execute("DELETE FROM task_state WHERE updated_at < ?", (cutoff,))
         rows = conn.execute(
-            "SELECT task_id, payload FROM task_state"
+            "SELECT task_id, payload, updated_at FROM task_state"
         ).fetchall()
 
     for row in rows:
+        if stale_cutoff is not None and (row["updated_at"] or "") >= stale_cutoff:
+            # Actualizada recientemente: puede ser otra instancia viva.
+            continue
         try:
             task = json.loads(row["payload"])
         except (TypeError, ValueError):
@@ -2348,8 +2382,11 @@ def handle_execution(default_mode: str = "execute"):
         flash(message, "warning")
         return redirect(url_for("index"))
 
+    approval_request_id: Optional[int] = None
     if task is not None and task.get("destructive") and form["mode"] == "execute":
-        approved, approval_error = ApprovalRequest.consume_if_approved(
+        # Reserva sin consumir: si el encolado falla (cola llena, excepción),
+        # la aprobación vuelve a ``approved`` y no se pierde.
+        approval_request_id, approval_error = ApprovalRequest.reserve_if_approved(
             form["task_id"],
             _approval_params(form),
             executor=operator,
@@ -2357,7 +2394,7 @@ def handle_execution(default_mode: str = "execute"):
             ttl_minutes=APPROVAL_TTL_MINUTES,
             db_path=get_db_path(),
         )
-        if not approved:
+        if approval_request_id is None:
             _release_operation_id(operation_id)
             message = approval_error or "Se requiere doble aprobación para esta tarea."
             if "pendiente" not in message and "ha expirado" not in message and "ya se usó" not in message:
@@ -2427,10 +2464,15 @@ def handle_execution(default_mode: str = "execute"):
             force=form["force"],
             operator=operator,
             task_id=form["task_id"],
+            target_hosts=form.get("target_hosts") or None,
         )
     except JobQueueFull as exc:
         remove_task(tid)
         _release_operation_id(operation_id)
+        if approval_request_id is not None:
+            ApprovalRequest.release_reserved(
+                approval_request_id, db_path=get_db_path()
+            )
         message = (
             "El servicio está ocupado con demasiadas operaciones. "
             "Espera a que termine alguna e inténtalo de nuevo."
@@ -2440,6 +2482,20 @@ def handle_execution(default_mode: str = "execute"):
             return jsonify({"status": "error", "message": message}), 503
         flash(message, "warning")
         return redirect(url_for("index"))
+    except Exception:
+        # No dejar la operación a medias ni una aprobación reservada.
+        remove_task(tid)
+        _release_operation_id(operation_id)
+        if approval_request_id is not None:
+            ApprovalRequest.release_reserved(
+                approval_request_id, db_path=get_db_path()
+            )
+        raise
+    else:
+        if approval_request_id is not None:
+            ApprovalRequest.confirm_reserved(
+                approval_request_id, db_path=get_db_path()
+            )
 
     if _wants_json():
         return jsonify(
@@ -3103,6 +3159,7 @@ def execute_with_progress(
     operator: str = "",
     task_id: str = "",
     cancel_event: Optional[threading.Event] = None,
+    target_hosts: Optional[List[str]] = None,
 ) -> None:
     """Ejecuta una vista previa o un lote completo sobre todos los hosts.
 
@@ -3164,11 +3221,23 @@ def execute_with_progress(
             if connection == "winrm":
                 private_key = ""  # Windows: autenticación por contraseña
             hosts = []
-            for inv_host in HostGroup.hosts_of(inv_group.id, db_path=db_path):
-                pinned_inv, inv_error = pin_target(inv_host.address)
+            # Si la ejecución viene de una aprobación, se usa la instantánea
+            # de hosts autorizada, no la composición actual del grupo. Así un
+            # cambio de membresía posterior no amplía el alcance aprobado.
+            if target_hosts:
+                candidates = sorted({str(address) for address in target_hosts})
+            else:
+                candidates = [
+                    inv_host.address
+                    for inv_host in HostGroup.hosts_of(
+                        inv_group.id, db_path=db_path
+                    )
+                ]
+            for address in candidates:
+                pinned_inv, inv_error = pin_target(address)
                 if inv_error or not pinned_inv:
                     inv_errors.append(
-                        f"Descartado {inv_host.address}: "
+                        f"Descartado {address}: "
                         + (inv_error or "dirección inválida")
                     )
                     continue
@@ -4165,6 +4234,38 @@ def register_cli(flask_app: Flask) -> None:
                 f"Usuario '{username}' creado/actualizado con rol '{role}'."
             )
 
+    @flask_app.cli.command("scheduler")
+    @click.option(
+        "--once",
+        is_flag=True,
+        help="Ejecuta una sola revisión de programaciones y termina.",
+    )
+    def scheduler_command(once: bool):
+        """Ejecuta el programador de tareas en primer plano.
+
+        Útil para un proceso/servicio dedicado (``ACC_ROLE=worker``) cuando
+        el servidor web corre con ``ACC_ROLE=web``. El lock de instancia
+        impide que dos procesos programen a la vez.
+        """
+        db_path = str(get_db_path())
+        if once:
+            launched = scheduler.scan_once(db_path, launch_scheduled)
+            click.echo(f"Programaciones lanzadas: {launched}")
+            return
+        thread = scheduler.start(launch_scheduled, lambda: db_path)
+        if thread is None:
+            raise click.ClickException(
+                "El scheduler no se inició: revisa ACC_SCHEDULER_ENABLED, "
+                "ACC_ROLE o si otro proceso ya tiene el lock."
+            )
+        click.echo("Scheduler en ejecución (Ctrl+C para detener).")
+        try:
+            while thread.is_alive():
+                thread.join(timeout=1)
+        except KeyboardInterrupt:
+            scheduler.stop()
+            click.echo("Scheduler detenido.")
+
     @flask_app.cli.command("reconcile-batches")
     def reconcile_batches_command():
         """Marca como error los lotes que quedaron en curso."""
@@ -4215,6 +4316,19 @@ def _shutdown_job_queue() -> None:
         _job_queue.shutdown(wait=True)
 
 
+def _is_cli_invocation() -> bool:
+    """Detecta si el proceso es el CLI de Flask (no el servidor web)."""
+    argv = [str(part).lower() for part in sys.argv]
+    if not argv:
+        return False
+    programa = os.path.basename(argv[0])
+    if programa in {"flask", "flask.exe"}:
+        return True
+    if len(argv) >= 3 and argv[1] == "-m" and argv[2] == "flask":
+        return True
+    return False
+
+
 def configure_app(flask_app: Flask) -> Flask:
     # Falla pronto si la configuración de producción no es segura (allowlist,
     # clave de sesión y verificación de claves SSH).
@@ -4250,6 +4364,10 @@ def configure_app(flask_app: Flask) -> Flask:
     try:
         ensure_directories()
     except RuntimeError as exc:
+        if IS_PRODUCTION:
+            # En producción no se degrada a instance/: la base y los secretos
+            # deben estar en las rutas respaldadas.
+            raise
         logger.warning(
             "No se pudieron crear los directorios de producción (%s); "
             "se usará el directorio local instance/ para desarrollo.",
@@ -4263,35 +4381,45 @@ def configure_app(flask_app: Flask) -> Flask:
         apply_dry_run(load_dry_run_setting())
     except Exception:  # pragma: no cover - no impedir el arranque
         logger.exception("No se pudo cargar el modo simulación persistido")
-    try:
-        _purge_retention()
-    except Exception:  # pragma: no cover - no impedir el arranque
-        logger.exception("No se pudo aplicar la retención al arrancar")
-    try:
-        _recover_task_state()
-    except Exception:  # pragma: no cover - no impedir el arranque
-        logger.exception("No se pudieron recuperar las tareas persistidas")
-    try:
-        reconciled = ExecutionBatch.reconcile_orphans(db_path=get_db_path())
-    except Exception:  # pragma: no cover - no impedir el arranque
-        logger.exception("No se pudieron reconciliar lotes huérfanos")
-    else:
-        if reconciled:
-            logger.warning(
-                "Se marcaron %s lote(s) huérfano(s) como error al arrancar",
-                reconciled,
+
+    cli_mode = _is_cli_invocation()
+    if not cli_mode and PROCESS_ROLE != "cli":
+        try:
+            _purge_retention()
+        except Exception:  # pragma: no cover - no impedir el arranque
+            logger.exception("No se pudo aplicar la retención al arrancar")
+        try:
+            # Solo tareas estancadas: un worker no debe cerrar operaciones que
+            # otro worker sigue actualizando.
+            _recover_task_state(stale_minutes=RECOVERY_STALE_MINUTES)
+        except Exception:  # pragma: no cover - no impedir el arranque
+            logger.exception("No se pudieron recuperar las tareas persistidas")
+        try:
+            reconciled = ExecutionBatch.reconcile_orphans(
+                db_path=get_db_path(),
+                stale_minutes=RECOVERY_STALE_MINUTES,
             )
+        except Exception:  # pragma: no cover - no impedir el arranque
+            logger.exception("No se pudieron reconciliar lotes huérfanos")
+        else:
+            if reconciled:
+                logger.warning(
+                    "Se marcaron %s lote(s) huérfano(s) como error al arrancar",
+                    reconciled,
+                )
     register_cli(flask_app)
 
     # Programador de ejecuciones desatendidas. Un hilo daemon revisa la tabla
     # ``schedules`` y lanza los lotes por la misma cola que la operación
-    # manual. Nunca impide el arranque si falla la inicialización.
-    try:
-        scheduler.start(
-            launch_scheduled, lambda: str(get_db_path())
-        )
-    except Exception:  # pragma: no cover - no impedir el arranque
-        logger.exception("No se pudo iniciar el programador de ejecuciones")
+    # manual. El lock de instancia evita que varios workers programen a la vez
+    # y ``ACC_ROLE=web`` permite delegarlo a un proceso dedicado.
+    if not cli_mode:
+        try:
+            scheduler.start(
+                launch_scheduled, lambda: str(get_db_path())
+            )
+        except Exception:  # pragma: no cover - no impedir el arranque
+            logger.exception("No se pudo iniciar el programador de ejecuciones")
 
     # Apagado ordenado. El ``atexit`` se registra una sola vez por proceso; si
     # la cola nunca se creó, el callback no hace nada.

@@ -5,6 +5,72 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Correcciones de alta prioridad del análisis 2026-11-06] — 2026-11-06
+
+Análisis completo en
+[`docs/ANALISIS_PROFUNDO_2026-11-06.md`](docs/ANALISIS_PROFUNDO_2026-11-06.md).
+
+### Corregido
+
+- **Arranque y scheduler multi-proceso (A1)**: `configure_app()` ejecutaba en
+  cada worker la purga de retención, la recuperación de tareas, la
+  reconciliación de lotes y el scheduler. Ahora:
+  - `ACC_ROLE=all|web|worker|cli` separa web, programador y CLI; `cli` no
+    arranca scheduler ni mantenimiento.
+  - El scheduler usa un lock `flock` (`scheduler.lock` junto a la base de
+    datos) para que solo un proceso programe.
+  - `Schedule.claim()` reserva la fila de forma atómica y con caducidad, de
+    modo que dos procesos no lanzan el mismo lote (esquema **v12**, columnas
+    `claimed_at`/`claimed_by`).
+  - La recuperación de tareas y la reconciliación de lotes solo cierran
+    registros estancados (`ACC_RECOVERY_STALE_MINUTES`, 15 min por defecto).
+  - Nuevo comando `flask --app app scheduler [--once]` para ejecutar el
+    programador en un proceso dedicado (`ACC_ROLE=worker`).
+- **Rutas de producción fail-closed (A2)**: en producción, si `ACC_DATA_DIR` o
+  `ACC_SECRETS_DIR` no son escribibles, la aplicación no arranca. Ya no cae
+  silenciosamente a `instance/` para la base, el vault, la clave de sesión ni
+  el pepper. El fallback de desarrollo queda limitado por
+  `ACC_ALLOW_DEV_FALLBACK`.
+- **Aprobaciones ligadas a los hosts autorizados (A3)**: la aprobación de un
+  grupo guarda una instantánea ordenada (`target_hosts`) y los metadatos del
+  grupo (`group_os_flavor`, `group_connection`). La ejecución manual usa esa
+  instantánea: si la membresía cambia después, el hash ya no coincide y se
+  exige una nueva aprobación. Las programaciones mantienen la resolución en
+  caliente por decisión de producto.
+- **Aprobación consumida solo tras encolar (A4)**: el flujo pasa a
+  `reserve_if_approved()` → encolar → `confirm_reserved()`. Si la cola está
+  llena o el envío falla, `release_reserved()` devuelve la aprobación a
+  `approved`. Las reservas abandonadas caducan automáticamente. La ejecución
+  manual usa la instantánea aprobada de hosts.
+- **LDAP sin texto claro (A5)**: `parse_ldap_url()` rechaza `ldap://` por
+  defecto porque envía la contraseña sin cifrar. Solo se admite con
+  `ACC_LDAP_ALLOW_INSECURE=1`, y `validate_security_config()` lo exige en
+  producción.
+- **Backup de `/etc/timezone` siempre actualizado (A6)**: el playbook
+  `ansible/cambiar_hora.yml` sobrescribe `/etc/timezone.bak` (`force: true`)
+  antes de cambiar la zona, para no entregar al operador una copia obsoleta.
+
+### Añadido
+
+- Variables `ACC_ENV`, `ACC_ROLE`, `ACC_SCHEDULER_ENABLED`,
+  `ACC_RECOVERY_STALE_MINUTES`, `ACC_ALLOW_DEV_FALLBACK` y
+  `ACC_LDAP_ALLOW_INSECURE` en `.env.example`, `.env.docker.example`,
+  `docker-compose.yml` y `DEPLOYMENT.md`.
+- Esquema de base de datos **v12** con migración automática desde versiones
+  anteriores.
+- `tests/test_alta_prioridad_2026_11_06.py` (12 pruebas entre reservas de
+  aprobación, instantánea de grupos, claim del scheduler, recuperación de
+  registros estancados, rutas fail-closed y LDAP) y actualización de
+  `tests/test_ldap.py`.
+- Documento [`docs/ANALISIS_PROFUNDO_2026-11-06.md`](docs/ANALISIS_PROFUNDO_2026-11-06.md)
+  con la auditoría, el roadmap y el estado de cada corrección.
+
+### Pruebas
+
+- Suite completa: **277 passed, 1 skipped** (`pytest -q`).
+- `conftest.py` fija `ACC_ROLE=cli` y `ACC_SCHEDULER_ENABLED=0` para que la
+  suite no arranque hilos de fondo ni reclame programaciones.
+
 ## [Aprovisionamiento automático de known_hosts] — 2026-11-05
 
 ### Corregido
