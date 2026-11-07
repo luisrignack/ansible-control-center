@@ -10,6 +10,7 @@
 | [ARQUITECTURA](ARQUITECTURA.md) | Componentes, flujos, modelo de concurrencia y decisiones de diseño |
 | [REFERENCIA](REFERENCIA.md) | Rutas, servicios, modelos, esquema SQLite, variables y playbooks |
 | [OPERACION](OPERACION.md) | Runbook: lotes, fallos, rollback, retención y mantenimiento |
+| [RENDIMIENTO](RENDIMIENTO.md) | SLO, métricas de latencia por ruta y por lote, y cómo interpretarlas |
 | [ANALISIS_Y_RECOMENDACIONES](ANALISIS_Y_RECOMENDACIONES.md) | Análisis profundo por aspecto, riesgos y roadmap |
 | [ANALISIS_PROFUNDO_2026-11-06](ANALISIS_PROFUNDO_2026-11-06.md) | Auditoría 2026-11-06, correcciones de alta prioridad aplicadas y roadmap pendiente |
 | [ANALISIS_CALIDAD_ISO_25010](ANALISIS_CALIDAD_ISO_25010.md) | Análisis de brechas frente a ISO/IEC 25010:2023, métricas y plan priorizado |

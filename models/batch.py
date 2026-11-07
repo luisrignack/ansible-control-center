@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -337,6 +338,48 @@ class ExecutionBatch:
                 (batch_id,),
             ).fetchall()
         return [_row_to_host_result(row) for row in rows]
+
+    @staticmethod
+    def get_duration_stats(
+        batch_id: str, db_path: str = None
+    ) -> Dict[str, Any]:
+        """Latencia por host del lote (p50/p95/máximo) a partir de SQLite.
+
+        Es la métrica de rendimiento que sobrevive a reinicios: no depende de
+        la ventana en memoria de ``services.metrics``. Solo cuenta hosts con
+        duración medida (> 0); las omisiones no aportan señal de latencia.
+        """
+        if db_path is None:
+            db_path = _default_db_path()
+
+        with get_connection(db_path) as conn:
+            rows = conn.execute(
+                "SELECT duration_ms FROM execution_hosts "
+                "WHERE batch_id = ? AND duration_ms > 0",
+                (batch_id,),
+            ).fetchall()
+
+        values = sorted(int(row["duration_ms"]) for row in rows)
+        if not values:
+            return {
+                "count": 0,
+                "avg_ms": 0,
+                "p50_ms": 0,
+                "p95_ms": 0,
+                "max_ms": 0,
+            }
+
+        def _percentile(pct: float) -> int:
+            index = max(0, math.ceil(pct / 100.0 * len(values)) - 1)
+            return values[min(index, len(values) - 1)]
+
+        return {
+            "count": len(values),
+            "avg_ms": round(sum(values) / len(values), 1),
+            "p50_ms": _percentile(50),
+            "p95_ms": _percentile(95),
+            "max_ms": values[-1],
+        }
 
     @staticmethod
     def get_stats(db_path: str = None) -> Dict[str, Any]:

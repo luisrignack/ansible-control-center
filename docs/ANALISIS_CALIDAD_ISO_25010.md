@@ -40,13 +40,13 @@ una estimación de madurez, no un resultado certificable.
 
 | Evidencia | Dato |
 |---|---|
-| Suite de pruebas | **287 passed, 1 skipped** (`pytest -q`) |
-| Módulos de prueba | 18 archivos de prueba (+ `__init__.py`), 288 funciones |
+| Suite de pruebas | **298 passed, 1 skipped** (`pytest -q`) |
+| Módulos de prueba | 19 archivos de prueba (+ `__init__.py`), 299 funciones |
 | Código de producción | `app.py` 4.555 líneas; `models/` 3.018; `services/` 4.472 |
-| Código de pruebas | 7.006 líneas |
+| Código de pruebas | 7.297 líneas |
 | Rutas HTTP | 27 |
-| Tablas SQLite | 14; esquema **v12** |
-| Documentación | 10 documentos en `docs/` + README, DEPLOYMENT y CHANGELOG |
+| Tablas SQLite | 14; esquema **v13** |
+| Documentación | 11 documentos en `docs/` + README, DEPLOYMENT y CHANGELOG |
 | CI | Matriz Python 3.11–3.13, `compileall`, gate de calidad, YAML de Ansible y `pytest --cov --cov-fail-under=55` |
 | Lockfile | `requirements.lock` con pines de dependencias directas |
 | Contenedores | App como usuario `acc`, `cap_drop: ALL`, `no-new-privileges`, red interna y healthchecks |
@@ -64,7 +64,7 @@ una estimación de madurez, no un resultado certificable.
 | **Capacidad de interacción** | **3** | UI clara, validación, vista previa y accesibilidad básica | Sin auditoría WCAG 2.2 AA ni ayuda contextual |
 | **Fiabilidad** | **3** | Recuperación, reconciliación, cola, cancelación y healthcheck | Sin métricas de disponibilidad ni prueba de restauración automatizada |
 | **Seguridad** | **4** | RBAC, CSRF, CSP, rate limit, allowlist, vault, auditoría y aprobaciones | Sin MFA, sin escaneo de dependencias y nginx corre como root |
-| **Mantenibilidad** | **3** | Modelos/servicios separados, 287 pruebas y documentación extensa | `app.py` monolítico, sin linters/tipos y umbral de cobertura bajo |
+| **Mantenibilidad** | **3** | Modelos/servicios separados, 298 pruebas y documentación extensa | `app.py` monolítico, sin linters/tipos y umbral de cobertura bajo |
 | **Flexibilidad** | **2** | Docker, systemd, install.sh y configuración por entorno | Escalabilidad horizontal limitada y soporte de SO restringido |
 | **Seguridad funcional (safety)** | **3** | Dry-run, aprobaciones, allowlist, límites y restauración de NTP | Sin análisis formal de riesgos ni clasificación de peligrosidad |
 
@@ -86,7 +86,7 @@ continua de calidad**.
 | Subcaracterística | Nivel | Evidencia | Brecha / acción |
 |---|---:|---|---|
 | Completitud funcional | 2 | Flujo de zona horaria/NTP, vista previa, ejecución, lotes, historial, programaciones, aprobaciones, auditoría y PDF | Solo `zona-todas` está activa; `kaspersky`, `contrasena` y `tapiz` figuran como `planned` |
-| Corrección funcional | 4 | Validador único manual/programado, resolución DST, verificación posterior de hora/NTP, tolerancia configurable y 287 pruebas | Sin pruebas de carga ni de campo con hosts reales heterogéneos |
+| Corrección funcional | 4 | Validador único manual/programado, resolución DST, verificación posterior de hora/NTP, tolerancia configurable y 298 pruebas | Sin pruebas de carga ni de campo con hosts reales heterogéneos |
 | Pertinencia funcional | 4 | Catálogo de tareas, vista previa con `would_change`, dry-run, ejecución best-effort y resultados por host | La consola sigue dependiendo de marcadores de texto de Ansible |
 
 **Lectura:** el producto cumple bien el objetivo operativo para el que está
@@ -145,7 +145,7 @@ y pruebas manuales sería la acción de mayor retorno.
 
 | Subcaracterística | Nivel | Evidencia | Brecha / acción |
 |---|---:|---|---|
-| Ausencia de fallos | 3 | 287 pruebas, gate de calidad, `compileall`, CI en 3 versiones y validación de YAML | Sin telemetría de errores en producción ni tasa de fallos por release |
+| Ausencia de fallos | 3 | 298 pruebas, gate de calidad, `compileall`, CI en 3 versiones y validación de YAML | Sin telemetría de errores en producción ni tasa de fallos por release |
 | Disponibilidad | 3 | Healthcheck de app y nginx, `restart: unless-stopped`, SQLite WAL y `busy_timeout` | Un solo worker y una sola instancia; sin HA ni failover |
 | Tolerancia a fallos | 3 | Best-effort por host, reintento de contraseñas, cola acotada, cancelación, claim del scheduler y reconciliación de huérfanos | No hay reintento selectivo de hosts fallidos ni circuit breaker |
 | Recuperabilidad | 3 | Snapshot de tareas en SQLite, recuperación de tareas estancadas, retención y procedimiento de backup/restore documentado | Sin simulacro de restauración automatizado ni RTO/RPO medidos |
@@ -180,7 +180,7 @@ básicos ausentes.
 | Reutilización | 3 | Servicios de Ansible, vault, scheduler, cola, catálogo y validador común | Algunas utilidades siguen acopladas a `app.py` |
 | Analizabilidad | 2 | Documentación muy completa y gate de calidad | Sin `ruff`/`black`/`mypy`/`bandit`, sin tipos verificados y sin trazas estructuradas |
 | Modificabilidad | 3 | Migraciones idempotentes, pruebas de regresión y configuración por entorno | El monolito aumenta el riesgo de cambios laterales |
-| Testabilidad | 3 | 288 funciones de prueba, fixtures y pruebas de servicios | Umbral de cobertura del 55%; sin cobertura de ramas ni mutación |
+| Testabilidad | 3 | 299 funciones de prueba, fixtures y pruebas de servicios | Umbral de cobertura del 55%; sin cobertura de ramas ni mutación |
 
 **Lectura:** buena base de pruebas y documentación, pero la **calidad
 estática** no está automatizada más allá del gate propio. El umbral de
@@ -269,8 +269,9 @@ usuarios, la valoración es cualitativa:
    instalarlos; el CI sí puede.
 4. **Q-04 Lockfile completo.** Generar lock con dependencias transitivas y
    hashes (`pip-compile --generate-hashes`), no solo dependencias directas.
-5. **Q-05 Pruebas de carga y SLOs.** Medir latencia, throughput, cola y SSE
-   con un inventario simulado de 256 hosts.
+5. **Q-05 Pruebas de carga y SLOs.** SLO definidos y métricas p50/p95 por ruta
+   y por lote ya disponibles (`docs/RENDIMIENTO.md`); falta la prueba de carga
+   con un inventario simulado de 256 hosts y la métrica de espera en cola.
 6. **Q-06 Restauración verificada.** Automatizar un simulacro de backup y
    documentar RTO/RPO.
 7. **Q-07 Accesibilidad.** Auditoría WCAG 2.2 AA con axe/Lighthouse y

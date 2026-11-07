@@ -96,6 +96,8 @@ from config import (
     PERMANENT_SESSION_LIFETIME_SECONDS,
     PROCESS_ROLE,
     RATE_LIMIT_ENABLED,
+    REQUEST_METRICS_ENABLED,
+    REQUEST_METRICS_WINDOW,
     RECOVERY_STALE_MINUTES,
     REMEMBER_COOKIE_HTTPONLY,
     REMEMBER_COOKIE_SAMESITE,
@@ -108,6 +110,7 @@ from config import (
     SESSION_COOKIE_SAMESITE,
     SESSION_COOKIE_SECURE,
     SECRETS_DIR,
+    SLOW_REQUEST_MS,
     TASK_PERSIST_INTERVAL_SECONDS,
     TASK_REQUEST_EMAIL,
     TASK_REQUEST_SUBJECT,
@@ -149,6 +152,7 @@ from services.ansible_runner import apply_host, inspect_host
 from services.csrf import csrf_protect, generate_csrf_token, rotate_csrf_token
 from services.host_resolver import pin_target, resolve_target
 from services.job_queue import JobQueue, JobQueueFull
+from services.metrics import RequestMetrics, summarize
 from services.password_tester import test_ansible_ping
 from services.pdf_report import (
     build_execution_report,
@@ -189,6 +193,10 @@ _task_events: Dict[str, threading.Event] = {}
 _task_persist_times: Dict[str, float] = {}
 _task_persist_lock = threading.Lock()
 _db_path_cache: Optional[str] = None
+
+# Métricas de rendimiento por ruta (ventana acotada en memoria, sin
+# persistencia). Se consultan desde ``/metricas`` y ``/api/metricas``.
+request_metrics = RequestMetrics(window=REQUEST_METRICS_WINDOW)
 
 
 def _active_task_count() -> int:
@@ -1064,12 +1072,64 @@ def _load_persisted_task(tid: str) -> Optional[Dict[str, Any]]:
         return _tasks[tid]
 
 
-def _get_task(tid: str) -> Optional[Dict[str, Any]]:
+def _refresh_task_from_db(
+    tid: str, current: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Adopta la instantánea de SQLite si otra instancia la actualizó.
+
+    La copia en memoria del proceso que ejecuta la tarea puede ser más nueva
+    que la persistida (la consola se agrupa cada ``ACC_TASK_PERSIST_INTERVAL``
+    segundos). Por eso solo se reemplaza cuando la marca ``updated_at`` de
+    SQLite es estrictamente mayor.
+    """
+    try:
+        with get_connection(get_db_path()) as conn:
+            row = conn.execute(
+                "SELECT payload FROM task_state WHERE task_id = ?", (tid,)
+            ).fetchone()
+    except Exception:
+        return current
+    if row is None:
+        return current
+
+    try:
+        persisted = json.loads(row["payload"])
+    except (TypeError, ValueError):
+        return current
+    if not isinstance(persisted, dict):
+        return current
+
+    persisted_updated = str(persisted.get("updated_at") or "")
+    current_updated = str(current.get("updated_at") or "")
+    if persisted_updated <= current_updated:
+        return current
+
+    with _tasks_lock:
+        latest = _tasks.get(tid)
+        if latest is not None and str(
+            latest.get("updated_at") or ""
+        ) > persisted_updated:
+            return latest
+        _tasks[tid] = persisted
+        return persisted
+
+
+def _get_task(
+    tid: str, refresh: bool = False
+) -> Optional[Dict[str, Any]]:
+    """Devuelve una tarea, leyendo SQLite cuando no está en este proceso.
+
+    ``refresh=True`` consulta la instantánea persistida para que las lecturas
+    (estado, progreso y cancelación) sean correctas aunque la petición caiga
+    en un worker distinto del que ejecuta la tarea.
+    """
     with _tasks_lock:
         task = _tasks.get(tid)
-    if task is not None:
-        return task
-    return _load_persisted_task(tid)
+    if task is None:
+        return _load_persisted_task(tid)
+    if refresh:
+        return _refresh_task_from_db(tid, task)
+    return task
 
 
 def _delete_persisted_task(tid: str) -> None:
@@ -1354,14 +1414,39 @@ def _release_operation_id(operation_id: str) -> None:
         )
 
 
+def _task_version(task: Dict[str, Any]) -> tuple:
+    """Huella barata para evitar serializar el estado sin cambios.
+
+    Se comparan campos que cambian en cada actualización relevante; así una
+    conexión SSE ociosa no reenvía la tarea completa cada segundo.
+    """
+    console = task.get("console") or []
+    log = task.get("log") or []
+    return (
+        task.get("updated_at"),
+        task.get("status"),
+        task.get("completed"),
+        task.get("progress"),
+        task.get("message"),
+        len(console),
+        len(log),
+        console[-1] if console else "",
+        log[-1] if log else "",
+    )
+
+
 def generate_progress_events(task_id: str):
     yield sse_retry(1500)
     start = time.time()
     max_wait = 90
-    last_payload: Optional[str] = None
+    last_version: Optional[tuple] = None
 
     while True:
-        task = _get_task(task_id)
+        # Si la tarea la ejecuta otro proceso no existe evento local: se
+        # refresca desde SQLite para que el SSE funcione con varios workers.
+        with _tasks_lock:
+            event = _task_events.get(task_id)
+        task = _get_task(task_id, refresh=event is None)
 
         if task is None:
             yield sse_event(
@@ -1370,13 +1455,17 @@ def generate_progress_events(task_id: str):
             )
             return
 
-        payload = json.dumps(task, ensure_ascii=False)
-        if payload != last_payload:
-            yield sse_event("progress", payload)
-            last_payload = payload
+        version = _task_version(task)
+        if version != last_version:
+            yield sse_event(
+                "progress", json.dumps(task, ensure_ascii=False)
+            )
+            last_version = version
 
         if task.get("status") in TERMINAL_STATES or task.get("completed"):
-            yield sse_event("completed", payload)
+            yield sse_event(
+                "completed", json.dumps(task, ensure_ascii=False)
+            )
             return
 
         if time.time() - start >= max_wait:
@@ -1386,16 +1475,46 @@ def generate_progress_events(task_id: str):
             )
             return
 
-        # Espera a que update_task señale el evento; así el stream reacciona
-        # de inmediato sin bloquear el worker con time.sleep. El límite de 1 s
-        # sigue actuando como red de seguridad ante cambios externos.
-        with _tasks_lock:
-            event = _task_events.get(task_id)
+        # Espera a que update_task señale el evento; si no hay evento local,
+        # sondea SQLite una vez por segundo (coste acotado por conexión).
         if event is not None:
             event.wait(1.0)
             event.clear()
-        else:  # pragma: no cover - tarea persistida sin evento en memoria
+        else:
             time.sleep(1)
+
+
+# ---------------------------------------------------------------------------
+# Métricas de rendimiento (instrumentación ligera, sin dependencias)
+# ---------------------------------------------------------------------------
+_METRICS_SKIP_ENDPOINTS = {"static", "healthz", "progress_sse"}
+
+
+@app.before_request
+def _metrics_before_request():
+    if REQUEST_METRICS_ENABLED:
+        g._acc_request_started = time.perf_counter()
+    return None
+
+
+@app.after_request
+def _metrics_after_request(response):
+    started = getattr(g, "_acc_request_started", None)
+    if started is None:
+        return response
+    endpoint = request.endpoint or "desconocido"
+    if endpoint in _METRICS_SKIP_ENDPOINTS:
+        return response
+    duration_ms = (time.perf_counter() - started) * 1000.0
+    request_metrics.record(endpoint, duration_ms, response.status_code)
+    if duration_ms >= SLOW_REQUEST_MS:
+        logger.warning(
+            "Petición lenta: endpoint=%s status=%s duracion_ms=%.1f",
+            endpoint,
+            response.status_code,
+            duration_ms,
+        )
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -3619,7 +3738,7 @@ def execute_with_progress(
 @app.route("/progress/<task_id>")
 @login_required
 def progress_page(task_id: str):
-    task = _get_task(task_id)
+    task = _get_task(task_id, refresh=True)
     if task is None:
         abort(404)
     actor = getattr(current_user, "username", "") or str(current_user.get_id())
@@ -3634,7 +3753,7 @@ def progress_page(task_id: str):
 @app.route("/progress/<task_id>/events")
 @login_required
 def progress_sse(task_id: str):
-    if _get_task(task_id) is None:
+    if _get_task(task_id, refresh=True) is None:
         abort(404)
     response = Response(
         stream_with_context(generate_progress_events(task_id)),
@@ -3648,7 +3767,7 @@ def progress_sse(task_id: str):
 @app.route("/api/task-status/<task_id>")
 @login_required
 def api_task_status(task_id: str):
-    task = _get_task(task_id)
+    task = _get_task(task_id, refresh=True)
     if task is None:
         response = jsonify({"status": "not_found", "exists": False})
     else:
@@ -3667,7 +3786,7 @@ def cancel_task(task_id: str):
     ejemplo, una programación desatendida) quedan reservadas a los
     administradores.
     """
-    task = _get_task(task_id)
+    task = _get_task(task_id, refresh=True)
     if task is None:
         abort(404)
 
@@ -3743,8 +3862,14 @@ def batch_detail(batch_id: str):
     host_results = ExecutionBatch.get_host_results(
         batch_id, db_path=get_db_path()
     )
+    duration_stats = ExecutionBatch.get_duration_stats(
+        batch_id, db_path=get_db_path()
+    )
     return render_template(
-        "batch.html", batch=batch, host_results=host_results
+        "batch.html",
+        batch=batch,
+        host_results=host_results,
+        duration_stats=duration_stats,
     )
 
 
@@ -3966,6 +4091,43 @@ def acerca_de():
         datetime.now(timezone.utc), with_time=True
     )
     return render_template("about.html", host_date=host_date)
+
+
+@app.route("/metricas")
+@roles_required("admin")
+def metricas():
+    """Panel de latencia por ruta (ventana reciente, solo administradores)."""
+    snapshot = request_metrics.snapshot()
+    rows = sorted(
+        snapshot.items(),
+        key=lambda item: item[1].get("p95_ms", 0.0),
+        reverse=True,
+    )
+    return render_template(
+        "metrics.html",
+        metrics=snapshot,
+        rows=rows,
+        summary=summarize(snapshot),
+        window=request_metrics.window,
+        slow_request_ms=SLOW_REQUEST_MS,
+    )
+
+
+@app.route("/api/metricas")
+@roles_required("admin")
+def api_metricas():
+    """Mismo snapshot en JSON para automatización y comprobaciones de SLO."""
+    snapshot = request_metrics.snapshot()
+    response = jsonify(
+        {
+            "window": request_metrics.window,
+            "slow_request_ms": SLOW_REQUEST_MS,
+            "summary": summarize(snapshot),
+            "endpoints": snapshot,
+        }
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route("/audit")

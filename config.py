@@ -463,6 +463,15 @@ TASK_PERSIST_INTERVAL_SECONDS = _env_int(
     "ACC_TASK_PERSIST_INTERVAL", 2, minimum=0, maximum=60
 )
 
+# Métricas de rendimiento en proceso (sin dependencias externas). Se guardan
+# las últimas N muestras por ruta para calcular p50/p95; no se persisten.
+REQUEST_METRICS_ENABLED = _env_bool("ACC_REQUEST_METRICS", True)
+REQUEST_METRICS_WINDOW = _env_int(
+    "ACC_REQUEST_METRICS_WINDOW", 500, minimum=50, maximum=10000
+)
+# Umbral para registrar una petición lenta en el log (además de la métrica).
+SLOW_REQUEST_MS = _env_int("ACC_SLOW_REQUEST_MS", 1000, minimum=100, maximum=60000)
+
 # Cola de trabajos: concurrencia acotada y tamaño máximo de la cola.
 JOB_MAX_WORKERS = _env_int("ACC_JOB_WORKERS", 2, minimum=1, maximum=32)
 JOB_QUEUE_SIZE = _env_int("ACC_JOB_QUEUE_SIZE", 50, minimum=1)

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 
 def _secure_sqlite_files(path: str) -> None:
@@ -462,6 +462,19 @@ def _migrate_v12(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "schedules", "claimed_by", "claimed_by TEXT")
 
 
+def _migrate_v13(conn: sqlite3.Connection) -> None:
+    """Índice para retención y métricas de duración por host.
+
+    ``execution_hosts`` crece con cada ejecución y se consulta por lote y por
+    fecha (retención, p50/p95). El índice por ``created_at`` evita escaneos
+    completos cuando la tabla acumula meses de historial.
+    """
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_hosts_created_at "
+        "ON execution_hosts (created_at)"
+    )
+
+
 def init_schema(db_path: str) -> None:
     """Crea o migra el esquema de forma idempotente y no destructiva.
 
@@ -493,6 +506,7 @@ def init_schema(db_path: str) -> None:
         _migrate_v10(conn)
         _migrate_v11(conn)
         _migrate_v12(conn)
+        _migrate_v13(conn)
         # No se rebaja la versión de una base creada por una versión más nueva.
         if version < SCHEMA_VERSION:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

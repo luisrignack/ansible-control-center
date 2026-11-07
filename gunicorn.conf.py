@@ -1,9 +1,12 @@
 """Configuración de Gunicorn para Ansible Control Center.
 
-Se usa un solo worker por defecto porque el progreso de las tareas vive en
-memoria (``app._tasks``). El worker es ``gthread`` para que una conexión SSE
-abierta no bloquee el resto de peticiones. Para escalar a varios workers habrá
-que mover ese estado a Redis/SQLite (fase posterior).
+Se usa un solo worker por defecto porque la ejecución y la cancelación de
+trabajos viven en el proceso. Las lecturas de estado y el SSE ya refrescan
+desde SQLite, así que subir ``ACC_WORKERS`` es seguro para tráfico de solo
+lectura; la cancelación, en cambio, puede no alcanzar al worker que ejecuta.
+Para varios workers de ejecución hace falta la cola compartida (fase
+posterior). El worker es ``gthread`` para que una conexión SSE abierta no
+bloquee el resto de peticiones.
 """
 import os
 

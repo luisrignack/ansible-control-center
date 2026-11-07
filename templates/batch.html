@@ -70,6 +70,17 @@
                     {% endif %}
                 </div>
             </div>
+            <div>
+                <div class="detail-label">Latencia por host</div>
+                <div class="detail-value">
+                    {% if duration_stats and duration_stats.count %}
+                        p50 {{ duration_stats.p50_ms }} ms · p95 {{ duration_stats.p95_ms }} ms
+                        <span class="text-secondary">(máx. {{ duration_stats.max_ms }} ms)</span>
+                    {% else %}
+                        —
+                    {% endif %}
+                </div>
+            </div>
         </div>
 
         <div class="stat-grid">

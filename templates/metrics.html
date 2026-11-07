@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}Métricas de rendimiento{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div>
+        <div class="eyebrow">Sistema</div>
+        <h1>Métricas de rendimiento</h1>
+        <p class="sub">
+            Latencia reciente por ruta (ventana de {{ window }} muestras por endpoint).
+            No se persiste: se reinicia con el proceso.
+        </p>
+    </div>
+    <div class="head-actions">
+        <a href="{{ url_for('api_metricas') }}" class="btn btn-secondary">
+            <i class="bi bi-braces" aria-hidden="true"></i> Ver JSON
+        </a>
+    </div>
+</div>
+
+<div class="stat-grid mb-3">
+    <div class="stat">
+        <div class="stat-value">{{ summary.endpoints }}</div>
+        <div class="stat-label">Rutas medidas</div>
+    </div>
+    <div class="stat">
+        <div class="stat-value">{{ summary.requests }}</div>
+        <div class="stat-label">Peticiones</div>
+    </div>
+    <div class="stat {% if summary.errors %}is-danger{% else %}is-ok{% endif %}">
+        <div class="stat-value">{{ summary.errors }}</div>
+        <div class="stat-label">Errores 5xx</div>
+    </div>
+    <div class="stat">
+        <div class="stat-value">
+            {% if summary.slowest_endpoint %}<code>{{ summary.slowest_endpoint }}</code>{% else %}—{% endif %}
+        </div>
+        <div class="stat-label">p95 más alto</div>
+    </div>
+</div>
+
+<div class="card fade-in">
+    <div class="card-header">
+        <h2 class="card-title"><i class="bi bi-speedometer2" aria-hidden="true"></i> Latencia por ruta</h2>
+        <span class="badge badge-accent">Umbral de aviso: {{ slow_request_ms }} ms</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive p-3">
+            <table class="table table-borderless mb-0 table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th scope="col">Endpoint</th>
+                        <th scope="col" class="text-end">Peticiones</th>
+                        <th scope="col" class="text-end">Errores</th>
+                        <th scope="col" class="text-end">Media</th>
+                        <th scope="col" class="text-end">p50</th>
+                        <th scope="col" class="text-end">p95</th>
+                        <th scope="col" class="text-end">Máx.</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if rows %}
+                        {% for name, data in rows %}
+                        <tr>
+                            <td><code>{{ name }}</code></td>
+                            <td class="text-end">{{ data.count }}</td>
+                            <td class="text-end">
+                                {% if data.errors %}
+                                    <span class="badge bg-danger">{{ data.errors }}</span>
+                                {% else %}
+                                    0
+                                {% endif %}
+                            </td>
+                            <td class="text-end">{{ data.avg_ms }} ms</td>
+                            <td class="text-end">{{ data.p50_ms }} ms</td>
+                            <td class="text-end">
+                                <strong {% if data.p95_ms >= slow_request_ms %}class="text-warning"{% endif %}>{{ data.p95_ms }} ms</strong>
+                            </td>
+                            <td class="text-end">{{ data.max_ms }} ms</td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center py-4">
+                            <small class="text-secondary">Todavía no hay muestras. Navega por la aplicación y vuelve a esta página.</small>
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card-footer small text-secondary">
+        Los SLO de referencia están en <code>docs/RENDIMIENTO.md</code>. La latencia por lote
+        (p50/p95 por host) se conserva en SQLite y aparece en el detalle de cada lote.
+    </div>
+</div>
+{% endblock %}

@@ -82,6 +82,11 @@
                {% if endpoint == 'audit' %}aria-current="page"{% endif %}>
                 <i class="bi bi-shield-check icon" aria-hidden="true"></i> Auditoría
             </a>
+            <a class="nav-item {% if endpoint == 'metricas' %}is-active{% endif %}"
+               href="{{ url_for('metricas') }}"
+               {% if endpoint == 'metricas' %}aria-current="page"{% endif %}>
+                <i class="bi bi-speedometer2 icon" aria-hidden="true"></i> Rendimiento
+            </a>
             {% endif %}
             <div class="nav-label">Sistema</div>
             <a class="nav-item {% if endpoint == 'acerca_de' %}is-active{% endif %}"

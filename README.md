@@ -105,6 +105,10 @@ por defecto** (278 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 - **Notificaciones SMTP** opcionales de resultados (`failures` o `all`) y
   **re-ejecución** de un lote desde su detalle cuando el estado lo permite.
 - **Informe PDF** por ejecución, generado sin dependencias externas.
+- **Métricas de rendimiento**: `/metricas` (solo `admin`) muestra p50/p95 por
+  ruta y `/api/metricas` las expone en JSON; cada lote incluye p50/p95 por
+  host desde SQLite. Los SLO están en
+  [docs/RENDIMIENTO.md](docs/RENDIMIENTO.md).
 - **Auditoría de acceso**: `/audit` registra logins, cambios de rol y bloqueos;
   `/usuarios` permite gestionar cuentas locales y LDAPS.
 
@@ -341,6 +345,9 @@ una `ACC_SECRET_KEY` aleatoria.
 | `ACC_MAX_MEMORY_TASKS` | `200` | Instantáneas de tarea en memoria |
 | `ACC_MAX_TASK_STATE_ROWS` | `500` | Filas máximas de `task_state` |
 | `ACC_TASK_PERSIST_INTERVAL` | `2` | Intervalo mínimo entre escrituras de consola/log en SQLite (s; `0` desactiva el agrupado) |
+| `ACC_REQUEST_METRICS` | `1` | Activa la instrumentación de latencia por ruta |
+| `ACC_REQUEST_METRICS_WINDOW` | `500` | Muestras por endpoint para p50/p95 (50–10.000) |
+| `ACC_SLOW_REQUEST_MS` | `1000` | Umbral para registrar una petición lenta en el log |
 | `ACC_HISTORY_DAYS` | `180` | Retención del historial de lotes (días) |
 | `ACC_AUTH_EVENT_DAYS` | `365` | Retención de eventos de autenticación (días) |
 | `ACC_RETENTION_INTERVAL_HOURS` | `24` | Cada cuántas horas el scheduler reaplica la retención (1–720) |
@@ -434,7 +441,7 @@ Estas variables las lee `gunicorn.conf.py`, no `config.py`:
 | Variable | Por defecto | Descripción |
 |---|---|---|
 | `ACC_BIND` | `127.0.0.1:5000` | Dirección de escucha |
-| `ACC_WORKERS` | `1` | Workers (el estado SSE es por proceso) |
+| `ACC_WORKERS` | `1` | Workers web; subirlo es seguro para lecturas y SSE, pero la ejecución/cancelación sigue siendo por proceso |
 | `ACC_GUNICORN_WORKER_CLASS` | `gthread` | Clase de worker (`gthread` evita bloquear con SSE) |
 | `ACC_GUNICORN_THREADS` | `4` | Hilos por worker con `gthread` |
 | `ACC_GUNICORN_TIMEOUT` | `330` | Timeout del worker (s), mayor que el SSE |
@@ -645,10 +652,11 @@ Define `hora_estado` con: `timezone`, `ntp`, `ntp_synchronized`,
 
 ## Limitaciones conocidas
 
-- **Snapshots por proceso**: el SSE y la consola se sirven desde memoria; SQLite
-  guarda instantáneas para sobrevivir a reinicios, pero varios workers seguirían
-  necesitando un almacén compartido. El worker `gthread` y un `timeout` superior
-  al SSE evitan bloqueos.
+- **Snapshots por proceso**: el SSE y la consola se sirven desde memoria, pero
+  las lecturas refrescan desde `task_state` cuando la petición cae en otro
+  worker. La ejecución y la cancelación siguen siendo por proceso; para varios
+  workers de ejecución hace falta una cola compartida. El worker `gthread` y
+  un `timeout` superior al SSE evitan bloqueos.
 - **Consola acotada**: se conservan las últimas 300 líneas y se recorta cada
   línea a 500 caracteres. El snapshot persistido puede perder la última fracción
   de segundo antes de un reinicio.
@@ -724,6 +732,7 @@ Módulos:
 - [Arquitectura y flujos](docs/ARQUITECTURA.md)
 - [Referencia técnica](docs/REFERENCIA.md)
 - [Operación y runbook](docs/OPERACION.md)
+- [Rendimiento y SLO](docs/RENDIMIENTO.md)
 - [Análisis profundo y recomendaciones](docs/ANALISIS_Y_RECOMENDACIONES.md)
 - [Análisis de calidad ISO/IEC 25010:2023](docs/ANALISIS_CALIDAD_ISO_25010.md)
 - [Análisis funcional y roadmap](ANALISIS.md)

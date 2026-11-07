@@ -177,6 +177,9 @@ flask --app app init-admin
 | `ACC_JOB_RETENTION_HOURS` | `24` | Retención de instantáneas de tareas |
 | `ACC_RETENTION_INTERVAL_HOURS` | `24` | Cada cuántas horas el scheduler reaplica la retención (1–720) |
 | `ACC_TASK_PERSIST_INTERVAL` | `2` | Intervalo mínimo entre escrituras de consola/log en SQLite (s; `0` desactiva el agrupado) |
+| `ACC_REQUEST_METRICS` | `1` | Activa la instrumentación de latencia por ruta |
+| `ACC_REQUEST_METRICS_WINDOW` | `500` | Muestras por endpoint para p50/p95 |
+| `ACC_SLOW_REQUEST_MS` | `1000` | Umbral de petición lenta en el log (ms) |
 
 Variables específicas de Gunicorn (`gunicorn.conf.py`, no de `config.py`):
 

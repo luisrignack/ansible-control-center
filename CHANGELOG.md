@@ -5,6 +5,35 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Lecturas compartidas, métricas y SLO] — 2026-11-07
+
+### Añadido
+
+- **Lecturas de tareas desde SQLite**: `_get_task(refresh=True)` adopta la
+  instantánea persistida si otra instancia la actualizó; el SSE sondea SQLite
+  cuando no hay evento local y evita reenviar el estado sin cambios. Esto
+  permite que las lecturas y el progreso funcionen con varios workers web,
+  aunque la ejecución y la cancelación sigan siendo por proceso.
+- **Instrumentación de latencia por ruta** sin dependencias externas:
+  `services/metrics.py`, panel `/metricas` y JSON `/api/metricas` (solo
+  `admin`), con media, p50, p95, máximo y errores 5xx.
+- **p50/p95 por host en el detalle del lote** a partir de
+  `execution_hosts.duration_ms` (`ExecutionBatch.get_duration_stats`).
+- **SLO documentados** en `docs/RENDIMIENTO.md`, junto con el procedimiento de
+  medición y las limitaciones actuales.
+- **Migración v13**: índice `idx_hosts_created_at` para retención y métricas.
+- **Nginx**: compresión gzip para HTML/CSS/JS/JSON y caché de estáticos.
+- Pruebas nuevas en `tests/test_rendimiento_2026_11_07.py`.
+
+### Cambiado
+
+- `gunicorn.conf.py` documenta el alcance real de `ACC_WORKERS`: seguro para
+  lecturas y SSE, pero no para ejecución/cancelación distribuidas.
+- README, DEPLOYMENT y `.env*.example` incluyen
+  `ACC_REQUEST_METRICS`, `ACC_REQUEST_METRICS_WINDOW` y `ACC_SLOW_REQUEST_MS`.
+
+---
+
 ## [Unificado de validación, ownership y mantenimiento] — 2026-11-06
 
 ### Añadido
