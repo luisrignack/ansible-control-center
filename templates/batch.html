@@ -37,7 +37,7 @@
             <div>
                 <div class="detail-label">Acción / valor</div>
                 <div class="detail-value">
-                    {% if batch.action == 'TZ' %}Zona horaria{% else %}Hora exacta{% endif %}
+                    {% if batch.action == 'TZ' %}Zona horaria{% elif batch.action == 'TIME' %}Hora exacta{% elif batch.action == 'WALLPAPER' %}Tapiz{% else %}{{ batch.action }}{% endif %}
                     · <code>{{ batch.value }}</code>
                 </div>
             </div>

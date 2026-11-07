@@ -1,0 +1,238 @@
+---
+# Playbook del tapiz oficial para estaciones Linux con GNOME.
+#
+# Variables esperadas (se pasan con --extra-vars desde la aplicación):
+#   accion:         "WALLPAPER"
+#   wallpaper_src:  ruta local (en el controlador) de la imagen validada
+#   wallpaper_dest: ruta final en la estación
+#   wallpaper_uri:  URI file:// que consume GNOME
+#
+# Persistencia:
+#   * La imagen se copia a /usr/local/share/backgrounds (no a /tmp).
+#   * El valor se publica como predeterminado del sistema en
+#     /etc/dconf/db/local.d/00-acc-tapiz y se compila con `dconf update`.
+#     Así se aplica a cualquier usuario que inicie sesión y sobrevive al
+#     reinicio, aunque el usuario no tenga una sesión activa al ejecutar.
+#   * Además se aplica en caliente a las sesiones GNOME activas mediante
+#     gsettings y el bus de sesión de cada usuario.
+#
+# Marcadores de salida que interpreta la aplicación:
+#   TAPIZ_BEFORE_B64, TAPIZ_STATE_B64, TAPIZ_CHANGED, TAPIZ_VERIFIED,
+#   TAPIZ_ERRORS.
+- name: Aplicar tapiz de escritorio (Linux GNOME)
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    wallpaper_src: ""
+    wallpaper_dest: "/usr/local/share/backgrounds/acc-tapiz.png"
+    wallpaper_uri: "file:///usr/local/share/backgrounds/acc-tapiz.png"
+    dconf_dir: "/etc/dconf/db/local.d"
+    dconf_profile_dir: "/etc/dconf/profile"
+    dconf_profile: "/etc/dconf/profile/user"
+    dconf_keyfile: "/etc/dconf/db/local.d/00-acc-tapiz"
+
+  tasks:
+    - name: Validar la acción solicitada
+      ansible.builtin.assert:
+        that:
+          - accion == 'WALLPAPER'
+        fail_msg: "Acción no válida para el tapiz: {{ accion }}"
+        success_msg: "Acción válida: WALLPAPER"
+
+    - name: Validar que se recibió una imagen
+      ansible.builtin.assert:
+        that:
+          - wallpaper_src | default('') | length > 0
+          - wallpaper_dest | default('') | length > 0
+          - wallpaper_uri | default('') | length > 0
+        fail_msg: >-
+          TAPIZ_ERRORS=Falta la imagen o la ruta de destino del tapiz.
+
+    - name: Comprobar que dconf y gsettings están instalados
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /usr/bin/dconf
+        - /usr/bin/gsettings
+      register: _tapiz_binarios
+
+    - name: Rechazar estaciones sin GNOME/dconf
+      ansible.builtin.fail:
+        msg: >-
+          TAPIZ_ERRORS=La estación no tiene dconf/gsettings. El tapiz
+          automático requiere Ubuntu/Debian con escritorio GNOME.
+      when: >-
+        _tapiz_binarios.results | selectattr('stat.exists', 'equalto', false)
+        | list | length > 0
+
+    - name: Leer la URI de fondo anterior
+      ansible.builtin.command:
+        argv: [dconf, read, /org/gnome/desktop/background/picture-uri]
+      register: _tapiz_antes_cmd
+      changed_when: false
+      failed_when: false
+
+    - name: Guardar el estado anterior
+      ansible.builtin.set_fact:
+        tapiz_antes: >-
+          {{ _tapiz_antes_cmd.stdout | default('') | trim
+             | replace('"', '') | replace("'", '') }}
+
+    - name: Publicar el estado anterior
+      ansible.builtin.debug:
+        msg: >-
+          TAPIZ_BEFORE_B64={{ {'wallpaper_uri': tapiz_antes}
+          | to_json | b64encode }}
+
+    - name: Crear el directorio de imágenes de fondo
+      ansible.builtin.file:
+        path: "{{ wallpaper_dest | dirname }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Crear los directorios de dconf
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - "{{ dconf_dir }}"
+        - "{{ dconf_profile_dir }}"
+
+    - name: Copiar la imagen del tapiz
+      ansible.builtin.copy:
+        src: "{{ wallpaper_src }}"
+        dest: "{{ wallpaper_dest }}"
+        owner: root
+        group: root
+        mode: "0644"
+      register: _tapiz_copia
+
+    - name: Asegurar que el perfil dconf carga la base local
+      ansible.builtin.lineinfile:
+        path: "{{ dconf_profile }}"
+        line: "system-db:local"
+        create: true
+        owner: root
+        group: root
+        mode: "0644"
+      register: _tapiz_perfil
+
+    - name: Publicar el fondo como valor predeterminado del sistema
+      ansible.builtin.copy:
+        dest: "{{ dconf_keyfile }}"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [org/gnome/desktop/background]
+          picture-uri='{{ wallpaper_uri }}'
+          picture-uri-dark='{{ wallpaper_uri }}'
+          picture-options='zoom'
+          primary-color='#000000'
+      register: _tapiz_keyfile
+
+    - name: Compilar la base dconf
+      ansible.builtin.command:
+        argv: [dconf, update]
+      changed_when: false
+
+    - name: Instalar el aplicador de tapiz para sesiones activas
+      ansible.builtin.copy:
+        src: files/aplicar_tapiz_sesiones.sh
+        dest: /usr/local/sbin/acc-aplicar-tapiz
+        owner: root
+        group: root
+        mode: "0755"
+      register: _tapiz_aplicador
+
+    - name: Aplicar el tapiz a las sesiones GNOME activas
+      ansible.builtin.command:
+        argv:
+          - /usr/local/sbin/acc-aplicar-tapiz
+          - "{{ wallpaper_uri }}"
+      register: _tapiz_sesiones
+      changed_when: false
+
+    - name: Leer la URI final publicada
+      ansible.builtin.command:
+        argv: [dconf, read, /org/gnome/desktop/background/picture-uri]
+      register: _tapiz_final_cmd
+      changed_when: false
+      failed_when: false
+
+    - name: Comprobar que la imagen final existe
+      ansible.builtin.stat:
+        path: "{{ wallpaper_dest }}"
+      register: _tapiz_imagen
+
+    - name: Comprobar que la configuración persistente contiene la URI
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -F
+          - "picture-uri='{{ wallpaper_uri }}'"
+          - "{{ dconf_keyfile }}"
+      register: _tapiz_keyfile_check
+      changed_when: false
+      failed_when: false
+
+    - name: Calcular el resultado
+      ansible.builtin.set_fact:
+        tapiz_uri_final: >-
+          {{ _tapiz_final_cmd.stdout | default('') | trim
+             | replace('"', '') | replace("'", '') }}
+        tapiz_sesiones_aplicadas: >-
+          {{ (_tapiz_sesiones.stdout
+              | regex_findall('TAPIZ_APPLIED_USERS=([0-9]+)')
+              | first | default('0')) | int }}
+        tapiz_fallos_sesion: >-
+          {{ (_tapiz_sesiones.stdout
+              | regex_findall('TAPIZ_SESSION_FAILURES=([0-9]+)')
+              | first | default('0')) | int }}
+        tapiz_cambiado: >-
+          {{ (_tapiz_copia.changed | default(false))
+             or (_tapiz_perfil.changed | default(false))
+             or (_tapiz_keyfile.changed | default(false))
+             or ((_tapiz_sesiones.stdout
+                  | regex_findall('TAPIZ_APPLIED_USERS=([0-9]+)')
+                  | first | default('0')) | int > 0) }}
+        tapiz_verificado: >-
+          {{ (_tapiz_imagen.stat.exists | default(false))
+             and ((_tapiz_keyfile_check.rc | default(1)) == 0)
+             and ((_tapiz_sesiones.stdout
+                   | regex_findall('TAPIZ_SESSION_FAILURES=([0-9]+)')
+                   | first | default('0')) | int == 0) }}
+
+    - name: Publicar el cambio
+      ansible.builtin.debug:
+        msg: "TAPIZ_CHANGED={{ tapiz_cambiado | bool | lower }}"
+
+    - name: Publicar la verificación
+      ansible.builtin.debug:
+        msg: "TAPIZ_VERIFIED={{ tapiz_verificado | bool | lower }}"
+
+    - name: Publicar el estado final
+      ansible.builtin.debug:
+        msg: >-
+          TAPIZ_STATE_B64={{ {'wallpaper_uri': tapiz_uri_final,
+          'image': wallpaper_dest,
+          'applied_users': tapiz_sesiones_aplicadas,
+          'session_failures': tapiz_fallos_sesion}
+          | to_json | b64encode }}
+
+    - name: Fallar si la verificación no confirma el tapiz
+      ansible.builtin.fail:
+        msg: >-
+          TAPIZ_ERRORS=No se pudo verificar el tapiz. URI final:
+          {{ tapiz_uri_final | default('(vacía)') }}; esperada:
+          {{ wallpaper_uri }}; imagen presente:
+          {{ _tapiz_imagen.stat.exists | default(false) }}; fallos de sesión:
+          {{ tapiz_fallos_sesion | default(0) }}.
+      when: not (tapiz_verificado | bool)

@@ -5,6 +5,36 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Tarjeta Tapiz oficial] — 2026-11-07
+
+### Añadido
+
+- **Tarjeta `tapiz` activa** para estaciones Linux con GNOME: permite subir
+  una imagen y aplicarla como fondo de escritorio persistente en una IP o en
+  un grupo del inventario.
+- **Validación real de imágenes** (`services/wallpaper.py`): firma binaria
+  PNG/JPEG/WebP/GIF/BMP, rechazo de SVG y ejecutables, límite
+  `ACC_MAX_UPLOAD_BYTES`, almacenamiento privado `0600` fuera de la raíz web y
+  borrado al terminar el lote.
+- **Playbooks `ansible/tapiz.yml` y `ansible/estado_tapiz.yml`**: copian la
+  imagen, publican el fondo como valor predeterminado del sistema en
+  `/etc/dconf/db/local.d/00-acc-tapiz`, ejecutan `dconf update` y aplican el
+  cambio a las sesiones GNOME activas con `gsettings`.
+- **Marcadores `TAPIZ_*`** en `services/ansible_runner.py`, con inspección de
+  solo lectura para la vista previa y verificación de la configuración
+  persistente.
+- **Informe PDF ampliado**: nueva columna de fecha y hora por estación;
+  incluye nombre/IP, estado, causa del error y etiquetas específicas para
+  tapiz.
+- La tarjeta se marca como **no programable**: una programación no puede
+  transportar la imagen subida. `/programaciones` solo lista tareas
+  programables.
+- Pruebas en `tests/test_tapiz_2026_11_07.py` y documentación en
+  `README.md` y `docs/OPERACION.md` (§2.7).
+- Regresión corregida: los formularios de una sola acción (tapiz) envían
+  `action=WALLPAPER` y el backend mantiene la validación estricta de acciones
+  no admitidas para el resto de tareas.
+
 ## [Paquete de despliegue actualizado] — 2026-11-07
 
 ### Añadido

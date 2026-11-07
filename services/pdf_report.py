@@ -46,6 +46,7 @@ REASON_PATTERNS: Tuple[Tuple[str, str], ...] = (
     # Operación y playbook.
     ("operación cancelada", "Operación cancelada"),
     ("operacion cancelada", "Operación cancelada"),
+    ("tapiz", "No se pudo aplicar el tapiz"),
     ("playbook", "El playbook falló en la estación"),
     ("hora_errors", "La verificación no confirmó el cambio"),
     ("zona final", "La verificación no confirmó el cambio"),
@@ -69,6 +70,14 @@ def format_spanish_datetime(
     if with_time:
         base += f", {local.hour:02d}:{local.minute:02d}"
     return base
+
+
+def format_station_timestamp(value: Optional[datetime]) -> str:
+    """Fecha y hora compacta de una estación (columna del informe)."""
+    if value is None:
+        return "—"
+    local = value if value.tzinfo is None else value.astimezone()
+    return local.strftime("%d/%m/%Y %H:%M")
 
 
 def classify_failure_reason(error: str, result: str = "") -> str:
@@ -264,7 +273,7 @@ class PDFDocument:
 # ---------------------------------------------------------------------------
 # Arma el informe
 # ---------------------------------------------------------------------------
-COLS_RATIO = (0.31, 0.18, 0.51)
+COLS_RATIO = (0.22, 0.20, 0.13, 0.45)
 FOOTER_LEFT = ORG
 
 DARK = (0.15, 0.2, 0.32)
@@ -304,6 +313,12 @@ STATUS_LABELS = {
 _MODE_LABELS = {
     "utc": "Hora exacta UTC",
     "local": "Hora local de estación",
+}
+
+ACTION_LABELS = {
+    "TZ": "Zona horaria",
+    "TIME": "Hora exacta",
+    "WALLPAPER": "Tapiz de escritorio",
 }
 
 
@@ -367,7 +382,11 @@ def build_execution_report(
 
     gap(3)
     line("Tarea", task_name or batch.task_id or "—")
-    line("Acción aplicada", f"{batch.action} = {batch.value or '—'}")
+    line(
+        "Acción aplicada",
+        f"{ACTION_LABELS.get(batch.action, batch.action)} = "
+        f"{batch.value or '—'}",
+    )
     line("Objetivo", batch.target or "—")
     line("Ordenada por", batch.operator or "—")
     line("Credenciales", f"{batch.admin_user or '—'} ({batch.password_origin or '—'})")
@@ -412,7 +431,9 @@ def build_execution_report(
         head_y = y - row_min_h
         table_body.fill_rect(MARGIN, head_y, USABLE_W, row_min_h, DARK)
         x = MARGIN
-        for i, title in enumerate(("Estación", "Estado", "Motivo")):
+        for i, title in enumerate(
+            ("Estación", "Fecha y hora", "Estado", "Motivo")
+        ):
             table_body.text(x + padding, head_y + 5, title, size=9, bold=True,
                             color=(1, 1, 1))
             x += col_widths[i]
@@ -446,13 +467,20 @@ def build_execution_report(
             if row.result == "success":
                 if getattr(batch, "dry_run", False):
                     reason = "Simulación: sin cambios aplicados"
+                elif getattr(batch, "action", "") == "WALLPAPER":
+                    reason = "Tapiz aplicado y verificado"
                 else:
                     reason = "Ajuste aplicado y verificado"
             else:
                 reason = classify_failure_reason(row.error, row.result)
             station = row.host
             estado = RESULT_LABELS.get(row.result, row.result)
-            cells = (station, estado, reason)
+            cells = (
+                station,
+                format_station_timestamp(getattr(row, "created_at", None)),
+                estado,
+                reason,
+            )
             wrapped_cells = [
                 _wrap_text(str(c), m) for c, m in zip(cells, max_chars)
             ]
@@ -474,7 +502,7 @@ def build_execution_report(
                     if i == 0:
                         current_body.text(x + padding, ty, part,
                                           size=font_size, bold=True)
-                    elif i == 1:
+                    elif i == 2:
                         color = RESULT_COLORS.get(row.result, (0, 0, 0))
                         current_body.text(x + padding, ty, part,
                                           size=font_size,

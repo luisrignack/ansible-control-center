@@ -37,6 +37,8 @@ from config import (
     WINRM_PORT,
     WINRM_SERVER_CERT_VALIDATION,
     WINRM_TRANSPORT,
+    WALLPAPER_APPLY_PLAYBOOK_FILE,
+    WALLPAPER_INSPECT_PLAYBOOK_FILE,
     WINDOWS_APPLY_PLAYBOOK_FILE,
     WINDOWS_INSPECT_PLAYBOOK_FILE,
 )
@@ -310,6 +312,11 @@ def _decode_bool_marker(output: str, marker: str) -> Optional[bool]:
     if text in {"false", "no", "0"}:
         return False
     return None
+
+
+def _wallpaper_dest_from_uri(uri: str) -> str:
+    """Ruta local de una URI ``file://`` usada por GNOME."""
+    return uri[7:] if (uri or "").startswith("file://") else (uri or "")
 
 
 def _epoch_for(value: str, time_mode: str) -> int:
@@ -586,6 +593,89 @@ def inspect_host(
     )
 
 
+def inspect_wallpaper(
+    host: str,
+    user: str,
+    password: Optional[str] = None,
+    timeout: int = None,
+    line_callback: Optional[Callable[[str], None]] = None,
+    cancel_event: Optional[threading.Event] = None,
+    private_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Lee el tapiz configurado en un host Linux/GNOME sin cambiar nada.
+
+    La inspección es de solo lectura: se ejecuta de verdad incluso en
+    ``DRY_RUN`` para que la vista previa no oculte hosts caídos.
+    """
+    path = str(WALLPAPER_INSPECT_PLAYBOOK_FILE)
+
+    if not os.path.exists(path):
+        return _missing_playbook(host, path)
+
+    if not password:
+        return _result(
+            host,
+            False,
+            error="No se proporcionó ninguna contraseña candidata.",
+            playbook_path=path,
+        )
+
+    try:
+        process = _invoke_playbook(
+            host=host,
+            user=user,
+            password=password,
+            playbook_path=path,
+            extra_vars={},
+            timeout=timeout,
+            line_callback=line_callback,
+            cancel_event=cancel_event,
+            private_key=private_key,
+            connection="ssh",
+        )
+    except FileNotFoundError:
+        return _result(
+            host,
+            False,
+            error="ansible-playbook no encontrado. Verifica la instalación de Ansible.",
+            playbook_path=path,
+        )
+    except JobCancelled:
+        return _result(
+            host,
+            False,
+            error="Operación cancelada por el usuario.",
+            playbook_path=path,
+        )
+    except subprocess.TimeoutExpired:
+        return _result(
+            host,
+            False,
+            error=f"Timeout al inspeccionar el host ({timeout or PLAYBOOK_TIMEOUT}s).",
+            playbook_path=path,
+        )
+    except Exception as exc:  # pragma: no cover - salvaguarda
+        logger.exception("Error inspeccionando el tapiz de %s", host)
+        return _result(host, False, error=str(exc), playbook_path=path)
+
+    state = _decode_state(process.stdout, "TAPIZ_STATE")
+    success = process.returncode == 0 and state is not None
+    error = ""
+    if process.returncode != 0:
+        error = _playbook_error(host, path, process)
+    elif state is None:
+        error = "El playbook de inspección no devolvió el estado TAPIZ_STATE."
+
+    return _result(
+        host,
+        success,
+        output=process.stdout.strip(),
+        error=error,
+        state=state,
+        playbook_path=path,
+    )
+
+
 def apply_host(
     host: str,
     user: str,
@@ -609,6 +699,8 @@ def apply_host(
     cancel_event: Optional[threading.Event] = None,
     connection: Optional[str] = None,
     backup_dir: Optional[str] = None,
+    wallpaper_path: Optional[str] = None,
+    wallpaper_uri: str = "",
 ) -> Dict[str, Any]:
     """Aplica el cambio en un host y verifica el resultado.
 
@@ -619,27 +711,47 @@ def apply_host(
 
     Con ``connection == "winrm"`` aplica el playbook de Windows (equivalente).
     """
-    path = str(
-        WINDOWS_APPLY_PLAYBOOK_FILE if connection == "winrm" else PLAYBOOK_FILE
-    )
+    is_wallpaper = action.upper() == "WALLPAPER"
+    if is_wallpaper:
+        path = str(WALLPAPER_APPLY_PLAYBOOK_FILE)
+    elif connection == "winrm":
+        path = str(WINDOWS_APPLY_PLAYBOOK_FILE)
+    else:
+        path = str(PLAYBOOK_FILE)
 
     if not os.path.exists(path):
         return _missing_playbook(host, path)
 
+    if is_wallpaper and not wallpaper_path:
+        return _result(
+            host,
+            False,
+            error="No se recibió la imagen del tapiz.",
+            playbook_path=path,
+        )
+    if is_wallpaper and not os.path.isfile(wallpaper_path or ""):
+        return _result(
+            host,
+            False,
+            error="La imagen temporal del tapiz ya no está disponible.",
+            playbook_path=path,
+        )
+
     if DRY_RUN:
         logger.info("DRY RUN: se omite el cambio real en %s", host)
+        detail = (
+            f"tapiz {wallpaper_uri or value}"
+            if is_wallpaper
+            else f"{action}={value} (modo={time_mode}, ntp={ntp_policy})"
+        )
         _emit_line(
             line_callback,
-            f"[DRY RUN] Se habría aplicado {action}={value} en {host} "
-            f"(modo={time_mode}, ntp={ntp_policy})",
+            f"[DRY RUN] Se habría aplicado {detail} en {host}",
         )
         return _result(
             host,
             True,
-            output=(
-                f"[DRY RUN] Se habría aplicado {action}={value} en {host} "
-                f"(modo={time_mode}, ntp={ntp_policy})"
-            ),
+            output=f"[DRY RUN] Se habría aplicado {detail} en {host}",
             dry_run=True,
             simulated=True,
             # No se ha aplicado ni verificado nada en el host: no se debe
@@ -661,27 +773,37 @@ def apply_host(
             playbook_path=path,
         )
 
-    extra_vars = {
-        "accion": action,
-        "valor": value,
-        "modo_hora": time_mode,
-        "valor_epoch": int(target_epoch)
-        if target_epoch is not None
-        else _epoch_for(value, time_mode),
-        "ntp_policy": ntp_policy,
-        "ntp_servers": list(ntp_servers or []),
-        "sync_rtc": bool(sync_rtc),
-        "force": bool(force),
-        "tolerancia": int(
-            tolerance if tolerance is not None else TIME_VERIFY_TOLERANCE
-        ),
-        "target_host": host,
-        "local_fold": "" if local_fold is None else int(local_fold),
-        "zona_horaria": time_zone or "",
-        "requiere_ntp_off": bool(requiere_ntp_off),
-        "ntp_settle": max(0, int(ntp_settle or 0)),
-    }
-    if backup_dir:
+    if is_wallpaper:
+        extra_vars = {
+            "accion": "WALLPAPER",
+            "wallpaper_src": str(wallpaper_path),
+            "wallpaper_dest": _wallpaper_dest_from_uri(wallpaper_uri),
+            "wallpaper_uri": wallpaper_uri,
+            "target_host": host,
+            "force": bool(force),
+        }
+    else:
+        extra_vars = {
+            "accion": action,
+            "valor": value,
+            "modo_hora": time_mode,
+            "valor_epoch": int(target_epoch)
+            if target_epoch is not None
+            else _epoch_for(value, time_mode),
+            "ntp_policy": ntp_policy,
+            "ntp_servers": list(ntp_servers or []),
+            "sync_rtc": bool(sync_rtc),
+            "force": bool(force),
+            "tolerancia": int(
+                tolerance if tolerance is not None else TIME_VERIFY_TOLERANCE
+            ),
+            "target_host": host,
+            "local_fold": "" if local_fold is None else int(local_fold),
+            "zona_horaria": time_zone or "",
+            "requiere_ntp_off": bool(requiere_ntp_off),
+            "ntp_settle": max(0, int(ntp_settle or 0)),
+        }
+    if backup_dir and not is_wallpaper:
         # Solo Linux: el playbook hace fetch de /etc/timezone.bak. En Windows
         # no existe ese archivo (el estado previo queda en la base de datos).
         if connection != "winrm":
@@ -726,14 +848,23 @@ def apply_host(
         logger.exception("Error aplicando el playbook en %s", host)
         return _result(host, False, error=str(exc), playbook_path=path)
 
-    before_state = _decode_state(process.stdout, "HORA_BEFORE")
-    after_state = _decode_state(process.stdout, "HORA_STATE")
-    changed = _decode_bool_marker(process.stdout, "HORA_CHANGED")
-    verified = _decode_bool_marker(process.stdout, "HORA_VERIFIED")
-    errors = _decode_text_marker(process.stdout, "HORA_ERRORS")
-    warnings = _decode_text_marker(process.stdout, "HORA_WARNINGS")
-    deviation_text = _decode_text_marker(process.stdout, "HORA_DEVIATION")
-    deviation = int(deviation_text) if deviation_text.isdigit() else None
+    if is_wallpaper:
+        before_state = _decode_state(process.stdout, "TAPIZ_BEFORE")
+        after_state = _decode_state(process.stdout, "TAPIZ_STATE")
+        changed = _decode_bool_marker(process.stdout, "TAPIZ_CHANGED")
+        verified = _decode_bool_marker(process.stdout, "TAPIZ_VERIFIED")
+        errors = _decode_text_marker(process.stdout, "TAPIZ_ERRORS")
+        warnings = ""
+        deviation = None
+    else:
+        before_state = _decode_state(process.stdout, "HORA_BEFORE")
+        after_state = _decode_state(process.stdout, "HORA_STATE")
+        changed = _decode_bool_marker(process.stdout, "HORA_CHANGED")
+        verified = _decode_bool_marker(process.stdout, "HORA_VERIFIED")
+        errors = _decode_text_marker(process.stdout, "HORA_ERRORS")
+        warnings = _decode_text_marker(process.stdout, "HORA_WARNINGS")
+        deviation_text = _decode_text_marker(process.stdout, "HORA_DEVIATION")
+        deviation = int(deviation_text) if deviation_text.isdigit() else None
 
     success = process.returncode == 0 and verified is True
     error = ""
@@ -742,7 +873,11 @@ def apply_host(
     elif verified is False:
         error = errors or "La verificación posterior no coincide con el objetivo."
     elif verified is None:
-        error = "El playbook no devolvió el resultado de verificación HORA_VERIFIED."
+        marker = "TAPIZ_VERIFIED" if is_wallpaper else "HORA_VERIFIED"
+        error = (
+            "El playbook no devolvió el resultado de verificación "
+            f"{marker}."
+        )
 
     return _result(
         host,

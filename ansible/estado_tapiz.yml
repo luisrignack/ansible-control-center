@@ -1,0 +1,30 @@
+---
+# Inspección de solo lectura del tapiz en estaciones Linux con GNOME.
+#
+# Publica TAPIZ_STATE_B64 con la URI de fondo actual y si existe la
+# configuración persistente creada por la aplicación. No cambia nada.
+- name: Inspeccionar el tapiz (Linux GNOME)
+  hosts: all
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Leer la URI de fondo actual
+      ansible.builtin.command:
+        argv: [dconf, read, /org/gnome/desktop/background/picture-uri]
+      register: _tapiz_uri
+      changed_when: false
+      failed_when: false
+
+    - name: Comprobar la configuración persistente
+      ansible.builtin.stat:
+        path: /etc/dconf/db/local.d/00-acc-tapiz
+      register: _tapiz_config
+
+    - name: Publicar el estado del tapiz
+      ansible.builtin.debug:
+        msg: >-
+          TAPIZ_STATE_B64={{ {'wallpaper_uri': _tapiz_uri.stdout
+          | default('') | trim | replace('"', '') | replace("'", ''),
+          'configured': _tapiz_config.stat.exists | default(false)}
+          | to_json | b64encode }}

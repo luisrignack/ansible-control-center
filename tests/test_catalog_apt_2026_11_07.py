@@ -66,7 +66,7 @@ def test_apt_playbook_sets_noninteractive_environment_and_reboot_marker():
 
 def test_apt_card_does_not_change_active_task_selection():
     active = [task for task in TASK_CATALOG if task["status"] == "active"]
-    assert [task["id"] for task in active] == ["zona-todas"]
+    assert [task["id"] for task in active] == ["zona-todas", "tapiz"]
 
 
 def test_planned_apt_page_has_no_execution_form(tmp_path, monkeypatch):

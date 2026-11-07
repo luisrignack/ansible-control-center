@@ -169,6 +169,32 @@ grupo seleccionado antes de enviar.
 4. Si el cambio era `TIME`, comprueba que el reloj sigue estable (NTP, VM,
    hipervisor).
 
+### 2.7. Tapiz oficial (fondo de escritorio)
+
+La tarjeta **Tapiz oficial** aplica una imagen de fondo en estaciones Linux
+con GNOME. Solo se ejecuta manualmente: una programación no puede transportar
+la imagen subida.
+
+1. Abre `/tarea/tapiz` y selecciona la imagen (PNG, JPEG, WebP, GIF o BMP;
+   máximo `ACC_MAX_UPLOAD_BYTES`, 2 MB por defecto).
+2. El servidor valida la **firma real** del archivo (no el nombre ni el
+   `Content-Type`), lo guarda en `ACC_DATA_DIR/wallpapers` con permisos
+   `0600` y lo borra al terminar el lote. SVG y ejecutables se rechazan.
+3. Elige una IP o un grupo del inventario Linux y pulsa **Vista previa** para
+   comprobar la URI actual, o **Ejecutar** para aplicar el cambio.
+4. El playbook copia la imagen a `/usr/local/share/backgrounds/acc-tapiz.<ext>`,
+   escribe `/etc/dconf/db/local.d/00-acc-tapiz`, ejecuta `dconf update` y
+   aplica el fondo a las sesiones GNOME activas con `gsettings`.
+5. La verificación exige que la imagen exista, que la configuración
+   persistente contenga la URI y que no haya fallos en las sesiones activas.
+
+La configuración se publica como **valor predeterminado del sistema**, por lo
+que el tapiz se conserva tras reiniciar y se aplica a cualquier usuario que
+inicie sesión. El botón **Descargar informe** genera el PDF con estación,
+fecha/hora, estado y causa del error. No hay soporte para Windows ni para
+escritorios distintos de GNOME; en esos casos la estación se reporta como
+fallida con la causa correspondiente.
+
 ---
 
 ## 3. Interpretación de resultados
@@ -177,7 +203,7 @@ grupo seleccionado antes de enviar.
 
 | Resultado | Origen | Interpretación |
 |---|---|---|
-| `success` | `apply_host` | Playbook ejecutado y `HORA_VERIFIED=true` |
+| `success` | `apply_host` | Playbook ejecutado y `HORA_VERIFIED=true` (o `TAPIZ_VERIFIED=true` en tapiz) |
 | `failure` | `apply_host` | Sin acceso, playbook fallido o verificación incorrecta |
 | `error` | Vista previa | No se pudo inspeccionar/autenticar |
 | `preview` | Vista previa | Inspección correcta; incluye plan |
@@ -190,7 +216,9 @@ playbook o verificación. No contiene contraseñas.
 
 `before_state` y `after_state` son JSON. En ejecución contienen el estado leído
 por el playbook (`timezone`, `ntp`, `ntp_synchronized`, `local_rtc`, `utc`,
-`local`, `epoch`, `rtc`). En vista previa, `after_state` es el plan.
+`local`, `epoch`, `rtc`). Para `WALLPAPER` contienen `wallpaper_uri`,
+`image`, `applied_users` y `session_failures`. En vista previa, `after_state`
+es el plan.
 
 ### 3.3. Dónde mirar
 
@@ -613,6 +641,9 @@ sqlite3 /var/lib/ansible-control-center/acc.db \
   puede revertir el cambio.
 - Roles `viewer`/`operator`/`admin`, bloqueo de cuenta y auditoría de acceso;
   sin MFA.
+- El tapiz solo aplica a Linux con GNOME (`dconf`/`gsettings`). Windows y
+  otros escritorios se reportan como fallo con su causa; no hay rollback
+  automático del fondo anterior.
 - Solo Ubuntu/systemd; IPv6 no probado en el flujo de Ansible.
 
 El análisis detallado y el roadmap están en

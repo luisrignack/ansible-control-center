@@ -1,12 +1,14 @@
 # Ansible Control Center
 
 Aplicación web Flask + Ansible para configurar **hora, zona horaria, NTP y RTC**
-en grupos de equipos Ubuntu y estaciones Windows (WinRM). Incluye
+en grupos de equipos Ubuntu y estaciones Windows (WinRM), y para aplicar un
+**tapiz de escritorio** en estaciones Linux con GNOME. Incluye
 autenticación, vault cifrado con `ansible-vault`, ejecución best-effort en
 todos los hosts, vista previa, verificación posterior, idempotencia, lotes
 auditables e historial en SQLite. La tarjeta operativa del catálogo aplica la
 zona horaria **America/Caracas (UTC-4)** de forma permanente en Linux y
-Windows, con backup previo de `/etc/timezone`.
+Windows, con backup previo de `/etc/timezone`; la tarjeta **Tapiz oficial**
+permite subir una imagen y dejarla como fondo persistente en Linux/GNOME.
 
 > **Uso responsable:** la aplicación prueba credenciales contra hosts y puede
 > cambiar su reloj. Úsala únicamente sobre equipos para los que tengas
@@ -27,8 +29,8 @@ El procedimiento completo está en [AGENTS.md](AGENTS.md).
 Fases **P0–P4, P4.1, P4.2 y bloque de operación continua** completadas,
 junto con las correcciones de alta prioridad del
 [análisis profundo 2026-11-06](docs/ANALISIS_PROFUNDO_2026-11-06.md).
-Suite de pruebas: **277 tests en verde y 1 integración SSH opcional omitida
-por defecto** (278 recopilados). Incluye empaquetado Docker con Nginx y TLS.
+Suite de pruebas: **332 tests en verde y 1 integración SSH opcional omitida
+por defecto** (333 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 | Fase | Contenido |
 |---|---|
@@ -99,7 +101,9 @@ por defecto** (278 recopilados). Incluye empaquetado Docker con Nginx y TLS.
   un grupo del inventario. La contraseña maestra del vault se guarda cifrada
   con Fernet (`0600`) y las programaciones aplican las mismas validaciones
   que la ejecución manual (tarea activa, acción admitida, valor fijo de la
-  tarea, NTP y zona horaria). El disparo usa un *claim* atómico y un lock de
+  tarea, NTP y zona horaria). Las tareas marcadas como no programables (por
+  ejemplo, `tapiz`, que necesita una imagen subida) solo se ejecutan desde su
+  tarjeta. El disparo usa un *claim* atómico y un lock de
   instancia, por lo que varios workers no duplican lotes; puede ejecutarse en
   un proceso dedicado con `flask --app app scheduler` (`ACC_ROLE=worker`). Si
   al vencer la programación el grupo está fuera de su ventana, el disparo se
@@ -114,7 +118,16 @@ por defecto** (278 recopilados). Incluye empaquetado Docker con Nginx y TLS.
   (`ACC_APPROVAL_TTL_MINUTES`) y un solo uso.
 - **Notificaciones SMTP** opcionales de resultados (`failures` o `all`) y
   **re-ejecución** de un lote desde su detalle cuando el estado lo permite.
-- **Informe PDF** por ejecución, generado sin dependencias externas.
+- **Informe PDF** por ejecución, generado sin dependencias externas. Incluye
+  nombre/IP de la estación, fecha y hora del resultado, estado y causa del
+  error, además del resumen del lote.
+- **Tapiz oficial (Linux/GNOME)**: subida de imagen con validación por firma
+  real (PNG, JPEG, WebP, GIF o BMP; SVG rechazado), almacenamiento privado
+  `0600` fuera de la raíz web y borrado al terminar el lote. El playbook copia
+  la imagen, publica el fondo como valor predeterminado del sistema en
+  `/etc/dconf/db/local.d/00-acc-tapiz` y lo aplica a las sesiones GNOME
+  activas: el tapiz se conserva tras reiniciar y al iniciar sesión. La tarjeta
+  incluye su informe PDF de errores.
 - **Métricas de rendimiento**: `/metricas` (solo `admin`) muestra p50/p95 por
   ruta y `/api/metricas` las expone en JSON; cada lote incluye p50/p95 por
   host desde SQLite. Los SLO están en
@@ -205,6 +218,7 @@ services/
   notifier.py              Correo SMTP de resultados de lotes
   ldap_auth.py             Autenticación corporativa LDAPS
   time_utils.py            Zonas IANA, DST y conversión a epoch
+  wallpaper.py             Validación y almacenamiento privado de imágenes de tapiz
   pdf_report.py            Informe PDF de una ejecución
 templates/                 Vistas Jinja2
 ansible/

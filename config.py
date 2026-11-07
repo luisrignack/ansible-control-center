@@ -175,6 +175,11 @@ INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "estado_hora.yml"
 # cuando el grupo de inventario es Windows.
 WINDOWS_APPLY_PLAYBOOK_FILE = ANSIBLE_DIR / "win_cambiar_zona.yml"
 WINDOWS_INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "win_estado_zona.yml"
+# Tapiz de escritorio para Linux con GNOME (dconf/gsettings). La imagen se
+# copia desde el controlador y se fija como valor por defecto del sistema,
+# por lo que se conserva tras reiniciar y al iniciar sesión cualquier usuario.
+WALLPAPER_APPLY_PLAYBOOK_FILE = ANSIBLE_DIR / "tapiz.yml"
+WALLPAPER_INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "estado_tapiz.yml"
 ANSIBLE_CFG = ANSIBLE_DIR / "ansible.cfg"
 
 # Copias de seguridad del archivo /etc/timezone. La carpeta vive en el

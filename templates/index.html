@@ -207,7 +207,7 @@
                     </div>
 
                     <!-- Acción -->
-                    <div class="col-md-6" {% if selected_task.actions | length < 2 %}hidden{% endif %}>
+                    <div class="col-md-6">
                         <label for="action" class="form-label fw-medium">
                             <i class="bi bi-list me-2"></i> Acción
                         </label>
@@ -220,6 +220,11 @@
                             {% if 'TIME' in selected_task.actions %}
                             <option value="TIME" {% if prefill.get('action') == 'TIME' %}selected{% endif %}>
                                 Hora Exacta (TIME)
+                            </option>
+                            {% endif %}
+                            {% if 'WALLPAPER' in selected_task.actions %}
+                            <option value="WALLPAPER" {% if prefill.get('action') == 'WALLPAPER' %}selected{% endif %}>
+                                Aplicar imagen de fondo (tapiz)
                             </option>
                             {% endif %}
                         </select>
@@ -277,6 +282,28 @@
                             Solo se usa si la hora local existe dos veces por el cambio de horario.
                         </div>
                     </div>
+
+                    {% if 'WALLPAPER' in selected_task.actions %}
+                    <!-- Imagen del tapiz (solo tareas con acción WALLPAPER) -->
+                    <div id="wallpaperField" class="col-12">
+                        <label for="wallpaperFile" class="form-label fw-medium">
+                            <i class="bi bi-image me-2"></i> Imagen del tapiz
+                        </label>
+                        <input type="file" class="form-control" id="wallpaperFile"
+                            name="wallpaper_file"
+                            accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
+                            aria-describedby="wallpaperHelp" required>
+                        <div class="form-text" id="wallpaperHelp">
+                            Solo se aceptan imágenes PNG, JPEG, WebP, GIF o BMP
+                            (máximo {{ (max_upload_bytes / 1048576) | round(1) }} MB).
+                            El archivo se valida por su contenido real, se guarda
+                            de forma privada y se borra al terminar el lote.
+                        </div>
+                        <div class="invalid-feedback">
+                            Selecciona una imagen válida que no supere el tamaño máximo.
+                        </div>
+                    </div>
+                    {% endif %}
 
                     <!-- Valor dinámico -->
                     <div id="valueField" class="col-12">
@@ -468,6 +495,7 @@ const prefill = {{ prefill | tojson }};
 const defaultNtpServers = {{ default_ntp_servers | tojson }};
 const dryRunEnabled = {{ dry_run | tojson }};
 const maxHosts = {{ max_hosts | tojson }};
+const maxUploadBytes = {{ max_upload_bytes | tojson }};
 
 function splitTargetList(value) {
     return (value || '').split(',').map((piece) => piece.trim()).filter(Boolean);
@@ -480,6 +508,43 @@ function describeTarget(value) {
     if (value.includes('/')) return value + ' (CIDR)';
     if (value.includes('-')) return value + ' (rango)';
     return value;
+}
+
+function selectedWallpaperName() {
+    const input = document.getElementById('wallpaperFile');
+    if (!input || !input.files || !input.files.length) return '';
+    return input.files[0].name || '';
+}
+
+function actionDisplayValue() {
+    const action = document.getElementById('action');
+    if (action && action.value === 'WALLPAPER') {
+        return selectedWallpaperName() || '—';
+    }
+    const valueInput = document.getElementById('actionValue');
+    return (valueInput && valueInput.value) || '—';
+}
+
+function validateWallpaperFile(event) {
+    const action = document.getElementById('action');
+    if (!action || action.value !== 'WALLPAPER') return true;
+    const input = document.getElementById('wallpaperFile');
+    if (!input || !input.files || !input.files.length) {
+        event.preventDefault();
+        if (input) {
+            input.classList.add('is-invalid');
+            input.focus();
+        }
+        return false;
+    }
+    if (input.files[0].size > maxUploadBytes) {
+        event.preventDefault();
+        input.classList.add('is-invalid');
+        input.focus();
+        return false;
+    }
+    input.classList.remove('is-invalid');
+    return true;
 }
 
 function ipv4ToInt(ip) {
@@ -782,6 +847,9 @@ function updateSummary() {
 
     const valueInput = document.getElementById('actionValue');
     let value = valueInput ? valueInput.value : '';
+    if (action && action.value === 'WALLPAPER') {
+        value = selectedWallpaperName();
+    }
     const timeMode = document.getElementById('timeMode');
     const timeZone = document.getElementById('timeZone');
     if (action && action.value === 'TIME' && timeMode && timeMode.value === 'local'
@@ -910,6 +978,7 @@ document.body.appendChild(confirmModalElement);
 const confirmModal = new bootstrap.Modal(confirmModalElement);
 
 execForm.addEventListener('submit', (event) => {
+    if (!validateWallpaperFile(event)) return;
     if (currentTargetMode() === 'group') {
         if (targetGroupSelect && !targetGroupSelect.value) {
             event.preventDefault();
@@ -929,9 +998,8 @@ execForm.addEventListener('submit', (event) => {
         document.getElementById('confirmTarget').textContent = 'inventario:' + targetGroupSelect.value;
         document.getElementById('confirmAction').textContent =
             document.getElementById('action').options[document.getElementById('action').selectedIndex].text;
-        const valueInput = document.getElementById('actionValue');
         document.getElementById('confirmValue').textContent =
-            (valueInput && valueInput.value) || '—';
+            actionDisplayValue();
         const ntp = document.getElementById('ntpPolicy');
         document.getElementById('confirmNtp').textContent =
             ntp ? ntp.options[ntp.selectedIndex].text : 'sin cambios (keep)';
@@ -966,7 +1034,6 @@ execForm.addEventListener('submit', (event) => {
 
     const target = document.getElementById('targetIp').value.trim();
     const action = document.getElementById('action');
-    const valueInput = document.getElementById('actionValue');
     const ntp = document.getElementById('ntpPolicy');
     const ntpText = ntp
         ? ntp.options[ntp.selectedIndex].text
@@ -987,7 +1054,7 @@ execForm.addEventListener('submit', (event) => {
     document.getElementById('confirmAction').textContent =
         action.options[action.selectedIndex].text;
     document.getElementById('confirmValue').textContent =
-        (valueInput && valueInput.value) || '—';
+        actionDisplayValue();
     document.getElementById('confirmNtp').textContent = ntpText;
     document.getElementById('confirmMode').textContent = dryRunEnabled
         ? 'DRY RUN (simulación, sin cambios reales)'

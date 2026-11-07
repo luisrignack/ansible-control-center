@@ -103,20 +103,30 @@ TASK_CATALOG: List[Dict[str, Any]] = [
         "icon": "bi-image",
         "tone": "teal",
         "summary": (
-            "Aplica el tapiz oficial corporativo en los escritorios de los "
-            "hosts y deja fijada la política de imagen de fondo."
+            "Aplica una imagen de fondo de escritorio en estaciones Linux "
+            "con GNOME. La imagen se valida, se copia a la estación y se fija "
+            "como valor predeterminado del sistema, por lo que se conserva "
+            "tras reiniciar y se aplica a los usuarios que inicien sesión."
         ),
         "playbook": "tapiz.yml",
-        "status": STATUS_PLANNED,
+        "status": STATUS_ACTIVE,
         "min_role": "operator",
         "destructive": False,
         "platforms": ["linux"],
-        "actions": ["TZ", "TIME"],
-        "chips": ["En preparación", "Escritorio", "Plantilla"],
+        # Una programación no puede transportar la imagen subida: se limita
+        # a la ejecución manual desde la tarjeta.
+        "schedulable": False,
+        "actions": ["WALLPAPER"],
+        "chips": [
+            "Operativa",
+            "Imagen PNG/JPEG/WebP",
+            "Permanente tras reinicio",
+            "Linux con GNOME",
+        ],
         "steps": [
-            "Copiar la imagen del tapiz a cada host y fijar permisos.",
-            "Aplicar la configuración de escritorio para el usuario local.",
-            "Comprobar que no quedan tapices personalizados previos.",
+            "Validar que el archivo sea una imagen admitida.",
+            "Copiar la imagen a la estación y fijar permisos.",
+            "Publicar el fondo como valor predeterminado y aplicarlo a las sesiones activas.",
         ],
     },
     {

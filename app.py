@@ -148,7 +148,7 @@ import config
 import services.ansible_runner as ansible_runner_module
 import services.ldap_auth as ldap_auth
 import services.password_tester as password_tester_module
-from services.ansible_runner import apply_host, inspect_host
+from services.ansible_runner import apply_host, inspect_host, inspect_wallpaper
 from services.csrf import csrf_protect, generate_csrf_token, rotate_csrf_token
 from services.host_resolver import pin_target, resolve_target
 from services.job_queue import JobQueue, JobQueueFull
@@ -182,6 +182,11 @@ from services.time_utils import (
     utc_time_epoch,
 )
 from services.vault_manager import VaultManager
+from services.wallpaper import (
+    remove_wallpaper,
+    remote_wallpaper_uri,
+    save_wallpaper,
+)
 
 logger = logging.getLogger("acc")
 
@@ -475,6 +480,10 @@ _HOSTNAME_RE = re.compile(
     r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)*\.?$"
 )
 
+# Acciones que el motor de ejecución sabe aplicar. ``WALLPAPER`` usa su
+# propio playbook y transporte de imagen; el resto comparte el de hora.
+VALID_ACTIONS = {"TZ", "TIME", "WALLPAPER"}
+
 
 def _form_bool(name: str) -> bool:
     """Interpreta un checkbox/valor booleano del formulario."""
@@ -534,6 +543,7 @@ def _validate_operation_core(
     group_name: str = "",
     reject_destructive: bool = False,
     enforce_time_ntp_off: bool = True,
+    for_schedule: bool = False,
 ) -> tuple[Optional[Dict[str, Any]], List[str]]:
     """Reglas comunes a la ejecución manual y las programaciones.
 
@@ -562,6 +572,11 @@ def _validate_operation_core(
                 "Las tareas destructivas requieren aprobación manual; no se "
                 "pueden programar."
             )
+        if for_schedule and not task.get("schedulable", True):
+            errors.append(
+                f"La tarea '{task.get('name', task_id)}' no se puede "
+                "programar: ejecútala manualmente desde su tarjeta."
+            )
         platforms = task.get("platforms") or []
         if platform and platforms and platform not in platforms:
             platform_label = "Windows" if platform == "windows" else "Linux"
@@ -575,23 +590,28 @@ def _validate_operation_core(
 
     if not admin_user:
         errors.append("El usuario administrador es obligatorio.")
-    if action not in {"TZ", "TIME"}:
+    if action not in VALID_ACTIONS:
         errors.append("Acción no válida.")
-    if ntp_policy not in NTP_POLICIES:
-        errors.append("Política NTP no válida.")
 
     ntp_servers: List[str] = []
-    if ntp_policy == "configure":
-        ntp_servers, ntp_error = _parse_ntp_servers(ntp_servers_raw)
-        if ntp_error:
-            errors.append(ntp_error)
-        if not ntp_servers:
-            ntp_servers = list(DEFAULT_NTP_SERVERS)
+    if action in {"TZ", "TIME"}:
+        if ntp_policy not in NTP_POLICIES:
+            errors.append("Política NTP no válida.")
+        if ntp_policy == "configure":
+            ntp_servers, ntp_error = _parse_ntp_servers(ntp_servers_raw)
+            if ntp_error:
+                errors.append(ntp_error)
             if not ntp_servers:
-                errors.append(
-                    "La política NTP 'configure' requiere al menos un "
-                    "servidor NTP."
-                )
+                ntp_servers = list(DEFAULT_NTP_SERVERS)
+                if not ntp_servers:
+                    errors.append(
+                        "La política NTP 'configure' requiere al menos un "
+                        "servidor NTP."
+                    )
+    else:
+        # El tapiz no toca el reloj ni NTP: se normaliza la política para no
+        # arrastrar opciones sin sentido al playbook.
+        ntp_policy = "keep"
 
     if action == "TZ":
         if not value:
@@ -623,6 +643,8 @@ def _validate_operation_core(
                 "ejecutar: el reloj podría revertirse. Usa off, restore o "
                 "configure."
             )
+    # ``WALLPAPER`` no valida un valor de texto: la imagen la valida y guarda
+    # ``_parse_operation_form`` antes de llegar aquí.
 
     if errors:
         return None, errors
@@ -661,6 +683,7 @@ def _validate_scheduled_params(
         group_name=group_name,
         reject_destructive=True,
         enforce_time_ntp_off=True,
+        for_schedule=True,
     )
 
 
@@ -685,7 +708,7 @@ def _parse_operation_form(
     admin_user = request.form.get("admin_user", "").strip()
     origin = request.form.get("password_origin", "stored").strip()
     master_password = request.form.get("master_password", "").strip()
-    action = request.form.get("action", "TZ").strip().upper() or "TZ"
+    action = request.form.get("action", "").strip().upper()
     value = request.form.get("value", "").strip()
     mode = (
         request.form.get("mode", default_mode).strip().lower() or default_mode
@@ -711,6 +734,41 @@ def _parse_operation_form(
                 task_id = candidate["id"]
                 break
     task = get_task(task_id) if task_id else None
+
+    # Si el envío no trae ``action`` (clientes antiguos o un formulario de una
+    # sola acción), se usa la única acción de la tarea; en su defecto, TZ.
+    if task is not None and not action:
+        task_actions = task.get("actions") or ["TZ", "TIME"]
+        action = (
+            str(task_actions[0]).strip().upper()
+            if len(task_actions) == 1
+            else "TZ"
+        )
+    elif not action:
+        action = "TZ"
+
+    # Imagen del tapiz: se valida por firma binaria y se guarda fuera de la
+    # raíz web. El archivo se borra al terminar el lote (o si el envío falla).
+    wallpaper_path = ""
+    wallpaper_uri = ""
+    wallpaper_name = ""
+    if (
+        action == "WALLPAPER"
+        and task is not None
+        and task.get("status") == "active"
+    ):
+        try:
+            saved_wallpaper = save_wallpaper(
+                request.files.get("wallpaper_file")
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+        else:
+            wallpaper_path = saved_wallpaper["path"]
+            wallpaper_name = saved_wallpaper["name"]
+            wallpaper_uri = remote_wallpaper_uri(saved_wallpaper["ext"])
+            # El nombre del archivo es el valor visible en el lote y el PDF.
+            value = wallpaper_name
 
     if mode not in {"preview", "execute"}:
         errors.append("Modo de operación no válido.")
@@ -883,6 +941,9 @@ def _parse_operation_form(
             errors.append(file_error)
 
     if errors:
+        # Nunca dejar imágenes huérfanas si el formulario no llega a ejecutarse.
+        if wallpaper_path:
+            remove_wallpaper(wallpaper_path)
         return None, errors
 
     return (
@@ -911,6 +972,9 @@ def _parse_operation_form(
             "sync_rtc": sync_rtc,
             "force": force,
             "temporal_passwords": temporal_passwords,
+            "wallpaper_path": wallpaper_path,
+            "wallpaper_uri": wallpaper_uri,
+            "wallpaper_name": wallpaper_name,
         },
         [],
     )
@@ -937,6 +1001,7 @@ def _would_change(
     force: bool,
     ntp_servers: Optional[List[str]] = None,
     target_epoch: Optional[int] = None,
+    wallpaper_uri: str = "",
 ) -> Optional[bool]:
     """Estima si hace falta cambiar algo según el estado leído (vista previa).
 
@@ -951,6 +1016,10 @@ def _would_change(
         return True
     if not isinstance(state, dict):
         return None
+
+    if action == "WALLPAPER":
+        current_uri = str(state.get("wallpaper_uri") or "").strip()
+        return current_uri != (wallpaper_uri or "").strip()
 
     changed = False
     if action == "TZ":
@@ -1927,6 +1996,7 @@ def task_view(task_id):
         selected_task=task,
         inventory_groups=inventory_groups,
         criticality_labels=CRITICALITY_LABELS,
+        max_upload_bytes=MAX_CONTENT_LENGTH,
     )
 
 
@@ -2175,6 +2245,7 @@ def programaciones():
         task["id"]: task
         for task in TASK_CATALOG
         if task.get("status") == "active"
+        and task.get("schedulable", True)
     }
     if request.method == "POST":
         if not current_user.has_role("admin"):
@@ -2821,21 +2892,33 @@ def handle_execution(default_mode: str = "execute"):
         abort(500)
     operator = getattr(current_user, "username", "") or str(current_user.get_id())
 
+    # La imagen del tapiz se guardó al validar el formulario. A partir de aquí
+    # el lote es su dueño; si el envío no llega a encolarse, se borra para no
+    # dejar archivos huérfanos en el volumen de datos.
+    wallpaper_path = form.get("wallpaper_path", "")
+
+    def discard_wallpaper() -> None:
+        if wallpaper_path:
+            remove_wallpaper(wallpaper_path)
+
     # Gate por tarea: rol mínimo y doble aprobación para tareas destructivas.
     task = get_task(form["task_id"])
     if task is not None and task.get("min_role") == "admin":
         if not current_user.has_role("admin"):
+            discard_wallpaper()
             abort(403)
     # Criticidad y ventana de mantenimiento: se aplican antes de consumir la
     # idempotencia o una aprobación de un solo uso.
     blocked_response = _safety_gate(form, operator, form["mode"])
     if blocked_response is not None:
+        discard_wallpaper()
         return blocked_response
     # La idempotencia se comprueba antes de consumir una aprobación: un doble
     # clic o un reintento no debe gastar una autorización de un solo uso.
     operation_id = request.form.get("operation_id", "").strip()
     duplicate = _claim_operation_id(operation_id)
     if duplicate is not None:
+        discard_wallpaper()
         if duplicate:
             if _wants_json():
                 return (
@@ -2869,6 +2952,7 @@ def handle_execution(default_mode: str = "execute"):
         )
         if approval_request_id is None:
             _release_operation_id(operation_id)
+            discard_wallpaper()
             message = approval_error or "Se requiere doble aprobación para esta tarea."
             if "pendiente" not in message and "ha expirado" not in message and "ya se usó" not in message:
                 approval_params = _approval_params(form)
@@ -2938,10 +3022,14 @@ def handle_execution(default_mode: str = "execute"):
             operator=operator,
             task_id=form["task_id"],
             target_hosts=form.get("target_hosts") or None,
+            wallpaper_path=form.get("wallpaper_path", ""),
+            wallpaper_uri=form.get("wallpaper_uri", ""),
+            wallpaper_name=form.get("wallpaper_name", ""),
         )
     except JobQueueFull as exc:
         remove_task(tid)
         _release_operation_id(operation_id)
+        discard_wallpaper()
         if approval_request_id is not None:
             ApprovalRequest.release_reserved(
                 approval_request_id, db_path=get_db_path()
@@ -2959,6 +3047,7 @@ def handle_execution(default_mode: str = "execute"):
         # No dejar la operación a medias ni una aprobación reservada.
         remove_task(tid)
         _release_operation_id(operation_id)
+        discard_wallpaper()
         if approval_request_id is not None:
             ApprovalRequest.release_reserved(
                 approval_request_id, db_path=get_db_path()
@@ -3123,6 +3212,7 @@ def _run_preview_batch(
     cancel_event: Optional[threading.Event] = None,
     private_key: str = "",
     connection: str = "ssh",
+    wallpaper_uri: str = "",
 ) -> None:
     """Inspecciona todos los hosts sin cambiar nada y registra el lote.
 
@@ -3183,16 +3273,26 @@ def _run_preview_batch(
                 break
             attempts += 1
             try:
-                result = inspect_host(
-                    host=host,
-                    user=admin_user,
-                    password=candidate,
-                    line_callback=line_callback,
-                    force_real=True,
-                    cancel_event=cancel_event,
-                    private_key=private_key or None,
-                    connection=connection or "ssh",
-                )
+                if action == "WALLPAPER":
+                    result = inspect_wallpaper(
+                        host=host,
+                        user=admin_user,
+                        password=candidate,
+                        line_callback=line_callback,
+                        cancel_event=cancel_event,
+                        private_key=private_key or None,
+                    )
+                else:
+                    result = inspect_host(
+                        host=host,
+                        user=admin_user,
+                        password=candidate,
+                        line_callback=line_callback,
+                        force_real=True,
+                        cancel_event=cancel_event,
+                        private_key=private_key or None,
+                        connection=connection or "ssh",
+                    )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_error = str(exc)
                 continue
@@ -3219,6 +3319,7 @@ def _run_preview_batch(
                     force,
                     ntp_servers=ntp_servers,
                     target_epoch=target_epoch,
+                    wallpaper_uri=wallpaper_uri,
                 ),
                 "action": action,
                 "value": value,
@@ -3315,6 +3416,8 @@ def _run_apply_batch(
     cancel_event: Optional[threading.Event] = None,
     private_key: str = "",
     connection: str = "ssh",
+    wallpaper_path: str = "",
+    wallpaper_uri: str = "",
 ) -> None:
     """Aplica el cambio en todos los hosts (best-effort) y registra cada uno.
 
@@ -3461,6 +3564,8 @@ def _run_apply_batch(
                     private_key=private_key or None,
                     connection=connection or "ssh",
                     backup_dir=str(TIMEZONE_BACKUP_DIR / str(batch_id)),
+                    wallpaper_path=wallpaper_path,
+                    wallpaper_uri=wallpaper_uri,
                 )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_apply_error = str(exc)
@@ -3633,6 +3738,9 @@ def execute_with_progress(
     task_id: str = "",
     cancel_event: Optional[threading.Event] = None,
     target_hosts: Optional[List[str]] = None,
+    wallpaper_path: str = "",
+    wallpaper_uri: str = "",
+    wallpaper_name: str = "",
 ) -> None:
     """Ejecuta una vista previa o un lote completo sobre todos los hosts.
 
@@ -3838,6 +3946,9 @@ def execute_with_progress(
             )
             return
 
+        if ac == "WALLPAPER" and not vl:
+            # El valor visible del lote es el nombre original de la imagen.
+            vl = wallpaper_name or "tapiz"
         batch_id = str(uuid.uuid4())
         ExecutionBatch.create_batch(
             batch_id=batch_id,
@@ -3904,6 +4015,7 @@ def execute_with_progress(
                 cancel_event=cancel_event,
                 private_key=private_key,
                 connection=connection,
+                wallpaper_uri=wallpaper_uri,
             )
         else:
             outcome = _run_apply_batch(
@@ -3931,6 +4043,8 @@ def execute_with_progress(
                 cancel_event=cancel_event,
                 private_key=private_key,
                 connection=connection,
+                wallpaper_path=wallpaper_path,
+                wallpaper_uri=wallpaper_uri,
             )
 
         if cancel_event is not None and cancel_event.is_set():
@@ -4016,6 +4130,11 @@ def execute_with_progress(
                 "batch_id": batch_id,
             },
         )
+    finally:
+        # La imagen solo vive lo que dura el lote. Se borra incluso si la
+        # ejecución falla antes de crear el lote o durante la aplicación.
+        if ac == "WALLPAPER" and wallpaper_path:
+            remove_wallpaper(wallpaper_path)
 
 
 @app.route("/progress/<task_id>")
