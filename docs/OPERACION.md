@@ -458,7 +458,7 @@ sudo systemctl start ansible-control-center
 ```
 
 `init-db` es idempotente y aplica migraciones no destructivas. El esquema
-actual es `PRAGMA user_version = 12`.
+actual es `PRAGMA user_version = 14`.
 
 ### 8.2. Rotar la contraseña del administrador
 
@@ -486,14 +486,48 @@ sudo -u ansible-control-center ansible-vault rekey \
 Guarda la nueva contraseña en el gestor de secretos correspondiente. No se
 persiste en la aplicación.
 
-### 8.5. Logs
+### 8.5. Actualización de paquetes del sistema (tarjeta en preparación)
+
+La tarjeta **Actualización del sistema** (`apt-upgrade`) está publicada en el
+catálogo en estado “En preparación”. Su playbook `ansible/apt_upgrade.yml` ya
+está escrito y validado, pero la activación requiere que el motor de ejecución
+admita la acción `APT` (vista previa, marcadores de verificación y formulario).
+
+Recomendación para automatización: usar **`apt-get`**, no `apt`. `apt` está
+pensado para uso interactivo y advierte de que su interfaz CLI no es estable
+para scripts. En Ansible se usa el módulo `ansible.builtin.apt`, que invoca
+`apt-get` internamente.
+
+Equivalente manual de la política del playbook:
+
+```bash
+sudo apt-get update
+sudo DEBIAN_FRONTEND=noninteractive apt-get -y \
+  -o Dpkg::Options::=--force-confdef \
+  -o Dpkg::Options::=--force-confold \
+  -o DPkg::Lock::Timeout=300 \
+  upgrade
+```
+
+Decisiones:
+
+- `upgrade` (seguro) no elimina paquetes ni instala dependencias nuevas;
+  `full-upgrade`/`dist-upgrade` puede desinstalar paquetes y no se usa.
+- `force-confdef`/`force-confold` conservan la configuración local y evitan
+  preguntas interactivas.
+- No se reinicia automáticamente: se comprueba `/var/run/reboot-required` y
+  se avisa para programar el reinicio en ventana.
+- Debe ejecutarse dentro de la ventana de mantenimiento del grupo; los hosts
+  críticos fuera de ventana quedan bloqueados por S1.
+
+### 8.6. Logs
 
 - `ACC_LOG_TO_FILE=1` escribe en `LOG_DIR/ansible-control-center.log` con rotación
   (`LOG_MAX_BYTES`, `LOG_BACKUPS`).
 - Gunicorn escribe a stdout/stderr; en systemd va a journald.
 - Revisa crecimiento y errores periódicamente.
 
-### 8.6. `known_hosts`
+### 8.7. `known_hosts`
 
 Con `HOST_KEY_CHECKING=1`, provisiona las claves antes del primer uso:
 
@@ -504,7 +538,7 @@ ssh-keyscan -H 192.0.2.10 | sudo -u ansible-control-center tee -a ~/.ssh/known_h
 Verifica las huellas por un canal de confianza antes de aceptarlas. No
 desactives la verificación salvo decisión consciente y documentada.
 
-### 8.7. Programador de tareas
+### 8.8. Programador de tareas
 
 - `ACC_ROLE=all` (por defecto) ejecuta web, scheduler y mantenimiento en el
   mismo proceso. `ACC_ROLE=web` deja el scheduler fuera de Gunicorn y

@@ -15,6 +15,7 @@ TASK_ID_ZONA_ALL = "zona-todas"
 TASK_ID_KASPERSKY = "kaspersky"
 TASK_ID_CONTRASENA = "contrasena"
 TASK_ID_TAPIZ = "tapiz"
+TASK_ID_APT_UPGRADE = "apt-upgrade"
 
 # Tarea por defecto cuando el formulario no envía el campo ``task``.
 DEFAULT_TASK_ID = TASK_ID_ZONA_ALL
@@ -116,6 +117,30 @@ TASK_CATALOG: List[Dict[str, Any]] = [
             "Copiar la imagen del tapiz a cada host y fijar permisos.",
             "Aplicar la configuración de escritorio para el usuario local.",
             "Comprobar que no quedan tapices personalizados previos.",
+        ],
+    },
+    {
+        "id": TASK_ID_APT_UPGRADE,
+        "name": "Actualización del sistema",
+        "icon": "bi-arrow-repeat",
+        "tone": "teal",
+        "summary": (
+            "Actualiza el índice de paquetes y aplica una actualización "
+            "segura (apt-get upgrade) en hosts Linux. No elimina paquetes ni "
+            "reinicia: deja constancia de si el host requiere reinicio y "
+            "debe ejecutarse dentro de la ventana de mantenimiento."
+        ),
+        "playbook": "apt_upgrade.yml",
+        "status": STATUS_PLANNED,
+        "min_role": "admin",
+        "destructive": False,
+        "platforms": ["linux"],
+        "actions": ["APT"],
+        "chips": ["En preparación", "Mantenimiento", "Linux"],
+        "steps": [
+            "Actualizar el índice de paquetes con apt-get update.",
+            "Aplicar apt-get upgrade sin eliminar paquetes ni abrir preguntas interactivas.",
+            "Verificar que no quedan paquetes pendientes y avisar si el host requiere reinicio.",
         ],
     },
 ]

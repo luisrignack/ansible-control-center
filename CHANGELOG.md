@@ -5,6 +5,26 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Tarjeta de actualización del sistema (apt)] — 2026-11-07
+
+### Añadido
+
+- **Tarjeta `apt-upgrade`** en el catálogo, en estado “En preparación”:
+  actualización segura de paquetes en hosts Linux, solo para administradores.
+- **Playbook `ansible/apt_upgrade.yml`** con `ansible.builtin.apt`:
+  `apt-get update` + `upgrade: safe`, `DEBIAN_FRONTEND=noninteractive`,
+  `force-confdef`/`force-confold`, `lock_timeout`, sin `dist-upgrade` y sin
+  reinicio automático; publica marcadores `APT_*` y avisa de
+  `/var/run/reboot-required`.
+- Pruebas en `tests/test_catalog_apt_2026_11_07.py` y sección 8.5 de
+  `docs/OPERACION.md` con la recomendación `apt-get` frente a `apt`.
+
+> La tarjeta no es ejecutable todavía: el motor de ejecución solo admite las
+> acciones `TZ`/`TIME`. Activarla requiere añadir la acción `APT`, su vista
+> previa y los marcadores de verificación.
+
+---
+
 ## [Mapeo ISO/IEC 27001:2022] — 2026-11-07
 
 ### Añadido

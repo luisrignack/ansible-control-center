@@ -1,0 +1,112 @@
+---
+# Playbook de mantenimiento: actualización segura de paquetes en Debian/Ubuntu.
+#
+# Variables esperadas (se pasan con --extra-vars desde la aplicación):
+#   accion: "APT"
+#   valor:  "safe" (apt-get upgrade; no elimina ni instala paquetes nuevos)
+#
+# Decisiones de seguridad:
+#   - Se usa el módulo ansible.builtin.apt, que internamente invoca apt-get
+#     (interfaz estable para automatización), no el comando interactivo apt.
+#   - upgrade: safe equivale a apt-get upgrade: no elimina paquetes.
+#     No se usa dist-upgrade/full-upgrade porque puede desinstalar paquetes.
+#   - DEBIAN_FRONTEND=noninteractive y force-confdef/force-confold evitan
+#     preguntas interactivas y conservan la configuración local existente.
+#   - No se reinicia el host; se publica si /var/run/reboot-required existe.
+#   - El estado se publica con marcadores APT_* para una futura integración
+#     con el motor de ejecución (la tarjeta está en estado "planned").
+- name: Actualizar paquetes del sistema
+  hosts: all
+  become: true
+  gather_facts: false
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+    LC_ALL: C
+    LANG: C
+
+  vars:
+    apt_mode: "{{ valor | default('safe') }}"
+
+  tasks:
+    - name: Validar la acción y el modo de actualización
+      ansible.builtin.assert:
+        that:
+          - (accion | default('APT')) == 'APT'
+          - apt_mode == 'safe'
+        fail_msg: >-
+          Acción o modo no válido: accion={{ accion | default('') }},
+          valor={{ apt_mode }}. Solo se admite APT/safe.
+        success_msg: "Actualización segura solicitada."
+
+    - name: Comprobar que apt-get está disponible
+      ansible.builtin.stat:
+        path: /usr/bin/apt-get
+      register: apt_bin
+
+    - name: Rechazar hosts que no usan apt
+      ansible.builtin.fail:
+        msg: >-
+          /usr/bin/apt-get no existe. Esta tarea solo admite Debian/Ubuntu
+          y derivadas con apt.
+      when: not apt_bin.stat.exists
+
+    - name: Actualizar el índice de paquetes
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 0
+        lock_timeout: 300
+      register: apt_update
+
+    - name: Aplicar la actualización segura
+      ansible.builtin.apt:
+        upgrade: safe
+        update_cache: false
+        dpkg_options: "force-confdef,force-confold"
+        lock_timeout: 300
+        autoremove: false
+        autoclean: false
+      register: apt_upgrade
+
+    - name: Comprobar paquetes pendientes (simulación)
+      ansible.builtin.command:
+        argv:
+          - apt-get
+          - -s
+          - upgrade
+      register: apt_simulation
+      changed_when: false
+      failed_when: false
+
+    - name: Comprobar si el host requiere reinicio
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: apt_reboot
+
+    - name: Calcular el estado final
+      ansible.builtin.set_fact:
+        apt_remaining: >-
+          {{ (apt_simulation.stdout
+              | regex_findall('([0-9]+) upgraded')
+              | first | default('0')) | int }}
+        apt_reboot_required: "{{ apt_reboot.stat.exists | default(false) }}"
+        apt_changed: >-
+          {{ (apt_update.changed | default(false))
+             or (apt_upgrade.changed | default(false)) }}
+
+    - name: Verificar que no quedan paquetes pendientes
+      ansible.builtin.assert:
+        that:
+          - apt_remaining == 0
+        fail_msg: >-
+          Quedan {{ apt_remaining }} paquete(s) pendientes de actualizar.
+          Revisa los repositorios, dependencias retenidas o el espacio en
+          disco antes de reintentar.
+        success_msg: "Todos los paquetes aplicables están actualizados."
+
+    - name: Publicar el estado para la aplicación
+      ansible.builtin.debug:
+        msg: >-
+          APT_CHANGED={{ apt_changed }}
+          APT_VERIFIED=True
+          APT_REBOOT_REQUIRED={{ apt_reboot_required }}
+          APT_REMAINING={{ apt_remaining }}
