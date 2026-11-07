@@ -115,8 +115,9 @@ Ansible Control Center — despliegue en otra PC (arranque rápido)
 ORDEN DE LECTURA DE ESTE PAQUETE
   01-INICIO-RAPIDO.txt        este archivo: los 5 pasos mínimos
   02-GUIA-COMPLETA-DESPLIEGUE.md   guía completa (configuración, TLS,
-                              SSH, LDAPS, volúmenes, actualización,
-                              diagnóstico y seguridad)
+                              SSH/WinRM, LDAPS, criticidad y ventanas,
+                              volúmenes, actualización, diagnóstico y
+                              seguridad)
   imagenes/03-INFORMACION-IMAGENES.txt  arquitectura, digests y fecha
                               de empaquetado de las imágenes
 
