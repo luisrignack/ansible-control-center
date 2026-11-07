@@ -5,6 +5,38 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Criticidad y ventanas de mantenimiento] — 2026-11-07
+
+### Añadido
+
+- **Criticidad por grupo y host** (`low`, `medium`, `high`, `critical`): el
+  host puede heredar la del grupo o sobrescribirla. Se edita desde
+  `/inventario` y se muestra en el formulario de ejecución y en las
+  programaciones.
+- **Ventana de mantenimiento por grupo** en UTC, con días ISO (1=lunes …
+  7=domingo), hora de inicio/fin y soporte de ventanas nocturnas. Reglas puras
+  en `services/safety.py`, sin dependencias externas.
+- **Gate de seguridad en ejecución real**: los hosts `critical` fuera de
+  ventana se bloquean antes de consumir idempotencia o aprobaciones; las
+  vistas previas y el DRY RUN siguen permitidos. El bloqueo se audita como
+  `safety_blocked`.
+- **Excepción explícita de administrador** con motivo obligatorio (mínimo 10
+  caracteres), auditada como `safety_override` con usuario, objetivo y motivo.
+- **Programaciones seguras**: no admiten excepciones; si al vencer caen fuera
+  de ventana se posponen con `retry_delay_seconds` hasta la próxima apertura,
+  sin desactivarse.
+- **Migración v14**: columnas `criticality`, `window_days`, `window_start`,
+  `window_end` y `window_note` en `inventory_groups`; `criticality` en
+  `inventory_hosts`. Los grupos existentes quedan en `medium` sin ventana.
+- Pruebas nuevas en `tests/test_safety_2026_11_07.py` (17 casos).
+
+### Documentación
+
+- README, `docs/OPERACION.md` (§2.4) y este changelog describen la política,
+  la excepción auditada y el comportamiento de las programaciones.
+
+---
+
 ## [Lecturas compartidas, métricas y SLO] — 2026-11-07
 
 ### Añadido

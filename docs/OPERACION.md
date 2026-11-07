@@ -118,7 +118,34 @@ inspección, queda como `error` y el resto continúa.
 > **`restore`:** conserva el estado previo de NTP. Si estaba activo, se
 > reactiva tras fijar la hora; si estaba desactivado, sigue desactivado.
 
-### 2.4. Durante la ejecución
+### 2.4. Criticidad y ventanas de mantenimiento
+
+Cada grupo del inventario tiene una criticidad (`low`, `medium`, `high` o
+`critical`) y, opcionalmente, una ventana en **UTC**. Los hosts pueden
+sobrescribir la criticidad del grupo; si el campo queda vacío, heredan.
+
+- **Ventana**: días ISO (`1`=lunes … `7`=domingo), hora de inicio y hora de
+  fin. Si `inicio > fin` la ventana cruza medianoche (p. ej. `22:00–06:00`).
+- **Bloqueo**: solo los hosts `critical` bloquean una ejecución real fuera de
+  la ventana. Los hosts `high` generan aviso; `low`/`medium` no bloquean.
+- **Sin ventana**: un grupo `critical` sin ventana avisa pero no bloquea, para
+  no romper despliegues existentes. Configura la ventana antes de clasificar
+  hosts como críticos en producción.
+- **Vista previa y DRY RUN**: nunca se bloquean; permiten comprobar el estado
+  sin modificar nada.
+- **Excepción**: solo un administrador puede autorizarla, con un motivo de al
+  menos 10 caracteres. Queda registrada en `/audit` como `safety_override` con
+  el usuario, el objetivo y el motivo. El bloqueo se registra como
+  `safety_blocked`.
+- **Programaciones**: no admiten excepción. Si al vencer caen fuera de la
+  ventana, se posponen hasta la próxima apertura conservando la programación
+  activa y dejando el motivo en `last_error`.
+
+La política se configura desde `/inventario` (tarjeta de cada grupo y selector
+por host). El formulario de ejecución muestra la criticidad y la ventana del
+grupo seleccionado antes de enviar.
+
+### 2.5. Durante la ejecución
 
 - La página `/progress/<task_id>` muestra progreso, resumen de hitos y la
   salida de `ansible-playbook` en vivo por SSE.
@@ -134,7 +161,7 @@ inspección, queda como `error` y el resto continúa.
 - No cierres el proceso ni reinicies el servicio durante un lote: el estado de
   las tareas vive en memoria y el lote puede quedar `running`.
 
-### 2.5. Después de ejecutar
+### 2.6. Después de ejecutar
 
 1. Revisa el estado global y los contadores del lote.
 2. Revisa la tabla por host: resultado, duración, error y estados.

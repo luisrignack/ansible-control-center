@@ -91,14 +91,24 @@ por defecto** (278 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 - **Inventario persistente**: grupos Linux/Windows con hosts y etiquetas;
   permite ejecutar contra un grupo sin repetir el rango. Cada grupo Linux
   puede tener una clave privada SSH propia (se guarda en `ACC_DATA_DIR` con
-  permisos `0600`).
+  permisos `0600`). Los grupos tienen **criticidad** (`low`/`medium`/`high`/
+  `critical`) y una **ventana de mantenimiento** en UTC (días ISO 1–7, con
+  soporte de ventana nocturna); cada host puede heredar o sobrescribir la
+  criticidad del grupo.
 - **Programaciones**: ejecuciones únicas, diarias o semanales contra una IP o
   un grupo del inventario. La contraseña maestra del vault se guarda cifrada
   con Fernet (`0600`) y las programaciones aplican las mismas validaciones
   que la ejecución manual (tarea activa, acción admitida, valor fijo de la
   tarea, NTP y zona horaria). El disparo usa un *claim* atómico y un lock de
   instancia, por lo que varios workers no duplican lotes; puede ejecutarse en
-  un proceso dedicado con `flask --app app scheduler` (`ACC_ROLE=worker`).
+  un proceso dedicado con `flask --app app scheduler` (`ACC_ROLE=worker`). Si
+  al vencer la programación el grupo está fuera de su ventana, el disparo se
+  pospone automáticamente hasta la próxima apertura.
+- **Protección por criticidad**: una ejecución real sobre hosts `critical`
+  fuera de su ventana se bloquea y se audita (`safety_blocked`). La vista
+  previa y el DRY RUN nunca se bloquean. Un administrador puede autorizar una
+  excepción explícita con motivo (mínimo 10 caracteres), auditada como
+  `safety_override`; las programaciones no admiten excepciones.
 - **Doble aprobación**: las tareas marcadas como destructivas requieren la
   aprobación de un administrador distinto del ejecutor, con caducidad
   (`ACC_APPROVAL_TTL_MINUTES`) y un solo uso.
@@ -558,9 +568,11 @@ Resultados: `success`, `failure`, `skipped`, `error`, `preview`.
 
 ### Inventario y operación
 
-- `host_groups`: grupos Linux/Windows del inventario, con etiqueta y ruta de
-  clave SSH opcional.
-- `inventory_hosts`: hosts de cada grupo (dirección, etiqueta, alta).
+- `host_groups`: grupos Linux/Windows del inventario, con etiqueta, ruta de
+  clave SSH opcional, criticidad y ventana de mantenimiento (días UTC,
+  inicio, fin y nota).
+- `inventory_hosts`: hosts de cada grupo (dirección, etiqueta, alta y
+  criticidad propia opcional; vacío = hereda del grupo).
 - `schedules`: programaciones (`run_at`, recurrencia, `params` JSON con la
   contraseña maestra cifrada, último resultado y error, y reserva
   `claimed_at`/`claimed_by` para que solo un proceso lance cada vencimiento).
@@ -746,7 +758,7 @@ Módulos:
 
 - Inventarios, CSV, grupos y exclusiones.
 - Canario, paralelismo dentro del lote y reintentos selectivos.
-- Programación y ventanas de mantenimiento.
+- Ventanas de mantenimiento por host y excepciones temporales con caducidad.
 - MFA, aprobaciones y exportación de auditoría.
 - API/CLI, webhooks y exportación.
 - Filtros y paginación del historial.

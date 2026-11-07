@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 
 def _secure_sqlite_files(path: str) -> None:
@@ -475,6 +475,50 @@ def _migrate_v13(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v14(conn: sqlite3.Connection) -> None:
+    """Criticidad y ventana de mantenimiento en el inventario.
+
+    ``criticality`` es por grupo; el host puede sobrescribirla con una cadena
+    vacía = heredar. La ventana es una sola por grupo, en UTC, con días ISO
+    (1=lunes … 7=domingo). Los grupos existentes quedan en ``medium`` sin
+    ventana: no cambian el comportamiento hasta que un administrador los
+    clasifique.
+    """
+    _ensure_column(
+        conn,
+        "inventory_groups",
+        "criticality",
+        "criticality TEXT NOT NULL DEFAULT 'medium'",
+    )
+    _ensure_column(
+        conn, "inventory_groups", "window_days", "window_days TEXT NOT NULL DEFAULT ''"
+    )
+    _ensure_column(
+        conn,
+        "inventory_groups",
+        "window_start",
+        "window_start TEXT NOT NULL DEFAULT ''",
+    )
+    _ensure_column(
+        conn,
+        "inventory_groups",
+        "window_end",
+        "window_end TEXT NOT NULL DEFAULT ''",
+    )
+    _ensure_column(
+        conn,
+        "inventory_groups",
+        "window_note",
+        "window_note TEXT NOT NULL DEFAULT ''",
+    )
+    _ensure_column(
+        conn,
+        "inventory_hosts",
+        "criticality",
+        "criticality TEXT NOT NULL DEFAULT ''",
+    )
+
+
 def init_schema(db_path: str) -> None:
     """Crea o migra el esquema de forma idempotente y no destructiva.
 
@@ -507,6 +551,7 @@ def init_schema(db_path: str) -> None:
         _migrate_v11(conn)
         _migrate_v12(conn)
         _migrate_v13(conn)
+        _migrate_v14(conn)
         # No se rebaja la versión de una base creada por una versión más nueva.
         if version < SCHEMA_VERSION:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

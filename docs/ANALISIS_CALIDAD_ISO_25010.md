@@ -207,15 +207,16 @@ brecha estructural más importante del producto.
 | Subcaracterística | Nivel | Evidencia | Brecha / acción |
 |---|---:|---|---|
 | Restricción operativa | 3 | Allowlist, máximo de hosts, dry-run por defecto, rechazo de `TIME` con NTP `keep`, límites de contraseñas y timeouts | No hay cuotas por operador ni por franja horaria |
-| Identificación de riesgos | 2 | Vista previa, aprobación de tareas destructivas y auditoría | Sin análisis formal de peligros (FMEA/HAZOP) ni registro de riesgos |
-| Modo seguro ante fallo | 3 | Cancelación, best-effort por host, restauración de NTP y cierre de tareas huérfanas | Un cambio de hora puede afectar a un host crítico antes de detectarse |
-| Advertencia de peligro | 3 | Banner de simulación, confirmación de tareas destructivas, mensajes de error y vista previa | Sin clasificación de criticidad por host/grupo |
+| Identificación de riesgos | 3 | Vista previa, aprobación de tareas destructivas, criticidad por grupo/host y ventana de mantenimiento en UTC (S1) | Sin análisis formal de peligros (FMEA/HAZOP) ni registro de riesgos |
+| Modo seguro ante fallo | 3 | Cancelación, best-effort por host, restauración de NTP, bloqueo de hosts críticos fuera de ventana y cierre de tareas huérfanas | Un cambio de hora puede afectar a un host crítico antes de detectarse |
+| Advertencia de peligro | 4 | Banner de simulación, confirmación de tareas destructivas, vista previa, badges de criticidad/ventana y excepción auditada (`safety_override`) | La ventana es por grupo; falta programación por host y caducidad de excepciones |
 | Integración segura | 3 | Host key checking, LDAPS con TLS, ausencia de `shell=True` y contenedor sin privilegios | Sin análisis de impacto por integración con sistemas críticos |
 
 **Lectura:** el producto aplica controles de seguridad razonables para una
-herramienta de administración, pero no sustituye un **análisis de seguridad
-funcional** del proceso operativo: qué hosts son críticos, qué ventana es
-segura y cómo se revierte un cambio de hora.
+herramienta de administración y, desde S1, clasifica criticidad y ventanas de
+mantenimiento antes de operar. Sigue sin sustituir un **análisis de seguridad
+funcional** completo del proceso operativo (FMEA/HAZOP, impacto por
+integración y criterios de aborto).
 
 ---
 
@@ -290,7 +291,9 @@ usuarios, la valoración es cualitativa:
 12. **Q-12 Observabilidad.** Métricas Prometheus, logs estructurados, trazas
     y alertas sobre cola, fallos y salud.
 13. **Q-13 Análisis de seguridad funcional.** FMEA/HAZOP del cambio de hora y
-    NTP: hosts críticos, ventanas, reversión y criterios de aborto.
+    NTP: hosts críticos, ventanas, reversión y criterios de aborto. S1 ya
+    aporta criticidad por grupo/host, ventanas UTC y bloqueo auditado; falta
+    el análisis formal y las excepciones con caducidad.
 14. **Q-14 Modularización.** Extraer blueprints de `app.py` sin cambiar
     comportamiento, con pruebas de regresión.
 

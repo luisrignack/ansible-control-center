@@ -68,7 +68,7 @@
                 <select class="form-select d-none" id="scheduleTargetGroupSelect" name="target_group">
                     <option value="">Selecciona un grupo…</option>
                     {% for group in inventory_groups %}
-                    <option value="{{ group.id }}">{{ group.name }} · {{ group.host_count }} host(s)</option>
+                    <option value="{{ group.id }}">{{ group.name }} · {{ group.host_count }} host(s){% if group.window_label %} · {{ group.window_label }}{% endif %}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -138,7 +138,14 @@
                         <td><strong>{{ item.name }}</strong><br>
                             <small class="text-secondary">por {{ item.created_by or '—' }}</small></td>
                         <td><small>{{ item.task_name }}</small></td>
-                        <td><small><code>{{ item.params.target or '—' }}</code></small></td>
+                        <td><small><code>{{ item.params.target or '—' }}</code>
+                            {% if item.group_name %}
+                            <br><small class="text-secondary">{{ item.group_name }}
+                                · {{ item.group_criticality }}
+                                {% if item.group_window %}· {{ item.group_window }}{% endif %}
+                            </small>
+                            {% endif %}
+                        </small></td>
                         <td><small>{{ item.run_at[:16] if item.run_at else '—' }} UTC</small></td>
                         <td><small>{{ recurrence_labels.get(item.recurrence, item.recurrence) }}</small></td>
                         <td>

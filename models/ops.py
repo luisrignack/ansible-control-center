@@ -17,6 +17,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from models.db import get_connection
+from services.safety import (
+    DEFAULT_CRITICALITY,
+    normalize_criticality,
+    normalize_criticality_override,
+    parse_window_days,
+    parse_window_time,
+    window_error,
+)
 
 
 class OSFlavor:
@@ -48,6 +56,12 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _criticality_label(value: str) -> str:
+    from services.safety import CRITICALITY_LABELS
+
+    return CRITICALITY_LABELS.get(str(value or "").lower(), "—")
+
+
 def params_hash(params: Dict[str, Any]) -> str:
     """Hash estable de los parámetros de una solicitud de aprobación.
 
@@ -74,6 +88,11 @@ class HostGroup:
         ssh_key_path: str = "",
         created_at: str = "",
         host_count: int = 0,
+        criticality: str = DEFAULT_CRITICALITY,
+        window_days: str = "",
+        window_start: str = "",
+        window_end: str = "",
+        window_note: str = "",
     ) -> None:
         self.id = id
         self.name = name
@@ -83,6 +102,11 @@ class HostGroup:
         self.ssh_key_path = ssh_key_path
         self.created_at = created_at
         self.host_count = host_count
+        self.criticality = criticality or DEFAULT_CRITICALITY
+        self.window_days = window_days or ""
+        self.window_start = window_start or ""
+        self.window_end = window_end or ""
+        self.window_note = window_note or ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -94,10 +118,28 @@ class HostGroup:
             "ssh_key_path": self.ssh_key_path,
             "created_at": self.created_at,
             "host_count": self.host_count,
+            "criticality": self.criticality,
+            "criticality_label": _criticality_label(self.criticality),
+            "window_days": self.window_days,
+            "window_start": self.window_start,
+            "window_end": self.window_end,
+            "window_note": self.window_note,
+            "window_label": self.window_label,
         }
+
+    @property
+    def window_label(self) -> str:
+        from services.safety import window_label
+
+        return window_label(
+            parse_window_days(self.window_days),
+            self.window_start,
+            self.window_end,
+        )
 
     @staticmethod
     def _row_to_group(row) -> "HostGroup":
+        keys = row.keys()
         return HostGroup(
             id=row["id"],
             name=row["name"],
@@ -106,7 +148,18 @@ class HostGroup:
             connection=row["connection"],
             ssh_key_path=row["ssh_key_path"],
             created_at=row["created_at"],
-            host_count=row["host_count"] if "host_count" in row.keys() else 0,
+            host_count=row["host_count"] if "host_count" in keys else 0,
+            criticality=(
+                row["criticality"]
+                if "criticality" in keys
+                else DEFAULT_CRITICALITY
+            ),
+            window_days=row["window_days"] if "window_days" in keys else "",
+            window_start=(
+                row["window_start"] if "window_start" in keys else ""
+            ),
+            window_end=row["window_end"] if "window_end" in keys else "",
+            window_note=row["window_note"] if "window_note" in keys else "",
         )
 
     @classmethod
@@ -146,6 +199,11 @@ class HostGroup:
         os_flavor: str = "linux",
         connection: str = "",
         db_path: str = None,
+        criticality: str = DEFAULT_CRITICALITY,
+        window_days: str = "",
+        window_start: str = "",
+        window_end: str = "",
+        window_note: str = "",
     ) -> "HostGroup":
         if db_path is None:
             db_path = _default_db_path()
@@ -163,12 +221,23 @@ class HostGroup:
             )
         if connection not in OS_CONNECTIONS:
             raise ValueError("Tipo de conexión no soportado.")
+
+        criticality = normalize_criticality(criticality)
+        days = parse_window_days(window_days)
+        start = parse_window_time(window_start)
+        end = parse_window_time(window_end)
+        safety_error = window_error(days, start, end)
+        if safety_error:
+            raise ValueError(safety_error)
+
         with get_connection(db_path) as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO inventory_groups
-                    (name, description, os_flavor, connection, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                    (name, description, os_flavor, connection, created_at,
+                     criticality, window_days, window_start, window_end,
+                     window_note)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     name,
@@ -176,9 +245,53 @@ class HostGroup:
                     os_flavor,
                     connection,
                     _now(),
+                    criticality,
+                    ",".join(str(day) for day in days),
+                    start,
+                    end,
+                    (window_note or "").strip()[:200],
                 ),
             )
         return cls.get(cursor.lastrowid, db_path=db_path)
+
+    @classmethod
+    def set_safety(
+        cls,
+        group_id: int,
+        criticality: str,
+        window_days: str = "",
+        window_start: str = "",
+        window_end: str = "",
+        window_note: str = "",
+        db_path: str = None,
+    ) -> None:
+        """Actualiza criticidad y ventana de un grupo existente."""
+        if db_path is None:
+            db_path = _default_db_path()
+        criticality = normalize_criticality(criticality)
+        days = parse_window_days(window_days)
+        start = parse_window_time(window_start)
+        end = parse_window_time(window_end)
+        safety_error = window_error(days, start, end)
+        if safety_error:
+            raise ValueError(safety_error)
+        with get_connection(db_path) as conn:
+            conn.execute(
+                """
+                UPDATE inventory_groups
+                SET criticality = ?, window_days = ?, window_start = ?,
+                    window_end = ?, window_note = ?
+                WHERE id = ?
+                """,
+                (
+                    criticality,
+                    ",".join(str(day) for day in days),
+                    start,
+                    end,
+                    (window_note or "").strip()[:200],
+                    int(group_id),
+                ),
+            )
 
     @classmethod
     def set_ssh_key(
@@ -232,21 +345,27 @@ class InventoryHost:
         address: str,
         label: str = "",
         created_at: str = "",
+        criticality: str = "",
     ) -> None:
         self.id = id
         self.group_id = group_id
         self.address = address
         self.label = label
         self.created_at = created_at
+        self.criticality = criticality or ""
 
     @staticmethod
     def from_row(row) -> "InventoryHost":
+        keys = row.keys()
         return InventoryHost(
             id=row["id"],
             group_id=row["group_id"],
             address=row["address"],
             label=row["label"],
             created_at=row["created_at"],
+            criticality=(
+                row["criticality"] if "criticality" in keys else ""
+            ),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -255,6 +374,7 @@ class InventoryHost:
             "group_id": self.group_id,
             "address": self.address,
             "label": self.label,
+            "criticality": self.criticality,
         }
 
     @classmethod
@@ -264,6 +384,7 @@ class InventoryHost:
         address: str,
         label: str = "",
         db_path: str = None,
+        criticality: str = "",
     ) -> Tuple[Optional["InventoryHost"], Optional[str]]:
         """Añade un host validando su formato IPv4.
 
@@ -290,24 +411,64 @@ class InventoryHost:
         pinned, error = pin_target(address, max_hosts=1)
         if error or not pinned:
             return None, error or f"Dirección inválida: {address}"
+        try:
+            criticality = normalize_criticality_override(criticality)
+        except ValueError as exc:
+            return None, str(exc)
         with get_connection(db_path) as conn:
             try:
                 cursor = conn.execute(
                     """
                     INSERT INTO inventory_hosts
-                        (group_id, address, label, created_at)
-                    VALUES (?, ?, ?, ?)
+                        (group_id, address, label, created_at, criticality)
+                    VALUES (?, ?, ?, ?, ?)
                     """,
                     (
                         int(group_id),
                         str(_ip.ip_address(pinned)),
                         (label or "").strip()[:80],
                         _now(),
+                        criticality,
                     ),
                 )
             except Exception as exc:  # duplicado u otro error
                 return None, f"No se pudo añadir el host: {exc}"
-        return InventoryHost(cursor.lastrowid, group_id, pinned, label), None
+        return (
+            InventoryHost(
+                cursor.lastrowid, group_id, pinned, label, criticality=criticality
+            ),
+            None,
+        )
+
+    @classmethod
+    def set_criticality(
+        cls, host_id: int, criticality: str, db_path: str = None
+    ) -> None:
+        if db_path is None:
+            db_path = _default_db_path()
+        override = normalize_criticality_override(criticality)
+        with get_connection(db_path) as conn:
+            conn.execute(
+                "UPDATE inventory_hosts SET criticality = ? WHERE id = ?",
+                (override, int(host_id)),
+            )
+
+    @classmethod
+    def find_by_address(
+        cls, address: str, db_path: str = None
+    ) -> Tuple[Optional["InventoryHost"], Optional["HostGroup"]]:
+        """Busca un host por IP y devuelve también su grupo (si existe)."""
+        if db_path is None:
+            db_path = _default_db_path()
+        with get_connection(db_path) as conn:
+            row = conn.execute(
+                "SELECT * FROM inventory_hosts WHERE address = ? LIMIT 1",
+                (str(address or "").strip(),),
+            ).fetchone()
+        if row is None:
+            return None, None
+        host = cls.from_row(row)
+        return host, HostGroup.get(host.group_id, db_path=db_path)
 
     def delete(self, db_path: str = None) -> None:
         if db_path is None:

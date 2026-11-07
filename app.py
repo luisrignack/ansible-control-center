@@ -159,6 +159,11 @@ from services.pdf_report import (
     format_spanish_datetime,
 )
 from services.rate_limiter import LIMITER
+from services.safety import (
+    CRITICALITY_LABELS,
+    CRITICALITY_LEVELS,
+    evaluate_safety,
+)
 import services.notifier as notifier
 import services.scheduler as scheduler
 from services.secure_temp import secure_temp_file
@@ -1907,7 +1912,11 @@ def task_view(task_id):
     # Si la tarea corresponde a una acción específica, solo se ofrecen las
     # tareas activas. Los grupos del inventario alimentan el selector de
     # objetivo por grupo.
-    inventory_groups = [g.to_dict() for g in HostGroup.all(db_path=get_db_path())]
+    inventory_groups = []
+    for group in HostGroup.all(db_path=get_db_path()):
+        data = group.to_dict()
+        data["safety"] = _safety_for_group(group)
+        inventory_groups.append(data)
     return render_template(
         "index.html",
         common_timezones=COMMON_TIMEZONES,
@@ -1917,6 +1926,7 @@ def task_view(task_id):
         prefill=prefill,
         selected_task=task,
         inventory_groups=inventory_groups,
+        criticality_labels=CRITICALITY_LABELS,
     )
 
 
@@ -2014,10 +2024,37 @@ def inventario():
                     description=request.form.get("description", ""),
                     os_flavor=request.form.get("os_flavor", "linux"),
                     db_path=db_path,
+                    criticality=request.form.get("criticality", "medium"),
+                    window_days=request.form.get("window_days", ""),
+                    window_start=request.form.get("window_start", ""),
+                    window_end=request.form.get("window_end", ""),
+                    window_note=request.form.get("window_note", ""),
                 )
                 flash("Grupo creado.", "success")
             except ValueError as exc:
                 flash(str(exc), "danger")
+        elif action == "update_group_safety":
+            gid = request.form.get("group_id", "").strip()
+            group = HostGroup.get(gid, db_path=db_path) if gid.isdigit() else None
+            if group is None:
+                flash("El grupo no existe.", "warning")
+            else:
+                try:
+                    HostGroup.set_safety(
+                        group.id,
+                        request.form.get("criticality", "medium"),
+                        window_days=request.form.get("window_days", ""),
+                        window_start=request.form.get("window_start", ""),
+                        window_end=request.form.get("window_end", ""),
+                        window_note=request.form.get("window_note", ""),
+                        db_path=db_path,
+                    )
+                    flash(
+                        f"Política de seguridad de '{group.name}' actualizada.",
+                        "success",
+                    )
+                except ValueError as exc:
+                    flash(str(exc), "danger")
         elif action == "delete_group":
             group = HostGroup.get(
                 request.form.get("group_id", "0"), db_path=db_path
@@ -2039,11 +2076,26 @@ def inventario():
                     request.form.get("address", ""),
                     label=request.form.get("label", ""),
                     db_path=db_path,
+                    criticality=request.form.get("criticality", ""),
                 )
                 if host_error:
                     flash(host_error, "danger")
                 else:
                     flash("Host añadido al grupo.", "success")
+        elif action == "update_host_criticality":
+            host_id = request.form.get("host_id", "").strip()
+            if not host_id.isdigit():
+                flash("Host no válido.", "warning")
+            else:
+                try:
+                    InventoryHost.set_criticality(
+                        int(host_id),
+                        request.form.get("criticality", ""),
+                        db_path=db_path,
+                    )
+                    flash("Criticidad del host actualizada.", "success")
+                except ValueError as exc:
+                    flash(str(exc), "danger")
         elif action == "delete_host":
             host_id = request.form.get("host_id", "").strip()
             if not host_id.isdigit():
@@ -2110,6 +2162,8 @@ def inventario():
     return render_template(
         "inventory.html",
         groups=_inventario_group_and_hosts(),
+        criticality_levels=CRITICALITY_LEVELS,
+        criticality_labels=CRITICALITY_LABELS,
     )
 
 
@@ -2221,6 +2275,26 @@ def programaciones():
                 for error in schedule_errors:
                     flash(error, "danger")
                 return redirect(url_for("programaciones"))
+            # Las programaciones no admiten excepción: si el horario elegido
+            # cae fuera de la ventana del grupo, se rechaza en vez de ejecutar
+            # hosts críticos sin supervisión.
+            if schedule_group is not None:
+                schedule_safety = _safety_for_group(
+                    schedule_group, now=run_at
+                )
+            else:
+                schedule_safety = _safety_for_target(
+                    None, pinned_ip, now=run_at
+                )
+            if schedule_safety["blocked"]:
+                flash(
+                    "No se puede programar fuera de la ventana de "
+                    "mantenimiento: " + schedule_safety["reasons"][0],
+                    "danger",
+                )
+                return redirect(url_for("programaciones"))
+            for warning in schedule_safety["warnings"]:
+                flash(warning, "warning")
             schedule_params = _approval_params(
                 {
                     "target": (
@@ -2272,21 +2346,28 @@ def programaciones():
         return redirect(url_for("programaciones"))
 
     schedules = [s.to_dict() for s in Schedule.all(db_path=db_path)]
+    groups = [g.to_dict() for g in HostGroup.all(db_path=db_path)]
+    groups_by_id = {group["id"]: group for group in groups}
     for item in schedules:
         item["task_name"] = (
             tasks[item["task_id"]]["name"]
             if item["task_id"] in tasks
             else item["task_id"]
         )
+        params = item.get("params") or {}
+        group = groups_by_id.get(params.get("target_group_id"))
+        item["group_name"] = group["name"] if group else ""
+        item["group_criticality"] = (
+            group.get("criticality_label", "") if group else ""
+        )
+        item["group_window"] = group.get("window_label", "") if group else ""
     return render_template(
         "schedules.html",
         schedules=schedules,
         tasks=[
             {"id": key, "name": value["name"]} for key, value in tasks.items()
         ],
-        inventory_groups=[
-            g.to_dict() for g in HostGroup.all(db_path=db_path)
-        ],
+        inventory_groups=groups,
         recurrence_labels={
             "once": "Una vez",
             "daily": "Diaria",
@@ -2425,7 +2506,7 @@ def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
 
     target = params.get("target", "")
     if params.get("target_mode") == "group":
-        if params.get("target_group_id") is None:
+        if params.get("target_group_id") is None or target_group is None:
             Schedule.mark_run(
                 schedule["id"],
                 error="La programación apuntaba a un grupo eliminado.",
@@ -2434,6 +2515,34 @@ def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
             )
             return False
         target = f"inventory:{params['target_group_id']}"
+
+    # Las programaciones no tienen excepción: si al vencer caen fuera de la
+    # ventana, se posponen hasta la próxima apertura sin desactivarse.
+    schedule_safety = _safety_for_target(
+        params.get("target_group_id") if target_group is not None else None,
+        target,
+    )
+    if schedule_safety["blocked"]:
+        delay = 3600
+        next_open = schedule_safety.get("next_open")
+        if next_open:
+            try:
+                delta = datetime.fromisoformat(next_open) - datetime.now(
+                    timezone.utc
+                )
+                delay = max(60, int(delta.total_seconds()))
+            except ValueError:
+                pass
+        Schedule.mark_run(
+            schedule["id"],
+            error=(
+                "Pospuesta por ventana de mantenimiento: "
+                + schedule_safety["reasons"][0]
+            )[:300],
+            retry_delay_seconds=delay,
+            db_path=db_path,
+        )
+        return False
 
     tid = create_task()
     update_task(
@@ -2501,6 +2610,175 @@ def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
     return True
 
 
+def _safety_for_group(group, now=None, hosts=None):
+    """Evalúa la política de un grupo con su lista actual de hosts."""
+    db_path = get_db_path()
+    if hosts is None:
+        hosts = [
+            {"address": host.address, "criticality": host.criticality}
+            for host in HostGroup.hosts_of(group.id, db_path=db_path)
+        ]
+    return evaluate_safety(
+        group_name=group.name,
+        group_criticality=group.criticality,
+        hosts=hosts,
+        window_days=group.window_days,
+        window_start=group.window_start,
+        window_end=group.window_end,
+        window_note=group.window_note,
+        now=now,
+    )
+
+
+def _safety_for_target(target_group_id, target, now=None):
+    """Evalúa un objetivo por grupo o por IP manual clasificada."""
+    db_path = get_db_path()
+    if target_group_id is not None:
+        group = HostGroup.get(target_group_id, db_path=db_path)
+        if group is not None:
+            return _safety_for_group(group, now=now)
+
+    text = str(target or "").strip()
+    if not text.startswith("inventory:"):
+        addresses = [part.strip() for part in text.split(",") if part.strip()]
+        if len(addresses) == 1:
+            try:
+                import ipaddress as _ip
+
+                _ip.ip_address(addresses[0])
+            except ValueError:
+                pass
+            else:
+                host, group = InventoryHost.find_by_address(
+                    addresses[0], db_path=db_path
+                )
+                if host is not None and group is not None:
+                    return _safety_for_group(
+                        group,
+                        now=now,
+                        hosts=[
+                            {
+                                "address": host.address,
+                                "criticality": host.criticality,
+                            }
+                        ],
+                    )
+
+    result = evaluate_safety(now=now)
+    result["warnings"].append(
+        "El objetivo manual no está clasificado en el inventario; no se "
+        "aplica criticidad ni ventana de mantenimiento."
+    )
+    result["level"] = "warn"
+    result["summary"] = result["warnings"][0]
+    return result
+
+
+def _safety_gate(form: Dict[str, Any], operator: str, mode: str):
+    """Aplica criticidad y ventana antes de encolar una ejecución real.
+
+    La vista previa nunca se bloquea (no modifica nada). Una ejecución real
+    sobre hosts ``critical`` fuera de ventana solo continúa con una excepción
+    explícita de un administrador, con motivo y auditoría. Devuelve una
+    respuesta Flask si hay que detener el envío; ``None`` si puede seguir.
+    """
+    safety = _safety_for_target(form.get("target_group_id"), form["target"])
+    override_requested = _form_bool("safety_override")
+    reason = request.form.get("safety_reason", "").strip()
+
+    if safety["blocked"] and mode == "execute":
+        if not override_requested:
+            AuthEvent.record(
+                operator,
+                _client_ip(),
+                "safety_blocked",
+                f"{form['task_id']} sobre {form['target']}: "
+                + " | ".join(safety["reasons"]),
+                db_path=get_db_path(),
+            )
+            for text in safety["reasons"]:
+                flash(text, "danger")
+            flash(
+                "La operación no se envió. Espera a la ventana de "
+                "mantenimiento o solicita una excepción a un administrador.",
+                "warning",
+            )
+            if _wants_json():
+                return (
+                    jsonify(
+                        {
+                            "status": "blocked",
+                            "errors": safety["reasons"],
+                            "next_open": safety.get("next_open", ""),
+                        }
+                    ),
+                    403,
+                )
+            return redirect(url_for("task_view", task_id=form["task_id"]))
+        if not current_user.has_role("admin"):
+            flash(
+                "Solo un administrador puede autorizar una excepción de "
+                "ventana de mantenimiento.",
+                "danger",
+            )
+            if _wants_json():
+                return (
+                    jsonify(
+                        {
+                            "status": "blocked",
+                            "errors": [
+                                "Se requiere rol admin para la excepción."
+                            ],
+                        }
+                    ),
+                    403,
+                )
+            return redirect(url_for("task_view", task_id=form["task_id"]))
+        if len(reason) < 10:
+            flash(
+                "La excepción requiere un motivo de al menos 10 caracteres.",
+                "danger",
+            )
+            if _wants_json():
+                return (
+                    jsonify(
+                        {
+                            "status": "blocked",
+                            "errors": ["Motivo de excepción demasiado corto."],
+                        }
+                    ),
+                    403,
+                )
+            return redirect(url_for("task_view", task_id=form["task_id"]))
+        AuthEvent.record(
+            operator,
+            _client_ip(),
+            "safety_override",
+            f"{form['task_id']} sobre {form['target']}: {reason} | "
+            + " | ".join(safety["reasons"]),
+            db_path=get_db_path(),
+        )
+        logger.warning(
+            "Excepción de ventana autorizada por %s sobre %s: %s",
+            operator,
+            form["target"],
+            reason,
+        )
+        flash(
+            "Excepción de ventana autorizada y auditada. La operación "
+            "continuará fuera de la ventana de mantenimiento.",
+            "warning",
+        )
+        return None
+
+    if safety["blocked"] and mode != "execute":
+        for text in safety["reasons"]:
+            flash(f"Vista previa permitida: {text}", "warning")
+    for text in safety["warnings"]:
+        flash(text, "warning")
+    return None
+
+
 def _approval_params(form: Dict[str, Any]) -> Dict[str, Any]:
     """Parámetros estables de una ejecución, sin secretos, para aprobaciones."""
     return {
@@ -2548,6 +2826,11 @@ def handle_execution(default_mode: str = "execute"):
     if task is not None and task.get("min_role") == "admin":
         if not current_user.has_role("admin"):
             abort(403)
+    # Criticidad y ventana de mantenimiento: se aplican antes de consumir la
+    # idempotencia o una aprobación de un solo uso.
+    blocked_response = _safety_gate(form, operator, form["mode"])
+    if blocked_response is not None:
+        return blocked_response
     # La idempotencia se comprueba antes de consumir una aprobación: un doble
     # clic o un reintento no debe gastar una autorización de un solo uso.
     operation_id = request.form.get("operation_id", "").strip()

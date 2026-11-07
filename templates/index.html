@@ -115,13 +115,43 @@
                             <select class="form-select" id="targetGroup" name="target_group" aria-label="Grupo del inventario">
                                 <option value="">Selecciona un grupo…</option>
                                 {% for group in inventory_groups %}
-                                <option value="{{ group.id }}">{{ group.name }} · {{ group.host_count }} host(s)</option>
+                                <option value="{{ group.id }}"
+                                    data-criticality="{{ group.criticality_label|e }}"
+                                    data-window="{{ group.window_label|e }}"
+                                    data-blocked="{{ '1' if group.safety.blocked else '0' }}"
+                                    data-next-open="{{ group.safety.next_open|e }}"
+                                    data-summary="{{ group.safety.summary|e }}">
+                                    {{ group.name }} · {{ group.host_count }} host(s){% if group.window_label %} · {{ group.window_label }}{% endif %}
+                                </option>
                                 {% endfor %}
                             </select>
                             <div class="form-text">
                                 Los hosts del grupo se leerán al ejecutar: lo que veas en el
                                 <a href="{{ url_for('inventario') }}">inventario</a> en ese
                                 momento es exactamente lo que se procesará.
+                            </div>
+                        </div>
+                        <div id="safetyPanel" class="banner banner-warn mt-3 d-none" role="status">
+                            <div class="banner-icon" aria-hidden="true"><i class="bi bi-shield-exclamation"></i></div>
+                            <div>
+                                <div class="banner-title" id="safetyTitle">Política de criticidad</div>
+                                <div class="banner-text" id="safetyText"></div>
+                                {% if current_user.has_role('admin') %}
+                                <div class="form-check mt-2 d-none" id="safetyOverrideBox">
+                                    <input class="form-check-input" type="checkbox" value="1"
+                                        id="safetyOverride" name="safety_override">
+                                    <label class="form-check-label" for="safetyOverride">
+                                        Autorizar una excepción solo para esta ejecución
+                                    </label>
+                                </div>
+                                <div class="mt-2 d-none" id="safetyReasonBox">
+                                    <label class="form-label small mb-1" for="safetyReason">
+                                        Motivo de la excepción (mínimo 10 caracteres, queda auditado)
+                                    </label>
+                                    <textarea class="form-control form-control-sm" id="safetyReason"
+                                        name="safety_reason" rows="2" maxlength="300"></textarea>
+                                </div>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -661,7 +691,67 @@ function updateTargetModeFields() {
     targetGroupField.classList.toggle('d-none', mode !== 'group');
     if (targetInput) targetInput.required = mode === 'manual';
     if (targetGroupSelect) targetGroupSelect.required = mode === 'group';
+    updateSafetyPanel();
     updateSummary();
+}
+
+function updateSafetyPanel() {
+    const panel = document.getElementById('safetyPanel');
+    if (!panel) return;
+    const overrideBox = document.getElementById('safetyOverrideBox');
+    const reasonBox = document.getElementById('safetyReasonBox');
+    const overrideCheck = document.getElementById('safetyOverride');
+    let data = null;
+    if (currentTargetMode() === 'group' && targetGroupSelect) {
+        const option = targetGroupSelect.options[targetGroupSelect.selectedIndex];
+        if (option && option.value) data = option.dataset;
+    }
+    if (!data) {
+        panel.classList.add('d-none');
+        if (overrideBox) overrideBox.classList.add('d-none');
+        if (reasonBox) reasonBox.classList.add('d-none');
+        if (overrideCheck) overrideCheck.checked = false;
+        return;
+    }
+    const blocked = data.blocked === '1';
+    const title = document.getElementById('safetyTitle');
+    const text = document.getElementById('safetyText');
+    panel.classList.remove('d-none', 'banner-warn', 'banner-info', 'banner-danger');
+    panel.classList.add(blocked ? 'banner-danger' : 'banner-info');
+    if (title) {
+        title.textContent = blocked
+            ? 'Ejecución bloqueada por ventana de mantenimiento'
+            : 'Política del grupo';
+    }
+    if (text) {
+        const parts = [];
+        if (data.criticality) parts.push('Criticidad: ' + data.criticality + '.');
+        if (data.window) parts.push('Ventana: ' + data.window + '.');
+        parts.push(data.summary || '');
+        if (blocked && data.nextOpen) parts.push('Próxima apertura: ' + data.nextOpen + '.');
+        text.textContent = parts.join(' ');
+    }
+    if (overrideBox) {
+        overrideBox.classList.toggle('d-none', !blocked);
+        if (!blocked && overrideCheck) overrideCheck.checked = false;
+        if (reasonBox) {
+            reasonBox.classList.toggle('d-none', !blocked || !overrideCheck || !overrideCheck.checked);
+        }
+    }
+}
+
+if (targetGroupSelect) {
+    targetGroupSelect.addEventListener('change', () => {
+        updateSafetyPanel();
+        updateSummary();
+    });
+    const overrideCheck = document.getElementById('safetyOverride');
+    if (overrideCheck) {
+        overrideCheck.addEventListener('change', () => {
+            const reasonBox = document.getElementById('safetyReasonBox');
+            if (reasonBox) reasonBox.classList.toggle('d-none', !overrideCheck.checked);
+        });
+    }
 }
 
 if (targetModeManual && targetModeGroup) {
