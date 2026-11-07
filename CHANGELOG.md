@@ -5,6 +5,24 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Mapeo ISO/IEC 27001:2022] — 2026-11-07
+
+### Añadido
+
+- **`docs/ANALISIS_SEGURIDAD_ISO_27001.md`**: autoevaluación del SGSI con
+  alcance, metodología, conformidad con las cláusulas 4–10, mapeo de los 93
+  controles del Anexo A, borrador de declaración de aplicabilidad (SoA),
+  registro de riesgos, plan de acción P0/P1/P2 y métricas propuestas.
+- Evidencias reales del repositorio para cada control técnico y brechas
+  organizativas identificadas (política, riesgos, incidentes, continuidad,
+  proveedores, auditoría interna).
+- Enlaces desde el README al nuevo análisis.
+
+> El documento es una autoevaluación y **no** declara conformidad ni
+> certificación ISO/IEC 27001.
+
+---
+
 ## [Criticidad y ventanas de mantenimiento] — 2026-11-07
 
 ### Añadido

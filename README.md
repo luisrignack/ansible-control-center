@@ -747,6 +747,7 @@ Módulos:
 - [Rendimiento y SLO](docs/RENDIMIENTO.md)
 - [Análisis profundo y recomendaciones](docs/ANALISIS_Y_RECOMENDACIONES.md)
 - [Análisis de calidad ISO/IEC 25010:2023](docs/ANALISIS_CALIDAD_ISO_25010.md)
+- [Mapeo ISO/IEC 27001:2022 y análisis de brechas](docs/ANALISIS_SEGURIDAD_ISO_27001.md)
 - [Análisis funcional y roadmap](ANALISIS.md)
 - [Changelog](CHANGELOG.md)
 

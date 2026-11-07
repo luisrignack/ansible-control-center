@@ -216,7 +216,9 @@ brecha estructural más importante del producto.
 herramienta de administración y, desde S1, clasifica criticidad y ventanas de
 mantenimiento antes de operar. Sigue sin sustituir un **análisis de seguridad
 funcional** completo del proceso operativo (FMEA/HAZOP, impacto por
-integración y criterios de aborto).
+integración y criterios de aborto). El
+[mapeo ISO/IEC 27001:2022](ANALISIS_SEGURIDAD_ISO_27001.md) complementa esta
+lectura con el SGSI, los 93 controles del Anexo A y un plan de acción.
 
 ---
 
