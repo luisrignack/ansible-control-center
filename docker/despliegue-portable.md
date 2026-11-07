@@ -393,7 +393,8 @@ Vistas útiles de la interfaz (según rol):
   `/etc/timezone.bak` en la estación y una copia en el volumen
   `acc_data` (`/data/timezone_backups/<lote>/<estación>/`).
 - **Tapiz oficial (Linux/GNOME)**: sube una imagen PNG, JPEG, WebP, GIF o BMP
-  (máximo `ACC_MAX_UPLOAD_BYTES`, 2 MB por defecto). La imagen se valida por
+  (máximo `ACC_MAX_UPLOAD_BYTES`, 2 MB por defecto) y la tarjeta muestra una
+  miniatura de vista previa local. La imagen se valida por
   su firma real, se guarda con permisos `0600` fuera de la raíz web y se
   borra al terminar el lote. El fondo se publica en
   `/etc/dconf/db/local.d/00-acc-tapiz` y se aplica a las sesiones GNOME

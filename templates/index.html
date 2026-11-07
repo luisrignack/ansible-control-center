@@ -230,6 +230,27 @@
                         </select>
                     </div>
 
+                    {% if 'WALLPAPER' in selected_task.actions %}
+                    <!-- Vista previa del tapiz (mitad derecha del selector de acción) -->
+                    <div class="col-md-6 d-none" id="wallpaperPreviewField">
+                        <span class="form-label d-block">
+                            <i class="bi bi-eye me-2"></i> Vista previa del tapiz
+                        </span>
+                        <div class="wallpaper-preview" id="wallpaperPreview" aria-live="polite">
+                            <div class="wallpaper-preview-empty" id="wallpaperPreviewEmpty">
+                                <i class="bi bi-image"></i>
+                                <span>Selecciona una imagen para verla aquí.</span>
+                            </div>
+                            <img class="wallpaper-preview-img d-none" id="wallpaperPreviewImg"
+                                alt="" width="84" height="52">
+                            <div class="wallpaper-preview-meta d-none" id="wallpaperPreviewMeta">
+                                <span class="wallpaper-preview-name" id="wallpaperPreviewName"></span>
+                                <span class="wallpaper-preview-hint">Vista previa local</span>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
                     <!-- Semántica de la hora (solo tareas con acción TIME) -->
                     <div class="col-md-6 {% if 'TIME' not in selected_task.actions %}d-none{% endif %}" id="timeModeField">
                         <label for="timeMode" class="form-label fw-medium">
@@ -545,6 +566,76 @@ function validateWallpaperFile(event) {
     }
     input.classList.remove('is-invalid');
     return true;
+}
+
+const WALLPAPER_PREVIEW_TYPES = {
+    'image/png': true,
+    'image/jpeg': true,
+    'image/webp': true,
+    'image/gif': true,
+    'image/bmp': true,
+    'image/x-ms-bmp': true
+};
+
+function clearWallpaperPreview() {
+    const img = document.getElementById('wallpaperPreviewImg');
+    const meta = document.getElementById('wallpaperPreviewMeta');
+    const empty = document.getElementById('wallpaperPreviewEmpty');
+    if (!img) return;
+    img.removeAttribute('src');
+    img.alt = '';
+    img.classList.add('d-none');
+    if (meta) meta.classList.add('d-none');
+    if (empty) empty.classList.remove('d-none');
+}
+
+function updateWallpaperPreview() {
+    const field = document.getElementById('wallpaperPreviewField');
+    if (!field) return;
+    const action = document.getElementById('action');
+    const input = document.getElementById('wallpaperFile');
+    const show = !!(action && action.value === 'WALLPAPER');
+    field.classList.toggle('d-none', !show);
+    if (!show) {
+        clearWallpaperPreview();
+        return;
+    }
+
+    const file = input && input.files && input.files[0];
+    const mime = file ? (file.type || '') : '';
+    if (!file || file.size > maxUploadBytes
+            || (mime && !WALLPAPER_PREVIEW_TYPES[mime])) {
+        clearWallpaperPreview();
+        return;
+    }
+
+    const img = document.getElementById('wallpaperPreviewImg');
+    const meta = document.getElementById('wallpaperPreviewMeta');
+    const empty = document.getElementById('wallpaperPreviewEmpty');
+    const name = document.getElementById('wallpaperPreviewName');
+    if (!img || !meta || !empty || !name) return;
+
+    // La lectura es local: la imagen no se sube hasta enviar el formulario.
+    const reader = new FileReader();
+    reader.onload = () => {
+        const actionElement = document.getElementById('action');
+        if (!actionElement || actionElement.value !== 'WALLPAPER'
+                || !input.files || input.files[0] !== file) return;
+        img.src = reader.result;
+        img.alt = 'Vista previa de ' + file.name;
+        img.classList.remove('d-none');
+        name.textContent = file.name;
+        name.title = file.name;
+        meta.classList.remove('d-none');
+        empty.classList.add('d-none');
+    };
+    reader.onerror = () => {
+        const actionElement = document.getElementById('action');
+        if (!actionElement || actionElement.value !== 'WALLPAPER'
+                || !input.files || input.files[0] !== file) return;
+        clearWallpaperPreview();
+    };
+    reader.readAsDataURL(file);
 }
 
 function ipv4ToInt(ip) {
@@ -1080,6 +1171,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateNtpFields(ntpSelect ? ntpSelect.value : 'keep');
     updateTimeModeField(actionSelect.value);
     updateTargetModeFields();
+    updateWallpaperPreview();
 
     originSelect.addEventListener('change', (event) => {
         updatePasswordFields(event.target.value);
@@ -1088,7 +1180,13 @@ document.addEventListener('DOMContentLoaded', () => {
     actionSelect.addEventListener('change', (event) => {
         updateValueField(event.target.value, '');
         updateTimeModeField(event.target.value);
+        updateWallpaperPreview();
     });
+
+    const wallpaperInput = document.getElementById('wallpaperFile');
+    if (wallpaperInput) {
+        wallpaperInput.addEventListener('change', updateWallpaperPreview);
+    }
 
     if (ntpSelect) {
         ntpSelect.addEventListener('change', (event) => {

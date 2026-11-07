@@ -16,6 +16,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
   PNG/JPEG/WebP/GIF/BMP, rechazo de SVG y ejecutables, límite
   `ACC_MAX_UPLOAD_BYTES`, almacenamiento privado `0600` fuera de la raíz web y
   borrado al terminar el lote.
+- **Vista previa local del tapiz**: al elegir una imagen, la tarjeta muestra
+  una miniatura y el nombre del archivo junto al selector de acción. La
+  lectura usa `FileReader` en el navegador, respeta la CSP (`img-src data:`) y
+  no sube nada hasta confirmar el formulario.
 - **Playbooks `ansible/tapiz.yml` y `ansible/estado_tapiz.yml`**: copian la
   imagen, publican el fondo como valor predeterminado del sistema en
   `/etc/dconf/db/local.d/00-acc-tapiz`, ejecutan `dconf update` y aplican el

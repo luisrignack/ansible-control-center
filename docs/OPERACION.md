@@ -176,7 +176,9 @@ con GNOME. Solo se ejecuta manualmente: una programación no puede transportar
 la imagen subida.
 
 1. Abre `/tarea/tapiz` y selecciona la imagen (PNG, JPEG, WebP, GIF o BMP;
-   máximo `ACC_MAX_UPLOAD_BYTES`, 2 MB por defecto).
+   máximo `ACC_MAX_UPLOAD_BYTES`, 2 MB por defecto). Al elegirla, la tarjeta
+   muestra una **miniatura de vista previa** junto al selector de acción; es
+   una lectura local del navegador y la imagen solo se envía al confirmar.
 2. El servidor valida la **firma real** del archivo (no el nombre ni el
    `Content-Type`), lo guarda en `ACC_DATA_DIR/wallpapers` con permisos
    `0600` y lo borra al terminar el lote. SVG y ejecutables se rechazan.

@@ -766,6 +766,33 @@ input[type="file"].form-control::file-selector-button {
     background: var(--surface-3); color: var(--text); border: 1px solid var(--border);
     border-radius: 7px; padding: .32rem .65rem; margin-right: .7rem; cursor: pointer;
 }
+
+/* Vista previa del tapiz: miniatura local junto al selector de acción */
+.wallpaper-preview {
+    display: flex; align-items: center; gap: 10px;
+    min-height: 42px; padding: 5px 10px;
+    background: linear-gradient(180deg, var(--surface-2), var(--surface));
+    border: 1px dashed var(--border); border-radius: 9px;
+    overflow: hidden;
+}
+.wallpaper-preview-empty {
+    display: flex; align-items: center; gap: 9px;
+    color: var(--muted); font-size: 11.8px;
+}
+.wallpaper-preview-empty .bi { font-size: 18px; color: var(--accent); }
+.wallpaper-preview-img {
+    width: 84px; height: 52px; flex: 0 0 auto;
+    object-fit: cover; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--surface-3);
+}
+.wallpaper-preview-meta {
+    display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+.wallpaper-preview-name {
+    max-width: 100%; font-size: 11.8px; color: var(--text-2);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wallpaper-preview-hint { font-size: 10.5px; color: var(--muted); }
 .form-check { margin-bottom: 8px; }
 .form-check-input {
     background-color: var(--surface-2); border-color: var(--border); cursor: pointer;

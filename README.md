@@ -122,7 +122,8 @@ por defecto** (333 recopilados). Incluye empaquetado Docker con Nginx y TLS.
   nombre/IP de la estación, fecha y hora del resultado, estado y causa del
   error, además del resumen del lote.
 - **Tapiz oficial (Linux/GNOME)**: subida de imagen con validación por firma
-  real (PNG, JPEG, WebP, GIF o BMP; SVG rechazado), almacenamiento privado
+  real (PNG, JPEG, WebP, GIF o BMP; SVG rechazado), miniatura de vista previa
+  local antes de enviar, almacenamiento privado
   `0600` fuera de la raíz web y borrado al terminar el lote. El playbook copia
   la imagen, publica el fondo como valor predeterminado del sistema en
   `/etc/dconf/db/local.d/00-acc-tapiz` y lo aplica a las sesiones GNOME

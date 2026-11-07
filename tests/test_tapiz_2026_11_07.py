@@ -97,6 +97,18 @@ def test_tapiz_form_renders_image_upload(client):
     assert "Informe" in body or "informe" in body
 
 
+def test_tapiz_form_renders_local_preview(client):
+    _login(client)
+    body = client.get("/tarea/tapiz").get_data(as_text=True)
+    assert 'id="wallpaperPreviewField"' in body
+    assert 'id="wallpaperPreviewImg"' in body
+    assert 'id="wallpaperPreviewName"' in body
+    assert "Vista previa del tapiz" in body
+    # La miniatura se genera en el navegador y no requiere subir el archivo.
+    assert "FileReader" in body
+    assert "readAsDataURL" in body
+
+
 # ---------------------------------------------------------------------------
 # Validación de imágenes
 # ---------------------------------------------------------------------------
