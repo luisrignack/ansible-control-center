@@ -40,8 +40,13 @@ Navegador ──HTTPS(443)──> nginx ──HTTP(8000)──> app (Gunicorn)
 - Puertos 80 y 443 libres (o cámbialos, ver §4).
 - Arquitectura coincidente con la imagen
   (`imagenes/03-INFORMACION-IMAGENES.txt`).
-- Conectividad del contenedor `app` hacia los equipos Ubuntu que se van a
-  administrar (misma red o VPN) y salida SSH (22/tcp).
+- Conectividad del contenedor `app` hacia los equipos objetivo (misma red o
+  VPN) y salida SSH (22/tcp) para Linux.
+- Para estaciones Windows: WinRM accesible (5985/tcp con NTLM o 5986/tcp con
+  TLS) y una cuenta con permisos de administrador local. `pywinrm` ya está
+  incluido en la imagen.
+- Las conexiones son **salientes**: en la PC de destino solo hay que publicar
+  80/443 para la interfaz; no se abren puertos hacia los equipos objetivo.
 
 Comprueba la arquitectura:
 
@@ -127,6 +132,25 @@ hay que aceptar una vez. `curl` necesita `-k` (o `--cacert certs/fullchain.pem`)
 > `https://host:<puerto>`: la redirección de HTTP a HTTPS no arrastra el puerto
 > no estándar.
 
+### Variables operativas adicionales
+
+| Variable | Por defecto | Descripción |
+|---|---|---|
+| `ACC_MAX_PASSWORD_ATTEMPTS` | `3` | Contraseñas candidatas que se prueban por host si el playbook falla |
+| `ACC_BATCH_TIME_BUDGET` | `3600` | Presupuesto de tiempo por lote (segundos); los hosts pendientes quedan `skipped` |
+| `ACC_RECOVERY_STALE_MINUTES` | `15` | Minutos sin actividad para considerar huérfana una tarea o lote |
+| `ACC_APPROVAL_TTL_MINUTES` | `30` | Vigencia de una aprobación de tarea destructiva |
+| `ACC_PLAYBOOK_TIMEOUT` | `300` | Timeout por playbook (segundos) |
+| `ACC_MAX_HOSTS` | `256` | Máximo de hosts por operación |
+| `ACC_WINRM_PORT` | `5985` | Puerto WinRM de las estaciones Windows |
+| `ACC_WINRM_TRANSPORT` | `ntlm` | `ntlm`, `basic` o `credssp` |
+| `ACC_WINRM_SERVER_CERT_VALIDATION` | `validate` | Validación del certificado WinRM; no lo desactives en producción |
+| `ACC_REQUEST_METRICS` | `1` | Métricas de rendimiento en `/metricas` (solo admin) |
+| `ACC_SLOW_REQUEST_MS` | `1000` | Umbral de petición lenta para el log |
+
+El resto de parámetros (timeouts de red, NTP, retención, notificaciones SMTP)
+están comentados en `.env.docker.example` o en `docker-compose.yml`.
+
 Ajusta `TLS_CN`/`TLS_SAN` antes del primer arranque para que el certificado
 cubra el nombre o IP reales:
 
@@ -135,8 +159,10 @@ TLS_CN=acc.empresa.local
 TLS_SAN=DNS:acc.empresa.local,IP:192.168.1.50
 ```
 
-Cualquier otro ajuste de la aplicación (timeouts, límites, NTP, retención) se
-pasa en `environment:` del `docker-compose.yml` o en `.env.docker`.
+Las variables de esta guía ya están mapeadas en `docker-compose.yml`, así que
+basta definirlas en `.env.docker`. Para cualquier otro parámetro de `config.py`
+que no aparezca, añádelo a `environment:` del compose (o usa un
+`docker-compose.override.yml`) y recrea el contenedor.
 
 ### Acceso por directorio (LDAPS, opcional)
 
@@ -207,7 +233,7 @@ ACC_HSTS=1
 
 ---
 
-## 6. Acceso SSH a los equipos objetivo
+## 6. Acceso a los equipos objetivo (SSH y WinRM)
 
 La app ejecuta Ansible desde el contenedor. Necesita `known_hosts` con las
 claves de los hosts si `ACC_HOST_KEY_CHECKING=1`. El `docker-compose.yml`
@@ -234,6 +260,31 @@ El aprovisionamiento automático acepta la huella en el primer contacto
 (TOFU): úsalo solo en redes de gestión de confianza. Para máxima seguridad,
 precarga huellas verificadas fuera de banda o usa certificados SSH de host.
 No desactives `ACC_HOST_KEY_CHECKING` en producción.
+
+### Estaciones Windows (WinRM)
+
+Las estaciones Windows se administran por WinRM con las credenciales que se
+introducen en la ejecución. En cada estación:
+
+1. Habilita WinRM (`winrm quickconfig` o la política corporativa equivalente).
+2. Permite el puerto en el firewall: **5985/tcp** con NTLM o **5986/tcp** con
+   TLS.
+3. Usa una cuenta con permisos de administrador local. Con `ntlm` suele
+   bastar; `basic` puede requerir `LocalAccountTokenFilterPolicy` en equipos
+   fuera de dominio.
+
+Valores por defecto en el contenedor:
+
+```env
+ACC_WINRM_PORT=5985
+ACC_WINRM_TRANSPORT=ntlm
+ACC_WINRM_SERVER_CERT_VALIDATION=validate
+```
+
+No desactives la validación del certificado WinRM en producción. Si usas
+5986 con certificado autofirmado, instala la CA correspondiente en el
+contenedor o usa un certificado de confianza; evita
+`ACC_WINRM_SERVER_CERT_VALIDATION=ignore` salvo en laboratorio aislado.
 
 ---
 
@@ -286,6 +337,18 @@ docker compose exec app sh                 # shell en el contenedor
 docker compose exec app flask --app app reconcile-batches   # lotes huérfanos
 ```
 
+Vistas útiles de la interfaz (según rol):
+
+| Vista | Uso |
+|---|---|
+| `/inventario` | Grupos, hosts, criticidad y ventana de mantenimiento (UTC) |
+| `/programaciones` | Ejecuciones únicas, diarias o semanales |
+| `/aprobaciones` | Doble aprobación de tareas destructivas |
+| `/usuarios` | Roles y acceso corporativo LDAPS (solo admin local para el interruptor) |
+| `/history` y `/audit` | Historial de lotes y eventos de seguridad |
+| `/metricas` | p50/p95 por ruta y peticiones lentas (solo admin) |
+| `/acerca-de` | Identidad del servicio, entorno y fecha del host |
+
 | Síntoma | Causa probable | Solución |
 |---|---|---|
 | `image not found` con `--no-build` | El `.tar` no se cargó | `docker load -i imagenes/ansible-control-center-images.tar` |
@@ -297,6 +360,9 @@ docker compose exec app flask --app app reconcile-batches   # lotes huérfanos
 | Progreso SSE se corta | Proxy/timeout intermedio | El timeout de Nginx es 360 s |
 | Lote queda `running` | Proceso reiniciado | Se marca `error` al arrancar; usa `reconcile-batches` |
 | NTP revierte el cambio | Política `keep` con NTP activo | Usa `off`, `restore` o `configure` |
+| Ejecución bloqueada en un host `critical` | Fuera de la ventana de mantenimiento | Ajusta la ventana en `/inventario` o autoriza una excepción con motivo (solo admin) |
+| WinRM no conecta | Puerto, transporte o certificado | Revisa 5985/5986, `ACC_WINRM_TRANSPORT` y `ACC_WINRM_SERVER_CERT_VALIDATION` |
+| «Actualización del sistema» no se puede ejecutar | Tarjeta en estado “En preparación” | Usa el procedimiento `apt-get` de §10 mientras no se habilite la acción `APT` |
 
 ---
 
@@ -325,6 +391,33 @@ docker compose exec app flask --app app reconcile-batches   # lotes huérfanos
   permanente en Linux y Windows; antes del cambio guarda
   `/etc/timezone.bak` en la estación y una copia en el volumen
   `acc_data` (`/data/timezone_backups/<lote>/<estación>/`).
+- **Criticidad y ventanas**: cada grupo del inventario tiene criticidad
+  (`low`/`medium`/`high`/`critical`) y, opcionalmente, una ventana en UTC.
+  Una ejecución real sobre hosts `critical` fuera de su ventana se bloquea y
+  se audita como `safety_blocked`. La vista previa y el DRY RUN nunca se
+  bloquean. Un administrador puede autorizar una excepción con motivo
+  (mínimo 10 caracteres), auditada como `safety_override`; las programaciones
+  no admiten excepciones y se posponen hasta la próxima apertura.
+- **Doble aprobación**: las tareas destructivas requieren la aprobación de un
+  administrador distinto del ejecutor. La aprobación caduca
+  (`ACC_APPROVAL_TTL_MINUTES`) y es de un solo uso.
+- **Actualización del sistema (apt)**: la tarjeta `apt-upgrade` está en estado
+  “En preparación”; el motor actual solo ejecuta `TZ`/`TIME`. El playbook
+  `apt_upgrade.yml` ya define la política segura. Mientras no se active, el
+  equivalente manual es:
+
+  ```bash
+  sudo apt-get update
+  sudo DEBIAN_FRONTEND=noninteractive apt-get -y \
+    -o Dpkg::Options::=--force-confdef \
+    -o Dpkg::Options::=--force-confold \
+    -o DPkg::Lock::Timeout=300 \
+    upgrade
+  ```
+
+  Usa `upgrade` (seguro): no elimina paquetes. No uses
+  `dist-upgrade`/`full-upgrade` por defecto. No reinicia: comprueba
+  `/var/run/reboot-required` y programa el reinicio en ventana.
 
 ---
 

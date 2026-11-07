@@ -5,6 +5,25 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Paquete de despliegue actualizado] — 2026-11-07
+
+### Añadido
+
+- La guía portable documenta **Windows/WinRM** (5985/5986, transporte y
+  validación de certificado), la **criticidad y ventanas de mantenimiento**,
+  la **doble aprobación**, las vistas operativas y el procedimiento manual
+  `apt-get` mientras la tarjeta `apt-upgrade` siga en preparación.
+- `docker-compose.yml` propaga `ACC_WINRM_*`, `ACC_MAX_HOSTS`,
+  `ACC_PLAYBOOK_TIMEOUT`, `ACC_APPROVAL_TTL_MINUTES`, los parámetros de
+  verificación de hora/NTP y las métricas, para que definirlos en
+  `.env.docker` tenga efecto dentro del contenedor.
+- `.env.docker.example` incluye esas variables comentadas con sus valores
+  seguros por defecto.
+- El arranque rápido del paquete resume el catálogo, Windows, criticidad y
+  las vistas principales.
+
+---
+
 ## [Tarjeta de actualización del sistema (apt)] — 2026-11-07
 
 ### Añadido

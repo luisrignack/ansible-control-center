@@ -41,6 +41,21 @@ services:
       ACC_ALLOWED_NETWORKS: "${ACC_ALLOWED_NETWORKS:-}"
       ACC_MAX_PASSWORD_ATTEMPTS: "${ACC_MAX_PASSWORD_ATTEMPTS:-3}"
       ACC_BATCH_TIME_BUDGET: "${ACC_BATCH_TIME_BUDGET:-3600}"
+      ACC_MAX_HOSTS: "${ACC_MAX_HOSTS:-256}"
+      ACC_PLAYBOOK_TIMEOUT: "${ACC_PLAYBOOK_TIMEOUT:-300}"
+      ACC_APPROVAL_TTL_MINUTES: "${ACC_APPROVAL_TTL_MINUTES:-30}"
+      # Verificación de hora y política NTP.
+      ACC_TIME_TOLERANCE: "${ACC_TIME_TOLERANCE:-2}"
+      ACC_TIME_REQUIRE_NTP_OFF: "${ACC_TIME_REQUIRE_NTP_OFF:-1}"
+      ACC_NTP_SETTLE_SECONDS: "${ACC_NTP_SETTLE_SECONDS:-3}"
+      # Estaciones Windows (WinRM).
+      ACC_WINRM_PORT: "${ACC_WINRM_PORT:-5985}"
+      ACC_WINRM_TRANSPORT: "${ACC_WINRM_TRANSPORT:-ntlm}"
+      ACC_WINRM_SERVER_CERT_VALIDATION: "${ACC_WINRM_SERVER_CERT_VALIDATION:-validate}"
+      # Métricas de rendimiento en /metricas.
+      ACC_REQUEST_METRICS: "${ACC_REQUEST_METRICS:-1}"
+      ACC_REQUEST_METRICS_WINDOW: "${ACC_REQUEST_METRICS_WINDOW:-500}"
+      ACC_SLOW_REQUEST_MS: "${ACC_SLOW_REQUEST_MS:-1000}"
       # Autenticación corporativa LDAPS (los valores reales, incluida la
       # contraseña del bind, viven en .env.docker o en un secret).
       ACC_LDAP_ENABLED: "${ACC_LDAP_ENABLED:-0}"

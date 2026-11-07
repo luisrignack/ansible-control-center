@@ -155,10 +155,20 @@ ARRANQUE EN 5 PASOS (detalles y comprobaciones: guía 02, §3)
        Usuario: ACC_ADMIN_USERNAME / ACC_ADMIN_PASSWORD
 
 DESPUÉS DEL ARRANQUE
-  - La tarjeta «Zona horaria» aplica America/Caracas (UTC-4) permanente;
-    guarda copia del /etc/timezone anterior en el volumen de datos.
+  - La tarjeta «Zona horaria» aplica America/Caracas (UTC-4) permanente en
+    Linux y Windows; guarda copia del /etc/timezone anterior en el volumen
+    de datos.
+  - Estaciones Windows: requieren WinRM (5985/tcp con NTLM o 5986/tcp con
+    TLS) y una cuenta de administrador local (guía 02, §6).
+  - Inventario: asigna criticidad y ventana de mantenimiento en UTC. Los
+    hosts «critical» se bloquean fuera de ventana; la vista previa y el
+    DRY RUN no se bloquean (guía 02, §10).
+  - La tarjeta «Actualización del sistema» está en preparación. Mientras
+    tanto, usa el procedimiento apt-get de la guía 02, §10.
   - Acceso corporativo LDAPS (opcional): pasos en la guía 02, §4.1.
   - El modo Simulación cambia desde la barra superior de la interfaz.
+  - Vistas: /inventario, /programaciones, /aprobaciones, /usuarios,
+    /history, /audit y /metricas (admin).
 EOF
 
 cp -a docker-compose.yml Dockerfile .env.docker.example "$DEST/"
