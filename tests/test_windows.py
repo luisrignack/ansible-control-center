@@ -149,7 +149,7 @@ def test_zona_task_single_active_and_fixed_value():
     from services.task_catalog import TASK_CATALOG
 
     active = [t for t in TASK_CATALOG if t["status"] == "active"]
-    assert [t["id"] for t in active] == ["zona-todas", "tapiz"]
+    assert [t["id"] for t in active] == ["zona-todas", "tapiz", "apt-upgrade"]
     assert active[0]["fixed_value"] == "America/Caracas"
     assert set(active[0]["platforms"]) == {"linux", "windows"}
 

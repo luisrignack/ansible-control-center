@@ -278,7 +278,7 @@ def test_migration_v14_adds_safety_columns(db_path):
             row["name"]
             for row in conn.execute("PRAGMA table_info(inventory_hosts)")
         }
-        assert version == 14
+        assert version == 15
         assert {
             "criticality",
             "window_days",
@@ -301,6 +301,7 @@ def test_migration_v14_adds_safety_columns(db_path):
 
     init_schema(db_path)
     with get_connection(db_path) as conn:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
         columns = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(inventory_groups)")
@@ -309,7 +310,7 @@ def test_migration_v14_adds_safety_columns(db_path):
             row["name"]
             for row in conn.execute("PRAGMA table_info(inventory_hosts)")
         }
-        assert version == 14
+        assert version == 15
         assert {
             "criticality",
             "window_days",

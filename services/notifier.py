@@ -68,13 +68,14 @@ def _send(subject: str, body: str) -> Optional[str]:
 
 
 def batch_has_issues(batch: Any) -> bool:
-    """Indica si el lote presenta algo que merece aviso (fallo, error u omisión)."""
+    """Indica si el lote presenta algo que merece aviso (fallo, error, omisión o atención)."""
     return bool(
         batch
         and (
             getattr(batch, "failure_count", 0)
             or getattr(batch, "error_count", 0)
             or getattr(batch, "skipped_count", 0)
+            or getattr(batch, "attention_count", 0)
         )
     )
 
@@ -85,6 +86,7 @@ def _summary(batch: Any) -> str:
         "fallo": getattr(batch, "failure_count", 0),
         "error": getattr(batch, "error_count", 0),
         "omitidos": getattr(batch, "skipped_count", 0),
+        "requieren atención": getattr(batch, "attention_count", 0),
         "previsualizados": getattr(batch, "preview_count", 0),
     }
     summary = ", ".join(
@@ -129,7 +131,7 @@ def notify_batch_result(batch: Any, host_results: Any) -> Optional[str]:
         f"  {getattr(res, 'host', '?')}: {getattr(res, 'result', '?')}"
         f" — {getattr(res, 'error', '')}"[:200]
         for res in (host_results or [])
-        if getattr(res, "result", "") in {"failure", "error", "skipped"}
+        if getattr(res, "result", "") in {"failure", "error", "skipped", "attention"}
     ]
     if problem_lines:
         lines.append("")

@@ -24,7 +24,7 @@ BATCH_STATUSES = {
     "incomplete",
     "cancelled",
 }
-HOST_RESULTS = {"success", "failure", "skipped", "error", "preview"}
+HOST_RESULTS = {"success", "failure", "skipped", "error", "preview", "attention"}
 
 # Etiquetas legibles para la interfaz. Los estados internos nunca se muestran
 # tal cual al operador.
@@ -45,6 +45,7 @@ HOST_RESULT_LABELS = {
     "skipped": "Omitido",
     "error": "Error",
     "preview": "Vista previa",
+    "attention": "Requiere atención",
 }
 
 _RESULT_COUNTERS = {
@@ -53,6 +54,7 @@ _RESULT_COUNTERS = {
     "skipped": "skipped_count",
     "error": "error_count",
     "preview": "preview_count",
+    "attention": "attention_count",
 }
 
 
@@ -164,6 +166,7 @@ class ExecutionBatch:
         skipped_count: int = 0,
         error_count: int = 0,
         preview_count: int = 0,
+        attention_count: int = 0,
         dry_run: bool = False,
         admin_user: str = "",
         password_origin: str = "",
@@ -173,6 +176,7 @@ class ExecutionBatch:
         local_fold: Optional[int] = None,
         time_zone: str = "",
         task_id: str = "",
+        min_free_gb: Optional[float] = None,
     ):
         self.id = id
         self.batch_id = batch_id
@@ -191,6 +195,7 @@ class ExecutionBatch:
         self.skipped_count = int(skipped_count or 0)
         self.error_count = int(error_count or 0)
         self.preview_count = int(preview_count or 0)
+        self.attention_count = int(attention_count or 0)
         self.dry_run = bool(dry_run)
         self.admin_user = admin_user or ""
         self.password_origin = password_origin or ""
@@ -201,6 +206,10 @@ class ExecutionBatch:
         self.time_zone = time_zone or ""
         # Tarea del catálogo que lanzó el lote ("zona-todas", "hora", ...).
         self.task_id = task_id or ""
+        # Umbral de espacio libre usado por la tarjeta APT (GiB).
+        self.min_free_gb = (
+            float(min_free_gb) if min_free_gb is not None else None
+        )
 
     @property
     def processed_count(self) -> int:
@@ -210,6 +219,7 @@ class ExecutionBatch:
             + self.skipped_count
             + self.error_count
             + self.preview_count
+            + self.attention_count
         )
 
     @property
@@ -241,6 +251,7 @@ class ExecutionBatch:
             "skipped_count": self.skipped_count,
             "error_count": self.error_count,
             "preview_count": self.preview_count,
+            "attention_count": self.attention_count,
             "processed_count": self.processed_count,
             "duration_seconds": self.duration_seconds,
             "dry_run": self.dry_run,
@@ -252,6 +263,7 @@ class ExecutionBatch:
             "local_fold": self.local_fold,
             "time_zone": self.time_zone,
             "task_id": self.task_id,
+            "min_free_gb": self.min_free_gb,
         }
 
     # ------------------------------------------------------------------
@@ -446,6 +458,7 @@ class ExecutionBatch:
             "failure": real.get("failure", 0),
             "skipped": real.get("skipped", 0),
             "error": real.get("error", 0),
+            "attention": real.get("attention", 0),
             "preview": preview,
             "simulated": simulated,
         }
@@ -473,6 +486,7 @@ class ExecutionBatch:
         local_fold: Optional[int] = None,
         time_zone: str = "",
         task_id: str = "",
+        min_free_gb: Optional[float] = None,
         db_path: str = None,
     ) -> "ExecutionBatch":
         if db_path is None:
@@ -487,8 +501,8 @@ class ExecutionBatch:
                     (batch_id, created_at, operator, action, value, target,
                      time_mode, ntp_policy, status, total_hosts, dry_run,
                      admin_user, password_origin, ntp_servers, sync_rtc, force,
-                     local_fold, time_zone, task_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     local_fold, time_zone, task_id, min_free_gb)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     batch_id,
@@ -510,6 +524,7 @@ class ExecutionBatch:
                     int(local_fold) if local_fold in (0, 1) else None,
                     time_zone or "",
                     task_id or "",
+                    float(min_free_gb) if min_free_gb is not None else None,
                 ),
             )
 
@@ -610,7 +625,9 @@ class ExecutionBatch:
                     COALESCE(SUM(CASE WHEN result = 'error' THEN 1 ELSE 0 END), 0)
                         AS errors,
                     COALESCE(SUM(CASE WHEN result = 'preview' THEN 1 ELSE 0 END), 0)
-                        AS preview
+                        AS preview,
+                    COALESCE(SUM(CASE WHEN result = 'attention' THEN 1 ELSE 0 END), 0)
+                        AS attention
                 FROM execution_hosts
                 WHERE batch_id = ?
                 """,
@@ -622,11 +639,18 @@ class ExecutionBatch:
             skipped = int(row["skipped"])
             errors = int(row["errors"])
             preview = int(row["preview"])
-            processed = success + failure + skipped + errors + preview
+            attention = int(row["attention"])
+            processed = success + failure + skipped + errors + preview + attention
 
             if status is None:
                 status = _derive_status(
-                    success, failure, skipped, errors, preview, processed
+                    success,
+                    failure,
+                    skipped,
+                    errors,
+                    preview,
+                    processed,
+                    attention,
                 )
             if status not in BATCH_STATUSES:
                 raise ValueError(f"Estado de lote no válido: {status}")
@@ -642,7 +666,8 @@ class ExecutionBatch:
                     failure_count = ?,
                     skipped_count = ?,
                     error_count = ?,
-                    preview_count = ?
+                    preview_count = ?,
+                    attention_count = ?
                 WHERE batch_id = ?
                 """,
                 (
@@ -654,6 +679,7 @@ class ExecutionBatch:
                     skipped,
                     errors,
                     preview,
+                    attention,
                     batch_id,
                 ),
             )
@@ -729,13 +755,14 @@ def _derive_status(
     errors: int,
     preview: int,
     processed: int,
+    attention: int = 0,
 ) -> str:
     """Calcula el estado global a partir de los resultados por host."""
     if preview > 0:
         return "preview"
     if processed > 0 and success == processed:
         return "success"
-    if success > 0:
+    if success > 0 or attention > 0:
         return "partial"
     # Un lote cuyos hosts no llegaron a procesarse (presupuesto agotado,
     # cancelación) es incompleto, no un fallo técnico de los hosts.
@@ -765,6 +792,9 @@ def _row_to_batch(row) -> ExecutionBatch:
         skipped_count=row["skipped_count"],
         error_count=row["error_count"],
         preview_count=row["preview_count"],
+        attention_count=(
+            row["attention_count"] if "attention_count" in row.keys() else 0
+        ),
         dry_run=bool(row["dry_run"]),
         admin_user=row["admin_user"],
         password_origin=row["password_origin"],
@@ -774,6 +804,11 @@ def _row_to_batch(row) -> ExecutionBatch:
         local_fold=row["local_fold"],
         time_zone=row["time_zone"],
         task_id=row["task_id"] if "task_id" in row.keys() else "",
+        min_free_gb=(
+            row["min_free_gb"]
+            if "min_free_gb" in row.keys() and row["min_free_gb"] is not None
+            else None
+        ),
     )
 
 

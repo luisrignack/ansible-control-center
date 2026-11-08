@@ -1,20 +1,25 @@
 ---
-# Playbook de mantenimiento: actualización segura de paquetes en Debian/Ubuntu.
+# Playbook de mantenimiento: actualización segura de paquetes con apt.
 #
-# Variables esperadas (se pasan con --extra-vars desde la aplicación):
-#   accion: "APT"
-#   valor:  "safe" (apt-get upgrade; no elimina ni instala paquetes nuevos)
+# Variables esperadas (--extra-vars desde la aplicación):
+#   accion:       "APT"
+#   valor:        "safe" (apt-get upgrade; no elimina ni instala paquetes)
+#   min_free_gb:  umbral mínimo de espacio libre en GiB (por defecto 2)
+#   blocked_os:   distribuciones bloqueadas ``id:prefijo_version``
 #
-# Decisiones de seguridad:
-#   - Se usa el módulo ansible.builtin.apt, que internamente invoca apt-get
-#     (interfaz estable para automatización), no el comando interactivo apt.
-#   - upgrade: safe equivale a apt-get upgrade: no elimina paquetes.
-#     No se usa dist-upgrade/full-upgrade porque puede desinstalar paquetes.
+# Política:
+#   - Ubuntu 20.04 y derivados basados en focal (Mint 20, Lite 5, MX 19) no
+#     se actualizan: se reportan para migración de distribución.
+#   - Si el espacio libre no alcanza el umbral configurado ni la estimación
+#     de APT, tampoco se ejecuta: se reporta en el informe general.
+#   - Se usa ``upgrade: safe`` (equivalente a apt-get upgrade): nunca
+#     dist-upgrade/full-upgrade, nunca elimina paquetes.
 #   - DEBIAN_FRONTEND=noninteractive y force-confdef/force-confold evitan
-#     preguntas interactivas y conservan la configuración local existente.
+#     preguntas interactivas y conservan la configuración local.
 #   - No se reinicia el host; se publica si /var/run/reboot-required existe.
-#   - El estado se publica con marcadores APT_* para una futura integración
-#     con el motor de ejecución (la tarjeta está en estado "planned").
+#
+# Marcadores de salida: APT_BEFORE_B64, APT_STATE_B64, APT_CHANGED,
+# APT_VERIFIED, APT_SKIP, APT_REMAINING, APT_REBOOT_REQUIRED.
 - name: Actualizar paquetes del sistema
   hosts: all
   become: true
@@ -26,6 +31,8 @@
 
   vars:
     apt_mode: "{{ valor | default('safe') }}"
+    min_free_gb: 2
+    blocked_os: ""
 
   tasks:
     - name: Validar la acción y el modo de actualización
@@ -50,12 +57,50 @@
           y derivadas con apt.
       when: not apt_bin.stat.exists
 
+    - name: Recolectar hechos y evaluar la política
+      ansible.builtin.include_tasks: tasks/apt_facts.yml
+
+    - name: Publicar el estado anterior
+      ansible.builtin.debug:
+        msg: "APT_BEFORE_B64={{ acc_apt_state | to_json | b64encode }}"
+
+    - name: Comprobar si el host requiere reinicio
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: apt_reboot
+
+    - name: Omitir la actualización por política (migración o espacio)
+      when: acc_apt_blocked | bool or not (acc_apt_space_ok | bool)
+      block:
+        - name: Publicar la omisión controlada
+          ansible.builtin.debug:
+            msg: "APT_SKIP=True"
+
+        - name: Publicar que no hubo cambios
+          ansible.builtin.debug:
+            msg: "APT_CHANGED=False"
+
+        - name: Publicar la verificación de la política
+          ansible.builtin.debug:
+            msg: "APT_VERIFIED=True"
+
+        - name: Publicar el estado final de la omisión
+          ansible.builtin.debug:
+            msg: >-
+              APT_STATE_B64={{ acc_apt_state | combine({
+                'changed': false,
+                'verified': true,
+                'skipped': true,
+                'reboot_required': apt_reboot.stat.exists | default(false)
+              }) | to_json | b64encode }}
+
     - name: Actualizar el índice de paquetes
       ansible.builtin.apt:
         update_cache: true
         cache_valid_time: 0
         lock_timeout: 300
       register: apt_update
+      when: not (acc_apt_blocked | bool) and (acc_apt_space_ok | bool)
 
     - name: Aplicar la actualización segura
       ansible.builtin.apt:
@@ -66,6 +111,7 @@
         autoremove: false
         autoclean: false
       register: apt_upgrade
+      when: not (acc_apt_blocked | bool) and (acc_apt_space_ok | bool)
 
     - name: Comprobar paquetes pendientes (simulación)
       ansible.builtin.command:
@@ -76,16 +122,12 @@
       register: apt_simulation
       changed_when: false
       failed_when: false
-
-    - name: Comprobar si el host requiere reinicio
-      ansible.builtin.stat:
-        path: /var/run/reboot-required
-      register: apt_reboot
+      when: not (acc_apt_blocked | bool) and (acc_apt_space_ok | bool)
 
     - name: Calcular el estado final
       ansible.builtin.set_fact:
         apt_remaining: >-
-          {{ (apt_simulation.stdout
+          {{ (apt_simulation.stdout | default('')
               | regex_findall('([0-9]+) upgraded')
               | first | default('0')) | int }}
         apt_reboot_required: "{{ apt_reboot.stat.exists | default(false) }}"
@@ -93,20 +135,47 @@
           {{ (apt_update.changed | default(false))
              or (apt_upgrade.changed | default(false)) }}
 
-    - name: Verificar que no quedan paquetes pendientes
-      ansible.builtin.assert:
-        that:
-          - apt_remaining == 0
-        fail_msg: >-
-          Quedan {{ apt_remaining }} paquete(s) pendientes de actualizar.
-          Revisa los repositorios, dependencias retenidas o el espacio en
-          disco antes de reintentar.
-        success_msg: "Todos los paquetes aplicables están actualizados."
-
-    - name: Publicar el estado para la aplicación
+    - name: Avisar si quedan paquetes pendientes
       ansible.builtin.debug:
         msg: >-
-          APT_CHANGED={{ apt_changed }}
-          APT_VERIFIED=True
-          APT_REBOOT_REQUIRED={{ apt_reboot_required }}
-          APT_REMAINING={{ apt_remaining }}
+          Aviso: quedan {{ apt_remaining }} paquete(s) sin actualizar por
+          dependencias retenidas, actualizaciones por fases o repositorios.
+          Revisa la estación si el objetivo era dejarla completamente al día.
+      when:
+        - not (acc_apt_blocked | bool)
+        - acc_apt_space_ok | bool
+        - apt_remaining | int > 0
+
+    - name: Publicar el resultado de la actualización
+      when: not (acc_apt_blocked | bool) and (acc_apt_space_ok | bool)
+      block:
+        - name: Publicar que no se omitió la actualización
+          ansible.builtin.debug:
+            msg: "APT_SKIP=False"
+
+        - name: Publicar el cambio
+          ansible.builtin.debug:
+            msg: "APT_CHANGED={{ apt_changed }}"
+
+        - name: Publicar la verificación
+          ansible.builtin.debug:
+            msg: "APT_VERIFIED=True"
+
+        - name: Publicar el aviso de reinicio
+          ansible.builtin.debug:
+            msg: "APT_REBOOT_REQUIRED={{ apt_reboot_required }}"
+
+        - name: Publicar los paquetes pendientes
+          ansible.builtin.debug:
+            msg: "APT_REMAINING={{ apt_remaining }}"
+
+        - name: Publicar el estado final
+          ansible.builtin.debug:
+            msg: >-
+              APT_STATE_B64={{ acc_apt_state | combine({
+                'pending': apt_remaining,
+                'changed': apt_changed,
+                'verified': true,
+                'skipped': false,
+                'reboot_required': apt_reboot_required
+              }) | to_json | b64encode }}

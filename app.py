@@ -54,6 +54,9 @@ from config import (
     ADMIN_USERNAME,
     ALLOWED_PASSWORD_EXTENSIONS,
     APPROVAL_TTL_MINUTES,
+    APT_MIN_FREE_GB,
+    APT_MIN_FREE_GB_CEILING,
+    APT_MIN_FREE_GB_FLOOR,
     AUTH_EVENT_RETENTION_DAYS,
     BATCH_TIME_BUDGET_SECONDS,
     COMMON_TIMEZONES,
@@ -148,7 +151,12 @@ import config
 import services.ansible_runner as ansible_runner_module
 import services.ldap_auth as ldap_auth
 import services.password_tester as password_tester_module
-from services.ansible_runner import apply_host, inspect_host, inspect_wallpaper
+from services.ansible_runner import (
+    apply_host,
+    inspect_apt,
+    inspect_host,
+    inspect_wallpaper,
+)
 from services.csrf import csrf_protect, generate_csrf_token, rotate_csrf_token
 from services.host_resolver import pin_target, resolve_target
 from services.job_queue import JobQueue, JobQueueFull
@@ -156,6 +164,7 @@ from services.metrics import RequestMetrics, summarize
 from services.password_tester import test_ansible_ping
 from services.pdf_report import (
     build_execution_report,
+    build_migration_report,
     format_spanish_datetime,
 )
 from services.rate_limiter import LIMITER
@@ -481,8 +490,9 @@ _HOSTNAME_RE = re.compile(
 )
 
 # Acciones que el motor de ejecución sabe aplicar. ``WALLPAPER`` usa su
-# propio playbook y transporte de imagen; el resto comparte el de hora.
-VALID_ACTIONS = {"TZ", "TIME", "WALLPAPER"}
+# propio playbook y transporte de imagen; ``APT`` usa el de actualización
+# segura; el resto comparte el de hora.
+VALID_ACTIONS = {"TZ", "TIME", "WALLPAPER", "APT"}
 
 
 def _form_bool(name: str) -> bool:
@@ -530,6 +540,27 @@ def _parse_ntp_servers(raw: str) -> tuple[List[str], Optional[str]]:
     return servers, None
 
 
+def _parse_min_free_gb(raw: str) -> tuple[Optional[float], Optional[str]]:
+    """Valida el umbral de espacio libre (GiB) de la tarjeta APT.
+
+    Un valor vacío usa el umbral del servidor (``ACC_APT_MIN_FREE_GB``). Los
+    límites evitan tanto umbrales absurdos como valores negativos.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return float(APT_MIN_FREE_GB), None
+    try:
+        value = float(text.replace(",", "."))
+    except ValueError:
+        return None, "El umbral de espacio libre debe ser un número en GB."
+    if value < APT_MIN_FREE_GB_FLOOR or value > APT_MIN_FREE_GB_CEILING:
+        return None, (
+            "El umbral de espacio libre debe estar entre "
+            f"{APT_MIN_FREE_GB_FLOOR:g} y {APT_MIN_FREE_GB_CEILING:g} GB."
+        )
+    return value, None
+
+
 def _validate_operation_core(
     *,
     task: Optional[Dict[str, Any]],
@@ -544,6 +575,7 @@ def _validate_operation_core(
     reject_destructive: bool = False,
     enforce_time_ntp_off: bool = True,
     for_schedule: bool = False,
+    min_free_gb_raw: str = "",
 ) -> tuple[Optional[Dict[str, Any]], List[str]]:
     """Reglas comunes a la ejecución manual y las programaciones.
 
@@ -594,6 +626,7 @@ def _validate_operation_core(
         errors.append("Acción no válida.")
 
     ntp_servers: List[str] = []
+    min_free_gb = float(APT_MIN_FREE_GB)
     if action in {"TZ", "TIME"}:
         if ntp_policy not in NTP_POLICIES:
             errors.append("Política NTP no válida.")
@@ -609,9 +642,17 @@ def _validate_operation_core(
                         "servidor NTP."
                     )
     else:
-        # El tapiz no toca el reloj ni NTP: se normaliza la política para no
-        # arrastrar opciones sin sentido al playbook.
+        # El tapiz y la actualización no tocan el reloj ni NTP: se normaliza
+        # la política para no arrastrar opciones sin sentido al playbook.
         ntp_policy = "keep"
+
+    if action == "APT":
+        # ``safe`` equivale a apt-get upgrade: nunca se elimina ni se instala
+        # un paquete nuevo. No se acepta otro modo desde el formulario.
+        value = "safe"
+        min_free_gb, min_error = _parse_min_free_gb(min_free_gb_raw)
+        if min_error:
+            errors.append(min_error)
 
     if action == "TZ":
         if not value:
@@ -655,6 +696,7 @@ def _validate_operation_core(
             "value": value,
             "ntp_policy": ntp_policy,
             "ntp_servers": ntp_servers,
+            "min_free_gb": min_free_gb,
         },
         [],
     )
@@ -669,6 +711,7 @@ def _validate_scheduled_params(
     ntp_servers_raw: str,
     platform: str = "",
     group_name: str = "",
+    min_free_gb_raw: str = "",
 ) -> tuple[Optional[Dict[str, Any]], List[str]]:
     """Valida una programación con las mismas reglas que la ejecución manual."""
     return _validate_operation_core(
@@ -684,6 +727,7 @@ def _validate_scheduled_params(
         reject_destructive=True,
         enforce_time_ntp_off=True,
         for_schedule=True,
+        min_free_gb_raw=min_free_gb_raw,
     )
 
 
@@ -718,6 +762,7 @@ def _parse_operation_form(
     time_fold_raw = request.form.get("time_fold", "auto").strip().lower()
     ntp_policy = request.form.get("ntp_policy", "keep").strip().lower() or "keep"
     ntp_servers_raw = request.form.get("ntp_servers", "")
+    min_free_gb_raw = request.form.get("min_free_gb", "")
     sync_rtc = _form_bool("sync_rtc")
     force = _form_bool("force")
 
@@ -844,6 +889,7 @@ def _parse_operation_form(
         group_name=group_name,
         reject_destructive=False,
         enforce_time_ntp_off=mode == "execute",
+        min_free_gb_raw=min_free_gb_raw,
     )
     errors.extend(core_errors)
     if validated is not None:
@@ -852,8 +898,10 @@ def _parse_operation_form(
         value = validated["value"]
         ntp_policy = validated["ntp_policy"]
         ntp_servers = list(validated["ntp_servers"])
+        min_free_gb = float(validated["min_free_gb"])
     else:
         ntp_servers = []
+        min_free_gb = float(APT_MIN_FREE_GB)
 
     if action == "TIME":
         if time_mode not in {"utc", "local"}:
@@ -971,6 +1019,7 @@ def _parse_operation_form(
             "ntp_servers": ntp_servers,
             "sync_rtc": sync_rtc,
             "force": force,
+            "min_free_gb": min_free_gb,
             "temporal_passwords": temporal_passwords,
             "wallpaper_path": wallpaper_path,
             "wallpaper_uri": wallpaper_uri,
@@ -1020,6 +1069,16 @@ def _would_change(
     if action == "WALLPAPER":
         current_uri = str(state.get("wallpaper_uri") or "").strip()
         return current_uri != (wallpaper_uri or "").strip()
+
+    if action == "APT":
+        # Una estación marcada para migración o sin espacio no se tocará.
+        if state.get("attention"):
+            return False
+        try:
+            pending = int(state.get("pending") or 0)
+        except (TypeError, ValueError):
+            return None
+        return pending > 0
 
     changed = False
     if action == "TZ":
@@ -1074,7 +1133,8 @@ def _batch_message(batch: Any) -> str:
         prefix
         + f"Lote {batch.status}: {batch.success_count} éxito(s), "
         f"{batch.failure_count} fallo(s), {batch.skipped_count} omitido(s), "
-        f"{batch.error_count} error(es)"
+        f"{batch.error_count} error(es), "
+        f"{batch.attention_count} requieren atención"
     )
 
 
@@ -1975,6 +2035,7 @@ def task_view(task_id):
             "ntp_servers",
             "sync_rtc",
             "force",
+            "min_free_gb",
         )
     }
     prefill["operation_id"] = uuid.uuid4().hex
@@ -1997,6 +2058,9 @@ def task_view(task_id):
         inventory_groups=inventory_groups,
         criticality_labels=CRITICALITY_LABELS,
         max_upload_bytes=MAX_CONTENT_LENGTH,
+        default_min_free_gb=APT_MIN_FREE_GB,
+        min_free_gb_floor=APT_MIN_FREE_GB_FLOOR,
+        min_free_gb_ceiling=APT_MIN_FREE_GB_CEILING,
     )
 
 
@@ -2040,6 +2104,67 @@ def task_report_pdf(task_id: str):
         task_name=report_task_name,
     )
     filename = f"informe-{task_id}-{batch.batch_id[:8]}.pdf"
+    return Response(
+        pdf_bytes,
+        mimetype="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.route("/tarea/<task_id>/migracion.pdf", methods=["GET"])
+@login_required
+def task_migration_pdf(task_id: str):
+    """Informe PDF de estaciones que requieren migración (última corrida)."""
+    task = get_task(task_id)
+    if task is None:
+        abort(404)
+    db_path = get_db_path()
+    batch = ExecutionBatch.get_latest_by_task(task_id, db_path=db_path)
+    if batch is None:
+        flash(
+            "Esta tarea aún no tiene ejecuciones registradas: lanza una "
+            "corrida para poder generar el informe de migración.",
+            "info",
+        )
+        return redirect(url_for("task_view", task_id=task_id))
+    host_results = ExecutionBatch.get_host_results(
+        batch.batch_id, db_path=db_path
+    )
+    pdf_bytes = build_migration_report(
+        batch,
+        host_results,
+        task_name=task["name"],
+    )
+    filename = f"migracion-{task_id}-{batch.batch_id[:8]}.pdf"
+    return Response(
+        pdf_bytes,
+        mimetype="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.route("/batches/<batch_id>/migracion.pdf", methods=["GET"])
+@login_required
+def batch_migration_pdf(batch_id: str):
+    """Informe de migración de un lote concreto."""
+    batch = ExecutionBatch.get_batch(batch_id, db_path=get_db_path())
+    if batch is None:
+        abort(404)
+    host_results = ExecutionBatch.get_host_results(
+        batch_id, db_path=get_db_path()
+    )
+    pdf_bytes = build_migration_report(
+        batch,
+        host_results,
+        task_name=batch.task_id or "",
+    )
+    filename = f"migracion-{batch.batch_id[:8]}.pdf"
     return Response(
         pdf_bytes,
         mimetype="application/pdf",
@@ -2341,6 +2466,7 @@ def programaciones():
                 request.form.get("ntp_servers", ""),
                 platform=schedule_group.os_flavor if schedule_group else "",
                 group_name=schedule_group.name if schedule_group else "",
+                min_free_gb_raw=request.form.get("min_free_gb", ""),
             )
             if schedule_errors or validated is None:
                 for error in schedule_errors:
@@ -2388,6 +2514,7 @@ def programaciones():
                     "ntp_servers": validated["ntp_servers"],
                     "sync_rtc": _form_bool("sync_rtc"),
                     "force": _form_bool("force"),
+                    "min_free_gb": validated["min_free_gb"],
                 }
             )
             try:
@@ -2444,6 +2571,9 @@ def programaciones():
             "daily": "Diaria",
             "weekly": "Semanal",
         },
+        default_min_free_gb=APT_MIN_FREE_GB,
+        min_free_gb_floor=APT_MIN_FREE_GB_FLOOR,
+        min_free_gb_ceiling=APT_MIN_FREE_GB_CEILING,
     )
 
 
@@ -2565,6 +2695,7 @@ def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
         ",".join(str(server) for server in (params.get("ntp_servers") or [])),
         platform=target_group.os_flavor if target_group else "",
         group_name=target_group.name if target_group else "",
+        min_free_gb_raw=str(params.get("min_free_gb", "")),
     )
     if errors or validated is None:
         Schedule.mark_run(
@@ -2648,6 +2779,7 @@ def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
             force=bool(params.get("force")),
             operator=f"agenda:{schedule['name']}",
             task_id=schedule["task_id"],
+            min_free_gb=validated.get("min_free_gb"),
         )
     except JobQueueFull as exc:
         remove_task(tid)
@@ -3025,6 +3157,7 @@ def handle_execution(default_mode: str = "execute"):
             wallpaper_path=form.get("wallpaper_path", ""),
             wallpaper_uri=form.get("wallpaper_uri", ""),
             wallpaper_name=form.get("wallpaper_name", ""),
+            min_free_gb=form.get("min_free_gb"),
         )
     except JobQueueFull as exc:
         remove_task(tid)
@@ -3082,8 +3215,8 @@ def _append_log(lines: List[str], message: str, limit: int = 200) -> None:
 # se acota para que el payload SSE no crezca sin control.
 _CONSOLE_MAX_LINES = 300
 _CONSOLE_MAX_LINE_LENGTH = 500
-_HORA_B64_RE = re.compile(r"HORA_[A-Z_]+_B64=")
-_HORA_JSON_STATE_RE = re.compile(r"HORA_(?:STATE|BEFORE)=\{")
+_STATE_B64_RE = re.compile(r"(?:HORA|TAPIZ|APT)_[A-Z_]+_B64=")
+_STATE_JSON_STATE_RE = re.compile(r"(?:HORA|TAPIZ|APT)_(?:STATE|BEFORE)=\{")
 
 
 def _sanitize_console_line(line: str, secrets: List[str]) -> str:
@@ -3097,7 +3230,7 @@ def _sanitize_console_line(line: str, secrets: List[str]) -> str:
     for secret in secrets:
         if secret and len(secret) >= 3:
             text = text.replace(secret, "***")
-    if _HORA_B64_RE.search(text) or _HORA_JSON_STATE_RE.search(text):
+    if _STATE_B64_RE.search(text) or _STATE_JSON_STATE_RE.search(text):
         return "[marcador de estado del host recibido]"
     text = text.rstrip()
     if len(text) > _CONSOLE_MAX_LINE_LENGTH:
@@ -3213,6 +3346,7 @@ def _run_preview_batch(
     private_key: str = "",
     connection: str = "ssh",
     wallpaper_uri: str = "",
+    min_free_gb: Optional[float] = None,
 ) -> None:
     """Inspecciona todos los hosts sin cambiar nada y registra el lote.
 
@@ -3282,6 +3416,16 @@ def _run_preview_batch(
                         cancel_event=cancel_event,
                         private_key=private_key or None,
                     )
+                elif action == "APT":
+                    result = inspect_apt(
+                        host=host,
+                        user=admin_user,
+                        password=candidate,
+                        min_free_gb=min_free_gb,
+                        line_callback=line_callback,
+                        cancel_event=cancel_event,
+                        private_key=private_key or None,
+                    )
                 else:
                     result = inspect_host(
                         host=host,
@@ -3308,6 +3452,19 @@ def _run_preview_batch(
         progress = _progress_for(index, total)
 
         if inspected:
+            attention = bool(
+                isinstance(state, dict) and state.get("attention")
+            )
+            attention_kind = (
+                str(state.get("attention_kind") or "")
+                if isinstance(state, dict)
+                else ""
+            )
+            attention_reason = (
+                str(state.get("attention_reason") or "")
+                if isinstance(state, dict)
+                else ""
+            )
             plan = {
                 "planned": True,
                 "would_change": _would_change(
@@ -3325,6 +3482,10 @@ def _run_preview_batch(
                 "value": value,
                 "time_mode": time_mode,
                 "ntp_policy": ntp_policy,
+                "attention": attention,
+                "attention_kind": attention_kind,
+                "attention_reason": attention_reason,
+                "min_free_gb": min_free_gb if action == "APT" else None,
             }
             ExecutionBatch.add_host_result(
                 batch_id=batch_id,
@@ -3347,6 +3508,22 @@ def _run_preview_batch(
                 f"Vista previa OK (hash {used_hash or 'n/d'})",
                 host=host,
             )
+            if attention:
+                label = (
+                    "migración de distribución"
+                    if attention_kind == "migration"
+                    else "espacio insuficiente"
+                )
+                _append_log(
+                    log_lines,
+                    f"Atención en {host}: {label}. {attention_reason}",
+                )
+                _append_console(
+                    console_lines,
+                    tid,
+                    f"Atención ({label}): {attention_reason[:180]}",
+                    host=host,
+                )
             warning = _ntp_keep_warning(action, ntp_policy, state)
             if warning:
                 _append_log(log_lines, f"Advertencia en {host}: {warning}")
@@ -3418,6 +3595,7 @@ def _run_apply_batch(
     connection: str = "ssh",
     wallpaper_path: str = "",
     wallpaper_uri: str = "",
+    min_free_gb: Optional[float] = None,
 ) -> None:
     """Aplica el cambio en todos los hosts (best-effort) y registra cada uno.
 
@@ -3465,6 +3643,9 @@ def _run_apply_batch(
         warnings = ""
         last_auth_error = ""
         last_apply_error = ""
+        attention = False
+        attention_kind = ""
+        attention_reason = ""
         _append_console(
             console_lines, tid, f"=== {host} ({index}/{total}) ==="
         )
@@ -3566,6 +3747,7 @@ def _run_apply_batch(
                     backup_dir=str(TIMEZONE_BACKUP_DIR / str(batch_id)),
                     wallpaper_path=wallpaper_path,
                     wallpaper_uri=wallpaper_uri,
+                    min_free_gb=min_free_gb,
                 )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_apply_error = str(exc)
@@ -3589,12 +3771,34 @@ def _run_apply_batch(
                 after_state = result.get("after_state")
             if result.get("warnings"):
                 warnings = result.get("warnings")
+            if result.get("attention"):
+                attention = True
+                attention_kind = str(result.get("attention_kind") or "")
+                attention_reason = str(result.get("attention_reason") or "")
 
             if result.get("success"):
                 success = True
                 used_hash = short_hash
                 last_apply_error = ""
-                if result.get("dry_run") or result.get("simulated"):
+                if attention:
+                    label = (
+                        "migración de distribución"
+                        if attention_kind == "migration"
+                        else "espacio insuficiente"
+                    )
+                    _append_log(
+                        log_lines,
+                        f"Requiere atención en {host} ({label}): "
+                        f"{attention_reason}",
+                    )
+                    _append_console(
+                        console_lines,
+                        tid,
+                        f"REQUIERE ATENCIÓN ({label}): "
+                        f"{attention_reason[:180]}",
+                        host=host,
+                    )
+                elif result.get("dry_run") or result.get("simulated"):
                     _append_log(
                         log_lines,
                         f"Simulación OK en {host} (hash {short_hash}): "
@@ -3617,6 +3821,23 @@ def _run_apply_batch(
                         "Playbook y verificación OK",
                         host=host,
                     )
+                    if action == "APT" and isinstance(after_state, dict):
+                        pending = after_state.get("pending")
+                        if pending:
+                            _append_console(
+                                console_lines,
+                                tid,
+                                f"Aviso: quedan {pending} paquete(s) "
+                                "pendientes en la estación",
+                                host=host,
+                            )
+                        if after_state.get("reboot_required"):
+                            _append_console(
+                                console_lines,
+                                tid,
+                                "Aviso: la estación requiere reinicio",
+                                host=host,
+                            )
                 break
 
             # La contraseña es válida pero el cambio/verificación falló:
@@ -3644,17 +3865,26 @@ def _run_apply_batch(
 
         duration_ms = int((time.monotonic() - started) * 1000)
         error = ""
-        if not success:
+        if attention and success:
+            error = attention_reason or (
+                "La estación requiere migración o espacio antes de actualizar."
+            )
+        elif not success:
             error = (
                 last_apply_error
                 or last_auth_error
                 or "No se pudo autenticar en el host."
             )
+        result_type = (
+            "attention"
+            if (attention and success)
+            else ("success" if success else "failure")
+        )
 
         ExecutionBatch.add_host_result(
             batch_id=batch_id,
             host=host,
-            result="success" if success else "failure",
+            result=result_type,
             error=error,
             duration_ms=duration_ms,
             before_state=before_state,
@@ -3671,7 +3901,7 @@ def _run_apply_batch(
                 action=action,
                 value=value,
                 host=host,
-                result="success" if success else "failure",
+                result=result_type,
                 password_hash=used_hash,
                 password_origin=password_origin,
                 db_path=db_path,
@@ -3689,15 +3919,20 @@ def _run_apply_batch(
                 f"Advertencias: {str(warnings)[:160]}",
                 host=host,
             )
+        status_word = (
+            "ATENCIÓN"
+            if result_type == "attention"
+            else ("OK" if success else "FALLO")
+        )
         _append_log(
             log_lines,
-            f"{'OK' if success else 'FALLO'} {host} ({duration_ms} ms)"
+            f"{status_word} {host} ({duration_ms} ms)"
             + (f": {str(error)[:160]}" if error else ""),
         )
         _append_console(
             console_lines,
             tid,
-            f"{'OK' if success else 'FALLO'} ({duration_ms} ms)"
+            f"{status_word} ({duration_ms} ms)"
             + (f": {str(error)[:160]}" if error else ""),
             host=host,
         )
@@ -3741,6 +3976,7 @@ def execute_with_progress(
     wallpaper_path: str = "",
     wallpaper_uri: str = "",
     wallpaper_name: str = "",
+    min_free_gb: Optional[float] = None,
 ) -> None:
     """Ejecuta una vista previa o un lote completo sobre todos los hosts.
 
@@ -3949,6 +4185,12 @@ def execute_with_progress(
         if ac == "WALLPAPER" and not vl:
             # El valor visible del lote es el nombre original de la imagen.
             vl = wallpaper_name or "tapiz"
+        if ac == "APT":
+            # Umbral efectivo del lote; el playbook lo contrasta con su propia
+            # estimación de APT y nunca usa un valor menor.
+            if min_free_gb is None:
+                min_free_gb = float(APT_MIN_FREE_GB)
+            vl = "safe"
         batch_id = str(uuid.uuid4())
         ExecutionBatch.create_batch(
             batch_id=batch_id,
@@ -3971,6 +4213,7 @@ def execute_with_progress(
             local_fold=time_fold,
             time_zone=time_zone,
             task_id=task_id or "",
+            min_free_gb=min_free_gb if ac == "APT" else None,
             db_path=db_path,
         )
         update_task(
@@ -4016,6 +4259,7 @@ def execute_with_progress(
                 private_key=private_key,
                 connection=connection,
                 wallpaper_uri=wallpaper_uri,
+                min_free_gb=min_free_gb,
             )
         else:
             outcome = _run_apply_batch(
@@ -4045,6 +4289,7 @@ def execute_with_progress(
                 connection=connection,
                 wallpaper_path=wallpaper_path,
                 wallpaper_uri=wallpaper_uri,
+                min_free_gb=min_free_gb,
             )
 
         if cancel_event is not None and cancel_event.is_set():

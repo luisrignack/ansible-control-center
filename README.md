@@ -1,14 +1,19 @@
 # Ansible Control Center
 
 Aplicación web Flask + Ansible para configurar **hora, zona horaria, NTP y RTC**
-en grupos de equipos Ubuntu y estaciones Windows (WinRM), y para aplicar un
-**tapiz de escritorio** en estaciones Linux con GNOME. Incluye
+en grupos de equipos Ubuntu y estaciones Windows (WinRM), aplicar un
+**tapiz de escritorio** en estaciones Linux con GNOME y ejecutar una
+**actualización segura del sistema** (`apt-get upgrade`) con control de
+espacio y política de migración. Incluye
 autenticación, vault cifrado con `ansible-vault`, ejecución best-effort en
 todos los hosts, vista previa, verificación posterior, idempotencia, lotes
 auditables e historial en SQLite. La tarjeta operativa del catálogo aplica la
 zona horaria **America/Caracas (UTC-4)** de forma permanente en Linux y
 Windows, con backup previo de `/etc/timezone`; la tarjeta **Tapiz oficial**
-permite subir una imagen y dejarla como fondo persistente en Linux/GNOME.
+permite subir una imagen y dejarla como fondo persistente en Linux/GNOME; y la
+tarjeta **Actualización del sistema** aplica `apt-get upgrade` sin eliminar
+paquetes ni reiniciar, omitiendo Ubuntu 20.04 y sus derivados para una
+migración controlada.
 
 > **Uso responsable:** la aplicación prueba credenciales contra hosts y puede
 > cambiar su reloj. Úsala únicamente sobre equipos para los que tengas
@@ -29,8 +34,8 @@ El procedimiento completo está en [AGENTS.md](AGENTS.md).
 Fases **P0–P4, P4.1, P4.2 y bloque de operación continua** completadas,
 junto con las correcciones de alta prioridad del
 [análisis profundo 2026-11-06](docs/ANALISIS_PROFUNDO_2026-11-06.md).
-Suite de pruebas: **332 tests en verde y 1 integración SSH opcional omitida
-por defecto** (333 recopilados). Incluye empaquetado Docker con Nginx y TLS.
+Suite de pruebas: **344 tests en verde y 1 integración SSH opcional omitida
+por defecto** (345 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 | Fase | Contenido |
 |---|---|
@@ -42,6 +47,7 @@ por defecto** (333 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 | P4.1 | DRY RUN visible y persistido, `restore` fiel al estado previo, aviso `TIME`+`keep`, JSON sin caché |
 | P4.2 | Vista previa real en simulación, intentos y tiempo acotados, hostnames, verificación en ruta legacy |
 | Operación | Inventario persistente, programaciones, doble aprobación, notificaciones SMTP, informe PDF, usuarios y LDAPS |
+| Mantenimiento | Actualización segura con `apt`, política de migración, umbral de espacio e informes de atención |
 | Soporte | Ubuntu (systemd/timedatectl) y Windows (WinRM), con catálogo de tareas y roles |
 
 ---
@@ -129,6 +135,17 @@ por defecto** (333 recopilados). Incluye empaquetado Docker con Nginx y TLS.
   `/etc/dconf/db/local.d/00-acc-tapiz` y lo aplica a las sesiones GNOME
   activas: el tapiz se conserva tras reiniciar y al iniciar sesión. La tarjeta
   incluye su informe PDF de errores.
+- **Actualización del sistema (Linux/apt)**: actualiza el índice y aplica
+  `apt-get upgrade` (`upgrade: safe`) sin eliminar paquetes ni reiniciar. Usa
+  `DEBIAN_FRONTEND=noninteractive`, `force-confdef`/`force-confold` y un
+  `lock_timeout` acotado. Antes de ejecutar comprueba el sistema operativo y
+  el espacio libre: Ubuntu 20.04, Linux Mint 20, Linux Lite 5 y MX 19 se
+  omiten y se reportan como **“Requieren atención”** para migración de
+  distribución; si el espacio libre no alcanza el umbral configurado (2 GB
+  por defecto) ni la estimación de APT, la estación tampoco se modifica. El
+  umbral se ajusta por ejecución y en las programaciones, y las estaciones
+  afectadas se listan con IP, nombre y motivo en el informe general. El
+  informe de migración se descarga aparte.
 - **Métricas de rendimiento**: `/metricas` (solo `admin`) muestra p50/p95 por
   ruta y `/api/metricas` las expone en JSON; cada lote incluye p50/p95 por
   host desde SQLite. Los SLO están en
@@ -362,6 +379,10 @@ una `ACC_SECRET_KEY` aleatoria.
 | `ACC_NTP_SETTLE_SECONDS` | `3` | Espera tras reactivar NTP antes de verificar (s) |
 | `ACC_MAX_PASSWORD_ATTEMPTS` | `3` | Candidatas máximas probadas por host |
 | `ACC_BATCH_TIME_BUDGET` | `3600` | Presupuesto de tiempo del lote (s) |
+| `ACC_APT_MIN_FREE_GB` | `2` | Umbral mínimo de espacio libre (GiB) para la actualización APT (0,5–100) |
+| `ACC_APT_MIN_FREE_GB_FLOOR` | `0,5` | Valor mínimo aceptado en el formulario |
+| `ACC_APT_MIN_FREE_GB_CEILING` | `100` | Valor máximo aceptado en el formulario |
+| `ACC_APT_BLOCKED_OS` | `ubuntu:20.04,linuxmint:20,linuxlite:5,mx:19` | Distribuciones `id:prefijo_version` que requieren migración y no se actualizan |
 | `ACC_DEFAULT_NTP_SERVERS` | `pool.ntp.org` | Servidores NTP por defecto |
 | `ACC_MAX_NTP_SERVERS` | `8` | Máximo de servidores NTP |
 | `ACC_JOB_WORKERS` | `2` | Trabajos concurrentes de la cola |
@@ -484,8 +505,9 @@ Estas variables las lee `gunicorn.conf.py`, no `config.py`:
 2. **Contraseñas**: alta manual, importación `.txt` o vault `.yml/.yaml` ya
    cifrado. Se requiere la contraseña maestra.
 3. **Panel**: IP/CIDR/rango, usuario admin, origen de contraseñas, acción
-   (`TZ`/`TIME`), valor, semántica UTC/local, política NTP, servidores NTP,
-   RTC y “Forzar”.
+   (`TZ`/`TIME`/`APT`), valor, semántica UTC/local, política NTP, servidores
+   NTP, RTC y “Forzar”. Para `APT` se indica el umbral mínimo de espacio
+   libre en GB.
 4. **Vista previa (recomendada)**: inspecciona todos los hosts sin cambiar
    nada y muestra estado actual, plan y si haría falta cambiar algo. Se ejecuta
    también con `DRY_RUN=1` porque es de solo lectura.
@@ -514,6 +536,18 @@ administrador desactiva el interruptor **Simulación** de la barra superior
   - `time_mode=local`: el valor se interpreta en la zona IANA seleccionada
     (`time_zone`) y se aplica el **mismo instante** a todos los hosts del lote.
     No se usa la zona particular de cada host.
+- **APT**: actualiza paquetes en hosts Linux con `apt`. Solo se admite el modo
+  seguro (`apt-get upgrade`): no elimina paquetes, no instala dependencias
+  nuevas y no ejecuta `dist-upgrade`/`full-upgrade`. Antes de ejecutar:
+  - omite Ubuntu 20.04 y derivados basados en focal (Linux Mint 20, Linux
+    Lite 5, MX 19) y los marca como **migración** pendiente;
+  - exige `max(umbral configurado, estimación de APT + margen)` de espacio
+    libre; si no se cumple, la estación queda como **espacio insuficiente**;
+  - los paquetes que sigan pendientes tras la actualización (retenidos o por
+    fases) se avisan en la consola y en el estado, sin hacer fallar el lote.
+
+  La plataforma **no** actualiza la distribución ni reinicia el host; solo
+  informa de `/var/run/reboot-required` para programar el reinicio.
 
 ### Políticas NTP
 
@@ -536,6 +570,7 @@ administrador desactiva el interruptor **Simulación** de la barra superior
 | GET/POST | `/` | Sí | Catálogo de tareas; POST ejecuta según `mode` |
 | GET | `/tarea/<task_id>` | Sí | Detalle y formulario de la tarea |
 | GET | `/tarea/<task_id>/informe.pdf` | Sí | Informe PDF de la ejecución |
+| GET | `/tarea/<task_id>/migracion.pdf` | Sí | Informe PDF de migración de la última corrida |
 | POST | `/preview` | Sí | Alias explícito de vista previa |
 | POST | `/execute` | Sí | Alias explícito de ejecución |
 | GET/POST | `/inventario` | Sí | Grupos, hosts y clave SSH (admin para cambios) |
@@ -546,6 +581,7 @@ administrador desactiva el interruptor **Simulación** de la barra superior
 | GET | `/api/task-status/<task_id>` | Sí | Estado JSON de la tarea |
 | POST | `/tasks/<task_id>/cancel` | Sí | Cancela un trabajo en cola |
 | GET | `/batches/<batch_id>` | Sí | Detalle del lote y hosts |
+| GET | `/batches/<batch_id>/migracion.pdf` | Sí | Informe PDF de migración de un lote |
 | GET | `/preview/<batch_id>` | Sí | Redirección al detalle del lote |
 | GET/POST | `/passwords` | Sí | Gestión del vault |
 | GET | `/history` | Sí | Historial de lotes |
@@ -570,16 +606,22 @@ flask --app app reconcile-batches
 `batch_id`, `created_at`, `finished_at`, `operator`, `action`, `value`,
 `target`, `time_mode`, `ntp_policy`, `status`, `total_hosts`,
 `success_count`, `failure_count`, `skipped_count`, `error_count`,
-`preview_count`.
+`preview_count`, `attention_count`, `min_free_gb`.
 
 Estados: `running`, `success`, `partial`, `failure`, `preview`, `error`.
+`attention_count` cuenta estaciones que no se modificaron por política de
+migración o espacio insuficiente; un lote con atenciones y éxitos queda en
+`partial`.
 
 ### `execution_hosts`
 
 `batch_id`, `host`, `result`, `error`, `duration_ms`, `before_state`,
 `after_state`, `password_hash`, `password_origin`, `created_at`.
 
-Resultados: `success`, `failure`, `skipped`, `error`, `preview`.
+Resultados: `success`, `failure`, `skipped`, `error`, `preview`,
+`attention`. `attention` indica que la estación quedó fuera de la
+actualización por política (migración o espacio) y guarda en `after_state`
+`attention_kind` (`migration`/`space`) y `attention_reason`.
 
 ### Inventario y operación
 
@@ -604,7 +646,7 @@ Resultados: `success`, `failure`, `skipped`, `error`, `preview`.
 `users`, `passwords`, `executions`, `execution_summaries`. El historial
 principal es el lote; `executions` se conserva por compatibilidad.
 
-Esquema actual: `PRAGMA user_version = 12`.
+Esquema actual: `PRAGMA user_version = 15`.
 
 ---
 
@@ -646,6 +688,43 @@ Solo lectura. Publica `HORA_STATE_B64` con el estado actual.
 
 Define `hora_estado` con: `timezone`, `ntp`, `ntp_synchronized`,
 `local_rtc`, `utc`, `local`, `epoch`, `rtc`.
+
+### `ansible/apt_upgrade.yml`
+
+Actualización segura de paquetes. Variables:
+
+| Variable | Descripción |
+|---|---|
+| `accion` | Debe ser `APT` |
+| `valor` | Debe ser `safe` (`apt-get upgrade`) |
+| `min_free_gb` | Umbral mínimo de espacio libre en GiB |
+| `blocked_os` | Lista `id:prefijo_version` de distribuciones bloqueadas |
+
+Marcadores publicados:
+
+| Marcador | Contenido |
+|---|---|
+| `APT_BEFORE_B64` | Estado inicial (JSON base64) |
+| `APT_STATE_B64` | Estado final (JSON base64) |
+| `APT_CHANGED` | `true`/`false` |
+| `APT_VERIFIED` | `true`/`false` |
+| `APT_SKIP` | `true` si se omitió por política |
+| `APT_REMAINING` | Paquetes que siguen pendientes |
+| `APT_REBOOT_REQUIRED` | Aviso de `/var/run/reboot-required` |
+
+### `ansible/apt_estado.yml`
+
+Solo lectura. Reutiliza `ansible/tasks/apt_facts.yml` y publica
+`APT_STATE_B64` con sistema operativo, RAM, CPU, disco, paquetes pendientes,
+estimación de APT y la evaluación de política/espacio.
+
+### `ansible/tasks/apt_facts.yml`
+
+Hechos compartidos por la inspección y la actualización. No ejecuta
+`apt-get update` ni modifica la caché: estima con `apt-get -s upgrade` y
+compara el espacio libre de `/` y de `/var/cache/apt/archives` con
+`max(umbral, estimación + margen)`. El margen es `max(20 %, 256 MB)` y, si
+APT no estima nada, se exige al menos 1 GB adicional al umbral.
 
 ---
 
@@ -696,6 +775,10 @@ Define `hora_estado` con: `timezone`, `ntp`, `ntp_synchronized`,
   importación CSV/API ni descubrimiento automático.
 - **Sistemas soportados**: Ubuntu/Debian con systemd (`timedatectl`) y
   Windows por WinRM. No hay playbooks para RHEL, macOS ni dispositivos de red.
+- **Actualización APT sin migración automática**: la tarjeta actualiza
+  paquetes, no la distribución. Ubuntu 20.04 y derivados quedan como
+  “Requieren atención” para una migración planificada; tampoco se reinicia el
+  host automáticamente.
 - **Programaciones sin calendario complejo**: solo única, diaria o semanal.
 - **Retención periódica**: las instantáneas de tareas se purgan según
   `ACC_JOB_RETENTION_HOURS`, el historial de lotes según
@@ -746,6 +829,11 @@ Módulos:
 - `test_dry_run_switch.py`: persistencia del interruptor de simulación.
 - `test_mejoras_2026_11_06_parte2.py`: validador único manual/programado,
   ownership de cancelación, retención periódica y persistencia agrupada.
+- `test_tapiz_2026_11_07.py`: firmas de imagen, almacenamiento privado,
+  playbook de tapiz y informe de errores.
+- `test_catalog_apt_2026_11_07.py`: tarjeta APT, política de bloqueo, umbral
+  de espacio, playbooks, resultado `attention` e informes PDF.
+- `test_safety_2026_11_07.py`: criticidad, ventanas y migraciones de esquema.
 - `test_ssh_container.py`: integración opcional con un contenedor SSH; se
   omite salvo `ACC_RUN_SSH_TESTS=1` y Docker disponible.
 

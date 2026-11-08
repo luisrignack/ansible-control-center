@@ -78,6 +78,10 @@
                                 <small>
                                     {% if batch.action == 'TZ' %}
                                         <span class="text-info"><i class="bi bi-globe2" aria-hidden="true"></i> Zona horaria</span>
+                                    {% elif batch.action == 'WALLPAPER' %}
+                                        <span class="text-warning"><i class="bi bi-image" aria-hidden="true"></i> Tapiz</span>
+                                    {% elif batch.action == 'APT' %}
+                                        <span class="text-warning"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Actualización APT</span>
                                     {% else %}
                                         <span class="text-warning"><i class="bi bi-clock" aria-hidden="true"></i> Hora exacta</span>
                                     {% endif %}
@@ -89,6 +93,7 @@
                                     {{ batch.success_count }}/{{ batch.total_hosts }} OK
                                     {% if batch.failure_count %}· {{ batch.failure_count }} fallo(s){% endif %}
                                     {% if batch.error_count %}· {{ batch.error_count }} error(es){% endif %}
+                                    {% if batch.attention_count %}· {{ batch.attention_count }} requieren atención{% endif %}
                                     {% if batch.preview_count %}· {{ batch.preview_count }} preview{% endif %}
                                 </small>
                             </td>

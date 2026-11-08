@@ -25,6 +25,10 @@ from typing import Any, Callable, Dict, List, Optional
 
 from config import (
     ANSIBLE_CFG,
+    APT_BLOCKED_OS,
+    APT_INSPECT_PLAYBOOK_FILE,
+    APT_MIN_FREE_GB,
+    APT_UPGRADE_PLAYBOOK_FILE,
     BIN_ANSIBLE_PLAYBOOK,
     CONNECT_TIMEOUT,
     DRY_RUN,
@@ -676,6 +680,98 @@ def inspect_wallpaper(
     )
 
 
+def inspect_apt(
+    host: str,
+    user: str,
+    password: Optional[str] = None,
+    min_free_gb: Optional[float] = None,
+    timeout: int = None,
+    line_callback: Optional[Callable[[str], None]] = None,
+    cancel_event: Optional[threading.Event] = None,
+    private_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Lee el estado de actualización de un host con apt sin cambiar nada.
+
+    No ejecuta ``apt-get update`` ni modifica paquetes: solo recolecta el
+    sistema operativo, recursos y espacio, y estima con ``apt-get -s``. La
+    inspección se ejecuta de verdad incluso en ``DRY_RUN`` para que la vista
+    previa no oculte hosts caídos.
+    """
+    path = str(APT_INSPECT_PLAYBOOK_FILE)
+
+    if not os.path.exists(path):
+        return _missing_playbook(host, path)
+
+    if not password:
+        return _result(
+            host,
+            False,
+            error="No se proporcionó ninguna contraseña candidata.",
+            playbook_path=path,
+        )
+
+    try:
+        process = _invoke_playbook(
+            host=host,
+            user=user,
+            password=password,
+            playbook_path=path,
+            extra_vars={
+                "min_free_gb": float(
+                    min_free_gb if min_free_gb is not None else APT_MIN_FREE_GB
+                ),
+                "blocked_os": APT_BLOCKED_OS,
+                "target_host": host,
+            },
+            timeout=timeout,
+            line_callback=line_callback,
+            cancel_event=cancel_event,
+            private_key=private_key,
+            connection="ssh",
+        )
+    except FileNotFoundError:
+        return _result(
+            host,
+            False,
+            error="ansible-playbook no encontrado. Verifica la instalación de Ansible.",
+            playbook_path=path,
+        )
+    except JobCancelled:
+        return _result(
+            host,
+            False,
+            error="Operación cancelada por el usuario.",
+            playbook_path=path,
+        )
+    except subprocess.TimeoutExpired:
+        return _result(
+            host,
+            False,
+            error=f"Timeout al inspeccionar el host ({timeout or PLAYBOOK_TIMEOUT}s).",
+            playbook_path=path,
+        )
+    except Exception as exc:  # pragma: no cover - salvaguarda
+        logger.exception("Error inspeccionando apt en %s", host)
+        return _result(host, False, error=str(exc), playbook_path=path)
+
+    state = _decode_state(process.stdout, "APT_STATE")
+    success = process.returncode == 0 and state is not None
+    error = ""
+    if process.returncode != 0:
+        error = _playbook_error(host, path, process)
+    elif state is None:
+        error = "El playbook de inspección no devolvió el estado APT_STATE."
+
+    return _result(
+        host,
+        success,
+        output=process.stdout.strip(),
+        error=error,
+        state=state,
+        playbook_path=path,
+    )
+
+
 def apply_host(
     host: str,
     user: str,
@@ -701,6 +797,7 @@ def apply_host(
     backup_dir: Optional[str] = None,
     wallpaper_path: Optional[str] = None,
     wallpaper_uri: str = "",
+    min_free_gb: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Aplica el cambio en un host y verifica el resultado.
 
@@ -710,10 +807,15 @@ def apply_host(
     se reporta como fallo.
 
     Con ``connection == "winrm"`` aplica el playbook de Windows (equivalente).
+    Con ``action == "APT"`` actualiza paquetes de forma segura y puede devolver
+    ``attention=True`` (migración o espacio insuficiente) sin aplicar cambios.
     """
     is_wallpaper = action.upper() == "WALLPAPER"
+    is_apt = action.upper() == "APT"
     if is_wallpaper:
         path = str(WALLPAPER_APPLY_PLAYBOOK_FILE)
+    elif is_apt:
+        path = str(APT_UPGRADE_PLAYBOOK_FILE)
     elif connection == "winrm":
         path = str(WINDOWS_APPLY_PLAYBOOK_FILE)
     else:
@@ -739,11 +841,15 @@ def apply_host(
 
     if DRY_RUN:
         logger.info("DRY RUN: se omite el cambio real en %s", host)
-        detail = (
-            f"tapiz {wallpaper_uri or value}"
-            if is_wallpaper
-            else f"{action}={value} (modo={time_mode}, ntp={ntp_policy})"
-        )
+        if is_wallpaper:
+            detail = f"tapiz {wallpaper_uri or value}"
+        elif is_apt:
+            detail = (
+                f"actualización apt segura (umbral "
+                f"{min_free_gb if min_free_gb is not None else APT_MIN_FREE_GB} GiB)"
+            )
+        else:
+            detail = f"{action}={value} (modo={time_mode}, ntp={ntp_policy})"
         _emit_line(
             line_callback,
             f"[DRY RUN] Se habría aplicado {detail} en {host}",
@@ -782,6 +888,17 @@ def apply_host(
             "target_host": host,
             "force": bool(force),
         }
+    elif is_apt:
+        extra_vars = {
+            "accion": "APT",
+            # ``safe`` = apt-get upgrade: no elimina ni instala paquetes.
+            "valor": "safe",
+            "min_free_gb": float(
+                min_free_gb if min_free_gb is not None else APT_MIN_FREE_GB
+            ),
+            "blocked_os": APT_BLOCKED_OS,
+            "target_host": host,
+        }
     else:
         extra_vars = {
             "accion": action,
@@ -803,7 +920,7 @@ def apply_host(
             "requiere_ntp_off": bool(requiere_ntp_off),
             "ntp_settle": max(0, int(ntp_settle or 0)),
         }
-    if backup_dir and not is_wallpaper:
+    if backup_dir and not is_wallpaper and not is_apt:
         # Solo Linux: el playbook hace fetch de /etc/timezone.bak. En Windows
         # no existe ese archivo (el estado previo queda en la base de datos).
         if connection != "winrm":
@@ -856,6 +973,33 @@ def apply_host(
         errors = _decode_text_marker(process.stdout, "TAPIZ_ERRORS")
         warnings = ""
         deviation = None
+        attention = False
+        attention_kind = ""
+        attention_reason = ""
+        policy_skipped = False
+    elif is_apt:
+        before_state = _decode_state(process.stdout, "APT_BEFORE")
+        after_state = _decode_state(process.stdout, "APT_STATE")
+        changed = _decode_bool_marker(process.stdout, "APT_CHANGED")
+        verified = _decode_bool_marker(process.stdout, "APT_VERIFIED")
+        policy_skipped = (
+            _decode_bool_marker(process.stdout, "APT_SKIP") is True
+        )
+        errors = ""
+        warnings = ""
+        deviation = None
+        attention = bool((after_state or {}).get("attention"))
+        attention_kind = str((after_state or {}).get("attention_kind") or "")
+        attention_reason = str(
+            (after_state or {}).get("attention_reason") or ""
+        )
+        if not attention and policy_skipped:
+            # Respaldo si el estado final no llegó a incluir la clasificación.
+            attention = True
+            attention_kind = "migration"
+            attention_reason = (
+                "La estación requiere atención antes de actualizar."
+            )
     else:
         before_state = _decode_state(process.stdout, "HORA_BEFORE")
         after_state = _decode_state(process.stdout, "HORA_STATE")
@@ -865,15 +1009,25 @@ def apply_host(
         warnings = _decode_text_marker(process.stdout, "HORA_WARNINGS")
         deviation_text = _decode_text_marker(process.stdout, "HORA_DEVIATION")
         deviation = int(deviation_text) if deviation_text.isdigit() else None
+        attention = False
+        attention_kind = ""
+        attention_reason = ""
+        policy_skipped = False
 
     success = process.returncode == 0 and verified is True
     error = ""
     if process.returncode != 0:
         error = _playbook_error(host, path, process)
     elif verified is False:
-        error = errors or "La verificación posterior no coincide con el objetivo."
+        error = errors or attention_reason or (
+            "La verificación posterior no coincide con el objetivo."
+        )
     elif verified is None:
-        marker = "TAPIZ_VERIFIED" if is_wallpaper else "HORA_VERIFIED"
+        marker = (
+            "TAPIZ_VERIFIED"
+            if is_wallpaper
+            else ("APT_VERIFIED" if is_apt else "HORA_VERIFIED")
+        )
         error = (
             "El playbook no devolvió el resultado de verificación "
             f"{marker}."
@@ -890,6 +1044,10 @@ def apply_host(
         verified=verified,
         warnings=warnings,
         deviation=deviation,
+        attention=attention,
+        attention_kind=attention_kind,
+        attention_reason=attention_reason,
+        policy_skipped=policy_skipped,
         playbook_path=path,
     )
 

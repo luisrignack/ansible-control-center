@@ -289,6 +289,7 @@ RESULT_LABELS = {
     "skipped": "Omitida",
     "error": "Con error",
     "preview": "Vista previa",
+    "attention": "Requiere atención",
 }
 
 RESULT_COLORS = {
@@ -297,6 +298,7 @@ RESULT_COLORS = {
     "error": RED,
     "skipped": GRAY,
     "preview": (0.5, 0.3, 0.05),
+    "attention": (0.65, 0.42, 0.05),
 }
 
 STATUS_LABELS = {
@@ -319,7 +321,48 @@ ACTION_LABELS = {
     "TZ": "Zona horaria",
     "TIME": "Hora exacta",
     "WALLPAPER": "Tapiz de escritorio",
+    "APT": "Actualización segura del sistema",
 }
+
+
+def _apt_state(row: Any) -> dict:
+    state = getattr(row, "after_state", None)
+    return state if isinstance(state, dict) else {}
+
+
+def _attention_reason(row: Any) -> str:
+    """Motivo legible de una estación que no se actualizó por política."""
+    state = _apt_state(row)
+    kind = str(state.get("attention_kind") or "")
+    name = str(state.get("hostname") or "").strip()
+    detail = (getattr(row, "error", "") or "").strip()
+    if not detail:
+        detail = str(state.get("attention_reason") or "").strip()
+    if kind == "migration":
+        base = "Requiere migración de distribución"
+    elif kind == "space":
+        base = "Espacio insuficiente para actualizar"
+    else:
+        base = "Requiere atención antes de actualizar"
+    parts = [base]
+    if name:
+        parts.append(f"equipo {name}")
+    if detail:
+        parts.append(detail)
+    return " · ".join(parts)
+
+
+def _migration_rows(host_results: Sequence[Any]) -> List[Any]:
+    """Estaciones del lote que necesitan migración de distribución."""
+    rows = []
+    for row in host_results or []:
+        state = _apt_state(row)
+        kind = str(state.get("attention_kind") or "")
+        if kind == "migration" or (
+            getattr(row, "result", "") == "attention" and state.get("blocked")
+        ):
+            rows.append(row)
+    return rows
 
 
 def _batch_mode_text(batch: Any) -> str:
@@ -351,9 +394,20 @@ def build_execution_report(
         h for h in host_rows
         if h.result in {"failure", "error", "skipped"}
     ]
+    attention_rows = [h for h in host_rows if h.result == "attention"]
     ok_rows = [h for h in host_rows if h.result == "success"]
-    ordered_rows = failed_rows + [h for h in host_rows if h not in failed_rows
-                                  and h.result != "success"] + ok_rows
+    ordered_rows = (
+        failed_rows
+        + attention_rows
+        + [
+            h
+            for h in host_rows
+            if h not in failed_rows
+            and h not in attention_rows
+            and h.result != "success"
+        ]
+        + ok_rows
+    )
 
     status_text = STATUS_LABELS.get(batch.status, batch.status)
 
@@ -408,7 +462,8 @@ def build_execution_report(
     counts = (
         f"{batch.total_hosts} estaciones en el lote: "
         f"{batch.success_count} correctas · {batch.failure_count + batch.error_count} "
-        f"fallidas · {batch.skipped_count} omitidas · {batch.preview_count} vistas previas"
+        f"fallidas · {batch.skipped_count} omitidas · {batch.preview_count} vistas previas · "
+        f"{batch.attention_count} requieren atención"
     )
     body.fill_rect(MARGIN, y - 4, USABLE_W, 16, ZEBRA)
     body.text(MARGIN + 8, y + 5, counts, size=9.5, bold=True)
@@ -471,6 +526,8 @@ def build_execution_report(
                     reason = "Tapiz aplicado y verificado"
                 else:
                     reason = "Ajuste aplicado y verificado"
+            elif row.result == "attention":
+                reason = _attention_reason(row)
             else:
                 reason = classify_failure_reason(row.error, row.result)
             station = row.host
@@ -506,7 +563,7 @@ def build_execution_report(
                         color = RESULT_COLORS.get(row.result, (0, 0, 0))
                         current_body.text(x + padding, ty, part,
                                           size=font_size,
-                                          bold=row.result in {"failure", "error"},
+                                          bold=row.result in {"failure", "error", "attention"},
                                           color=color
                                           if j == 0 else (0, 0, 0))
                     else:
@@ -548,6 +605,195 @@ def build_execution_report(
         builder.text(
             PAGE_W - MARGIN, FOOTER_Y,
             f"Página {number} de {total_pages}", size=8, color=GRAY,
+        )
+
+    return doc.render()
+
+
+# Referencia de almacenamiento recomendada para Ubuntu Server (documentación
+# oficial). Se usa como orientación, no como umbral automático del lote.
+MIGRATION_MIN_REFERENCE_GB = 25.0
+MIGRATION_ACTION_TEXT = (
+    "Planificar la migración a una versión con soporte (por ejemplo, Ubuntu "
+    "Server 24.04 LTS). Resguardar datos y configuración, validar las "
+    "aplicaciones y ejecutar la migración en una ventana de mantenimiento. "
+    "La plataforma no actualiza la distribución ni reinicia la estación "
+    "automáticamente."
+)
+
+
+def build_migration_report(
+    batch: Any,
+    host_results: Optional[Sequence[Any]],
+    task_name: str = "",
+    generated_at: Optional[datetime] = None,
+) -> bytes:
+    """Informe PDF específico para estaciones que requieren migración.
+
+    Solo incluye estaciones cuyo estado final declara ``attention_kind ==
+    "migration"`` (Ubuntu 20.04 y derivados basados en focal). El espacio
+    insuficiente se reporta en el informe general, no aquí.
+    """
+    doc = PDFDocument()
+    generated_at = generated_at or datetime.now(timezone.utc)
+    rows = _migration_rows(host_results or [])
+    y = PAGE_H - MARGIN
+
+    def ensure(space: float) -> None:
+        nonlocal y
+        if y - space < MARGIN + 34:
+            doc.add_page()
+            new_body = doc.content
+            new_body.text(
+                MARGIN, PAGE_H - MARGIN + 6, BRAND, size=9, bold=True,
+                color=DARK,
+            )
+            new_body.fill_rect(
+                MARGIN, PAGE_H - MARGIN + 8, USABLE_W, 0.8, DARK
+            )
+            y = PAGE_H - MARGIN - 6
+
+    def write(
+        text: str,
+        size: float = 9,
+        bold: bool = False,
+        color: Tuple[float, ...] = (0, 0, 0),
+        gap: float = 12.0,
+        indent: float = 0.0,
+    ) -> None:
+        nonlocal y
+        for part in _wrap_text(text, _max_chars(USABLE_W - indent, size)):
+            ensure(size + 4)
+            doc.content.text(
+                MARGIN + indent, y, part, size=size, bold=bold, color=color
+            )
+            y -= gap
+
+    # --- Cabecera ---
+    doc.content.text(MARGIN, y, BRAND, size=17, bold=True, color=DARK)
+    y -= 17
+    doc.content.text(
+        MARGIN, y, "Informe de migración de distribución", size=13, bold=True
+    )
+    y -= 15
+    doc.content.text(MARGIN, y, ORG, size=8.5, color=GRAY)
+    y -= 12
+    doc.content.fill_rect(MARGIN, y, USABLE_W, 1.2, DARK)
+    y -= 22
+
+    write(f"Tarea: {task_name or batch.task_id or '—'}", size=9)
+    write(f"Objetivo: {batch.target or '—'}", size=9)
+    write(f"Ordenada por: {batch.operator or '—'}", size=9)
+    write(f"Inicio: {format_spanish_datetime(batch.created_at)}", size=9)
+    write(
+        f"Referencia: Lote {batch.batch_id[:12]} · corrida "
+        f"{batch.created_at.strftime('%Y%m%d')}",
+        size=9,
+    )
+    y -= 4
+    write(
+        f"{len(rows)} estación(es) requieren migración de distribución. "
+        "No se actualizaron automáticamente.",
+        size=9.5,
+        bold=True,
+        color=RED,
+    )
+    y -= 4
+
+    if not rows:
+        write(
+            "No hay estaciones con migración pendiente en esta corrida.",
+            size=9,
+            color=GRAY,
+        )
+    else:
+        for row in rows:
+            state = _apt_state(row)
+            station = getattr(row, "host", "—")
+            name = str(state.get("hostname") or "").strip() or "—"
+            os_pretty = str(state.get("os_pretty") or "").strip() or "—"
+            try:
+                ram_mb = int(state.get("ram_mb") or 0)
+            except (TypeError, ValueError):
+                ram_mb = 0
+            try:
+                cores = int(state.get("cpu_cores") or 0)
+            except (TypeError, ValueError):
+                cores = 0
+            cpu_model = str(state.get("cpu_model") or "").strip()
+            try:
+                disk_total = float(state.get("disk_total_gb") or 0)
+            except (TypeError, ValueError):
+                disk_total = 0.0
+            try:
+                disk_free = float(state.get("disk_free_gb") or 0)
+            except (TypeError, ValueError):
+                disk_free = 0.0
+            reason = (
+                (getattr(row, "error", "") or "").strip()
+                or str(state.get("attention_reason") or "").strip()
+                or "Distribución sin soporte estándar."
+            )
+
+            # Cada estación se presenta como una ficha para que los datos
+            # técnicos y la acción recomendada sean legibles sin tabla ancha.
+            ensure(110)
+            doc.content.fill_rect(
+                MARGIN, y - 4, USABLE_W, 0.6, LIGHT_LINE
+            )
+            y -= 14
+            write(f"{station} — {name}", size=11, bold=True, color=DARK)
+            write(f"Sistema operativo: {os_pretty}", size=9)
+            resources = f"{ram_mb} MB de RAM · {cores} CPU"
+            if cpu_model:
+                resources += f" · {cpu_model}"
+            write(f"Recursos: {resources}", size=9)
+            write(
+                f"Disco: {disk_total:.2f} GB totales · "
+                f"{disk_free:.2f} GB libres",
+                size=9,
+            )
+            write(f"Motivo: {reason}", size=9, color=(0.55, 0.28, 0.05))
+            write(
+                f"Referencia de almacenamiento: Ubuntu Server recomienda al "
+                f"menos {MIGRATION_MIN_REFERENCE_GB:g} GB de disco.",
+                size=9,
+            )
+            write(f"Acción recomendada: {MIGRATION_ACTION_TEXT}", size=9)
+            y -= 6
+
+    y -= 6
+    write(
+        "Este informe se genera solo cuando la política de la tarjeta "
+        "detecta una distribución bloqueada. El espacio insuficiente se "
+        "documenta en el informe general de la corrida.",
+        size=8.5,
+        color=GRAY,
+    )
+
+    # --- Cabeceras/pies de página ---
+    total_pages = len(doc.pages)
+    for number, builder in enumerate(doc.pages, start=1):
+        builder.fill_rect(
+            MARGIN, FOOTER_Y + 14, USABLE_W, 0.6, LIGHT_LINE
+        )
+        builder.text(
+            MARGIN, FOOTER_Y, FOOTER_LEFT, size=8, bold=True, color=GRAY
+        )
+        stamp = format_spanish_datetime(generated_at)
+        builder.text(
+            MARGIN,
+            FOOTER_Y - 11,
+            f"Informe generado el {stamp} (hora del servidor)",
+            size=8,
+            color=GRAY,
+        )
+        builder.text(
+            PAGE_W - MARGIN,
+            FOOTER_Y,
+            f"Página {number} de {total_pages}",
+            size=8,
+            color=GRAY,
         )
 
     return doc.render()

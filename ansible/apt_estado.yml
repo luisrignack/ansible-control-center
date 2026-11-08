@@ -1,0 +1,34 @@
+---
+# Inspección de solo lectura para la tarjeta "Actualización del sistema".
+#
+# No ejecuta ``apt-get update`` ni modifica paquetes. Recolecta el sistema
+# operativo, RAM, CPU, disco, paquetes pendientes y la estimación de espacio
+# de APT, y publica APT_STATE_B64 para que el panel muestre la vista previa.
+- name: Inspeccionar el estado de actualización (Linux apt)
+  hosts: all
+  become: true
+  gather_facts: false
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+    LC_ALL: C
+    LANG: C
+
+  vars:
+    min_free_gb: 2
+    blocked_os: ""
+
+  tasks:
+    - name: Comprobar que la estación usa apt
+      ansible.builtin.stat:
+        path: /usr/bin/apt-get
+      register: _apt_estado_bin
+
+    - name: Recolectar hechos y evaluar la política
+      ansible.builtin.include_tasks: tasks/apt_facts.yml
+
+    - name: Publicar el estado de la estación
+      ansible.builtin.debug:
+        msg: >-
+          APT_STATE_B64={{ acc_apt_state | combine({
+            'apt_available': _apt_estado_bin.stat.exists | default(false)
+          }) | to_json | b64encode }}

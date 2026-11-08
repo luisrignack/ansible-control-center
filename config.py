@@ -79,6 +79,29 @@ def _env_int(
     return value
 
 
+def _env_float(
+    name: str,
+    default: float,
+    minimum: float | None = None,
+    maximum: float | None = None,
+) -> float:
+    """Lee un número decimal del entorno, validando límites opcionales."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = float(raw.replace(",", "."))
+    except ValueError as exc:
+        raise ValueError(
+            f"{name} debe ser un número, se recibió {raw!r}"
+        ) from exc
+    if minimum is not None and value < minimum:
+        raise ValueError(f"{name} no puede ser menor que {minimum}")
+    if maximum is not None and value > maximum:
+        raise ValueError(f"{name} no puede ser mayor que {maximum}")
+    return value
+
+
 def _env_path(name: str, default: str | Path) -> Path:
     """Lee una ruta del entorno y la normaliza a ruta absoluta."""
     return Path(os.environ.get(name, str(default))).expanduser().resolve()
@@ -180,7 +203,32 @@ WINDOWS_INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "win_estado_zona.yml"
 # por lo que se conserva tras reiniciar y al iniciar sesión cualquier usuario.
 WALLPAPER_APPLY_PLAYBOOK_FILE = ANSIBLE_DIR / "tapiz.yml"
 WALLPAPER_INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "estado_tapiz.yml"
+# Actualización segura del sistema con apt. La inspección y la ejecución
+# comparten el archivo de hechos ``ansible/tasks/apt_facts.yml``.
+APT_UPGRADE_PLAYBOOK_FILE = ANSIBLE_DIR / "apt_upgrade.yml"
+APT_INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "apt_estado.yml"
 ANSIBLE_CFG = ANSIBLE_DIR / "ansible.cfg"
+
+# Política de distribuciones que no se actualizan automáticamente porque su
+# base (Ubuntu 20.04 / focal) ya no recibe soporte estándar y requiere una
+# migración de distribución controlada. Formato ``id:prefijo_version``.
+APT_BLOCKED_OS = os.environ.get(
+    "ACC_APT_BLOCKED_OS",
+    "ubuntu:20.04,linuxmint:20,linuxlite:5,mx:19",
+).strip() or "ubuntu:20.04,linuxmint:20,linuxlite:5,mx:19"
+
+# Umbral mínimo de espacio libre (GiB) exigido antes de ejecutar la
+# actualización. Es un mínimo, no un máximo: si APT estima que necesita más,
+# se exige la estimación. Se puede ajustar por ejecución desde la tarjeta.
+APT_MIN_FREE_GB = _env_float(
+    "ACC_APT_MIN_FREE_GB", 2.0, minimum=0.5, maximum=100.0
+)
+APT_MIN_FREE_GB_FLOOR = _env_float(
+    "ACC_APT_MIN_FREE_GB_FLOOR", 0.5, minimum=0.1, maximum=100.0
+)
+APT_MIN_FREE_GB_CEILING = _env_float(
+    "ACC_APT_MIN_FREE_GB_CEILING", 100.0, minimum=1.0, maximum=1000.0
+)
 
 # Copias de seguridad del archivo /etc/timezone. La carpeta vive en el
 # volumen de datos de la máquina donde corre el servicio (la PC del usuario

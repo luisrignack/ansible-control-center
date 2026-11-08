@@ -90,6 +90,7 @@
                 <select class="form-select" id="scheduleAction" name="action">
                     <option value="TZ">Zona Horaria (TZ)</option>
                     <option value="TIME">Hora Exacta (TIME)</option>
+                    <option value="APT">Actualización segura del sistema (APT)</option>
                 </select>
             </div>
             <div class="col-md-5">
@@ -104,6 +105,16 @@
                     <option value="off">Desactivar</option>
                     <option value="restore">Restaurar al terminar</option>
                 </select>
+            </div>
+            <div class="col-md-3 d-none" id="scheduleMinFreeGbField">
+                <label for="scheduleMinFreeGb" class="form-label fw-medium">
+                    Espacio mínimo (GB)
+                </label>
+                <input type="number" step="0.5" min="{{ min_free_gb_floor }}"
+                    max="{{ min_free_gb_ceiling }}" class="form-control"
+                    id="scheduleMinFreeGb" name="min_free_gb"
+                    value="{{ default_min_free_gb }}">
+                <div class="form-text">Solo para APT.</div>
             </div>
             <div class="col-12">
                 <button type="submit" class="btn btn-acento">Crear programación</button>
@@ -214,6 +225,24 @@
     manual.addEventListener('change', update);
     group.addEventListener('change', update);
     update();
+
+    var actionSelect = document.getElementById('scheduleAction');
+    var minFreeField = document.getElementById('scheduleMinFreeGbField');
+    var valueInput = document.getElementById('scheduleValue');
+    if (actionSelect) {
+        var updateAction = function () {
+            var isApt = actionSelect.value === 'APT';
+            if (minFreeField) minFreeField.classList.toggle('d-none', !isApt);
+            if (valueInput) {
+                valueInput.disabled = isApt;
+                valueInput.required = !isApt;
+                if (isApt) valueInput.value = 'safe';
+                else if (valueInput.value === 'safe') valueInput.value = '';
+            }
+        };
+        actionSelect.addEventListener('change', updateAction);
+        updateAction();
+    }
 })();
 </script>
 {% endif %}

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 
 def _secure_sqlite_files(path: str) -> None:
@@ -519,6 +519,29 @@ def _migrate_v14(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v15(conn: sqlite3.Connection) -> None:
+    """Resultado ``attention`` y umbral de espacio de la tarjeta APT.
+
+    ``attention_count`` cuenta estaciones que no se actualizaron por una
+    decisión de política (distribución bloqueada o espacio insuficiente), sin
+    confundirlas con fallos técnicos ni con omisiones por cancelación.
+    ``min_free_gb`` conserva el umbral usado en el lote para que el informe
+    pueda explicar la decisión.
+    """
+    _ensure_column(
+        conn,
+        "execution_batches",
+        "attention_count",
+        "attention_count INTEGER NOT NULL DEFAULT 0",
+    )
+    _ensure_column(
+        conn,
+        "execution_batches",
+        "min_free_gb",
+        "min_free_gb REAL",
+    )
+
+
 def init_schema(db_path: str) -> None:
     """Crea o migra el esquema de forma idempotente y no destructiva.
 
@@ -552,6 +575,7 @@ def init_schema(db_path: str) -> None:
         _migrate_v12(conn)
         _migrate_v13(conn)
         _migrate_v14(conn)
+        _migrate_v15(conn)
         # No se rebaja la versión de una base creada por una versión más nueva.
         if version < SCHEMA_VERSION:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

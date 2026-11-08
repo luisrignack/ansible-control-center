@@ -1,0 +1,247 @@
+---
+# Hechos compartidos por la inspección y la actualización con apt.
+#
+# Todo es de solo lectura: no se ejecuta ``apt-get update`` ni se modifica la
+# caché. La estimación de descarga/instalación se obtiene con la simulación
+# oficial de APT (``apt-get -s upgrade``), tal como recomienda Debian, y se
+# contrasta con el espacio libre real de ``/`` y de la caché de APT.
+#
+# Variables de entrada (--extra-vars):
+#   min_free_gb: umbral mínimo de espacio libre en GiB (por defecto 2).
+#   blocked_os:  lista ``id:prefijo_version`` de distribuciones bloqueadas.
+#
+# Variables de salida: ``acc_apt_*`` y el diccionario ``acc_apt_state``.
+- name: Recolectar hechos y evaluar la política de actualización
+  ansible.builtin.shell: |
+    set -u
+
+    min_free_gb="${ACC_APT_MIN_FREE_GB:-2}"
+    blocked_list="${ACC_APT_BLOCKED_OS:-ubuntu:20.04,linuxmint:20,linuxlite:5,mx:19}"
+
+    if [ -r /etc/os-release ]; then
+      # shellcheck disable=SC1091
+      . /etc/os-release
+    fi
+    os_id="${ID:-desconocido}"
+    os_ver="${VERSION_ID:-}"
+    os_pretty="${PRETTY_NAME:-$os_id $os_ver}"
+    os_codename="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
+
+    blocked=false
+    reason=""
+    old_ifs="$IFS"
+    IFS=','
+    for item in $blocked_list; do
+      item="$(printf '%s' "$item" | tr -d '[:space:]')"
+      [ -z "$item" ] && continue
+      case "$item" in
+        *:*) ;;
+        *) continue ;;
+      esac
+      bid="${item%%:*}"
+      bver="${item#*:}"
+      if [ "$os_id" = "$bid" ]; then
+        case "$os_ver" in
+          "$bver"*)
+            blocked=true
+            reason="Distribución bloqueada: ${os_pretty} requiere migración a una versión superior antes de actualizar."
+            break
+            ;;
+        esac
+      fi
+    done
+    IFS="$old_ifs"
+
+    # Respaldo por codename para versiones puntuales de derivados de focal.
+    if [ "$blocked" != true ] && [ "$os_id" != "debian" ]; then
+      case "$os_codename" in
+        focal)
+          blocked=true
+          reason="Distribución basada en Ubuntu 20.04 (focal): ${os_pretty} requiere migración."
+          ;;
+      esac
+    fi
+
+    hostname_short="$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo desconocido)"
+    ram_mb="$(awk '/^MemTotal:/ {print int($2 / 1024); exit}' /proc/meminfo 2>/dev/null || echo 0)"
+    cpu_model="$(awk -F: '/^model name/ {gsub(/^[ \t]+/, "", $2); print $2; exit}' /proc/cpuinfo 2>/dev/null || true)"
+    cpu_cores="$(awk '/^processor[ \t]*:/ {count++} END {print count + 0}' /proc/cpuinfo 2>/dev/null || echo 0)"
+
+    apt_available=false
+    [ -x /usr/bin/apt-get ] && apt_available=true
+
+    pending=0
+    download_bytes=0
+    install_bytes=0
+    if [ "$apt_available" = true ]; then
+      sim="$(LC_ALL=C apt-get -s upgrade 2>/dev/null || true)"
+      pending="$(printf '%s\n' "$sim" | sed -n 's/^\([0-9][0-9]*\) upgraded.*/\1/p' | head -n1)"
+      [ -z "$pending" ] && pending=0
+      estimate="$(printf '%s\n' "$sim" | awk '
+        function tobytes(value, unit,   mult) {
+          gsub(/,/, "", value)
+          mult = 1
+          if (unit == "kB") mult = 1000
+          else if (unit == "MB") mult = 1000000
+          else if (unit == "GB") mult = 1000000000
+          return value * mult
+        }
+        /Need to get / {
+          for (i = 1; i <= NF; i++) {
+            if ($i == "of") {
+              printf "APT_DOWNLOAD_BYTES=%d\n", tobytes($(i - 2), $(i - 1))
+              break
+            }
+          }
+        }
+        /After this operation, / {
+          for (i = 1; i <= NF; i++) {
+            if ($i == "of") {
+              printf "APT_INSTALL_BYTES=%d\n", tobytes($(i - 2), $(i - 1))
+              break
+            }
+          }
+        }
+      ')"
+      download_bytes="$(printf '%s\n' "$estimate" | sed -n 's/^APT_DOWNLOAD_BYTES=\([0-9][0-9]*\)$/\1/p' | head -n1)"
+      install_bytes="$(printf '%s\n' "$estimate" | sed -n 's/^APT_INSTALL_BYTES=\([0-9][0-9]*\)$/\1/p' | head -n1)"
+      [ -z "$download_bytes" ] && download_bytes=0
+      [ -z "$install_bytes" ] && install_bytes=0
+    fi
+
+    disk_total="$(df -B1 --output=size / 2>/dev/null | tail -n1 | tr -d '[:space:]')"
+    disk_free="$(df -B1 --output=avail / 2>/dev/null | tail -n1 | tr -d '[:space:]')"
+    cache_dir="/var/cache/apt/archives"
+    [ -d "$cache_dir" ] || cache_dir="/"
+    cache_free="$(df -B1 --output=avail "$cache_dir" 2>/dev/null | tail -n1 | tr -d '[:space:]')"
+    root_target="$(df -P / 2>/dev/null | tail -n1 | awk '{print $6}')"
+    cache_target="$(df -P "$cache_dir" 2>/dev/null | tail -n1 | awk '{print $6}')"
+    [ -z "$disk_total" ] && disk_total=0
+    [ -z "$disk_free" ] && disk_free=0
+    [ -z "$cache_free" ] && cache_free=0
+    [ -z "$root_target" ] && root_target="/"
+    [ -z "$cache_target" ] && cache_target="/"
+
+    printf 'APT_OS_ID=%s\n' "$os_id"
+    printf 'APT_OS_VERSION=%s\n' "$os_ver"
+    printf 'APT_OS_PRETTY=%s\n' "$os_pretty"
+    printf 'APT_OS_CODENAME=%s\n' "$os_codename"
+    printf 'APT_HOSTNAME=%s\n' "$hostname_short"
+    printf 'APT_RAM_MB=%s\n' "${ram_mb:-0}"
+    printf 'APT_CPU_MODEL=%s\n' "$cpu_model"
+    printf 'APT_CPU_CORES=%s\n' "${cpu_cores:-0}"
+    printf 'APT_AVAILABLE=%s\n' "$apt_available"
+    printf 'APT_PENDING=%s\n' "$pending"
+    printf 'APT_DOWNLOAD_BYTES=%s\n' "$download_bytes"
+    printf 'APT_INSTALL_BYTES=%s\n' "$install_bytes"
+    printf 'APT_DISK_TOTAL_BYTES=%s\n' "$disk_total"
+    printf 'APT_DISK_FREE_BYTES=%s\n' "$disk_free"
+    printf 'APT_CACHE_FREE_BYTES=%s\n' "$cache_free"
+    printf 'APT_ROOT_TARGET=%s\n' "$root_target"
+    printf 'APT_CACHE_TARGET=%s\n' "$cache_target"
+    printf 'APT_BLOCKED=%s\n' "$blocked"
+    printf 'APT_BLOCKED_REASON=%s\n' "$reason"
+
+    awk -v min_gb="$min_free_gb" \
+        -v dl="$download_bytes" -v inst="$install_bytes" \
+        -v rf="$disk_free" -v cf="$cache_free" \
+        -v rt="$root_target" -v ct="$cache_target" '
+      function max(a, b) { return a > b ? a : b }
+      BEGIN {
+        min_bytes = int(min_gb * 1073741824)
+        margin_dl = int(dl * 0.20)
+        if (margin_dl < 268435456) margin_dl = 268435456
+        margin_in = int(inst * 0.20)
+        if (margin_in < 268435456) margin_in = 268435456
+        fallback = 1073741824
+        if (dl <= 0 && inst <= 0) {
+          need_root = max(min_bytes, fallback)
+          need_cache = need_root
+        } else if (rt == ct) {
+          need_root = max(min_bytes, dl + inst + margin_dl + margin_in)
+          need_cache = need_root
+        } else {
+          need_root = max(min_bytes, inst + margin_in)
+          need_cache = max(min_bytes, dl + margin_dl)
+        }
+        ok = (rf >= need_root && cf >= need_cache) ? "true" : "false"
+        printf "APT_REQUIRED_BYTES=%d\n", need_root
+        printf "APT_CACHE_REQUIRED_BYTES=%d\n", need_cache
+        printf "APT_SPACE_OK=%s\n", ok
+        if (ok == "true") {
+          printf "APT_SPACE_REASON=\n"
+        } else {
+          printf "APT_SPACE_REASON=Espacio insuficiente: %.2f GiB libres en / y %.2f GiB en la caché de APT; se requieren %.2f GiB y %.2f GiB (umbral %.2f GiB).\n", rf / 1073741824, cf / 1073741824, need_root / 1073741824, need_cache / 1073741824, min_gb
+        }
+      }
+    '
+  args:
+    executable: /bin/bash
+  environment:
+    ACC_APT_MIN_FREE_GB: "{{ min_free_gb | default(2, true) }}"
+    ACC_APT_BLOCKED_OS: "{{ blocked_os | default('ubuntu:20.04,linuxmint:20,linuxlite:5,mx:19') }}"
+  register: _acc_apt_facts
+  changed_when: false
+  failed_when: false
+
+- name: Leer los marcadores de la evaluación
+  ansible.builtin.set_fact:
+    acc_apt_os_id: "{{ _acc_apt_facts.stdout | regex_findall('APT_OS_ID=(.*)') | first | default('desconocido') }}"
+    acc_apt_os_version: "{{ _acc_apt_facts.stdout | regex_findall('APT_OS_VERSION=(.*)') | first | default('') }}"
+    acc_apt_os_pretty: "{{ _acc_apt_facts.stdout | regex_findall('APT_OS_PRETTY=(.*)') | first | default('') }}"
+    acc_apt_os_codename: "{{ _acc_apt_facts.stdout | regex_findall('APT_OS_CODENAME=(.*)') | first | default('') }}"
+    acc_apt_hostname: "{{ _acc_apt_facts.stdout | regex_findall('APT_HOSTNAME=(.*)') | first | default('') }}"
+    acc_apt_ram_mb: "{{ _acc_apt_facts.stdout | regex_findall('APT_RAM_MB=([0-9]+)') | first | default('0') }}"
+    acc_apt_cpu_model: "{{ _acc_apt_facts.stdout | regex_findall('APT_CPU_MODEL=(.*)') | first | default('') }}"
+    acc_apt_cpu_cores: "{{ _acc_apt_facts.stdout | regex_findall('APT_CPU_CORES=([0-9]+)') | first | default('0') }}"
+    acc_apt_available: "{{ (_acc_apt_facts.stdout | regex_findall('APT_AVAILABLE=(true|false)') | first | default('false')) | bool }}"
+    acc_apt_pending: "{{ _acc_apt_facts.stdout | regex_findall('APT_PENDING=([0-9]+)') | first | default('0') }}"
+    acc_apt_download_bytes: "{{ _acc_apt_facts.stdout | regex_findall('APT_DOWNLOAD_BYTES=([0-9]+)') | first | default('0') }}"
+    acc_apt_install_bytes: "{{ _acc_apt_facts.stdout | regex_findall('APT_INSTALL_BYTES=([0-9]+)') | first | default('0') }}"
+    acc_apt_disk_total_bytes: "{{ _acc_apt_facts.stdout | regex_findall('APT_DISK_TOTAL_BYTES=([0-9]+)') | first | default('0') }}"
+    acc_apt_disk_free_bytes: "{{ _acc_apt_facts.stdout | regex_findall('APT_DISK_FREE_BYTES=([0-9]+)') | first | default('0') }}"
+    acc_apt_cache_free_bytes: "{{ _acc_apt_facts.stdout | regex_findall('APT_CACHE_FREE_BYTES=([0-9]+)') | first | default('0') }}"
+    acc_apt_required_bytes: "{{ _acc_apt_facts.stdout | regex_findall('APT_REQUIRED_BYTES=([0-9]+)') | first | default('0') }}"
+    acc_apt_cache_required_bytes: "{{ _acc_apt_facts.stdout | regex_findall('APT_CACHE_REQUIRED_BYTES=([0-9]+)') | first | default('0') }}"
+    acc_apt_blocked: "{{ (_acc_apt_facts.stdout | regex_findall('APT_BLOCKED=(true|false)') | first | default('false')) | bool }}"
+    acc_apt_blocked_reason: "{{ _acc_apt_facts.stdout | regex_findall('APT_BLOCKED_REASON=(.*)') | first | default('') }}"
+    acc_apt_space_ok: "{{ (_acc_apt_facts.stdout | regex_findall('APT_SPACE_OK=(true|false)') | first | default('true')) | bool }}"
+    acc_apt_space_reason: "{{ _acc_apt_facts.stdout | regex_findall('APT_SPACE_REASON=(.*)') | first | default('') }}"
+
+- name: Consolidar el estado de la estación
+  ansible.builtin.set_fact:
+    acc_apt_state: >-
+      {{ {
+        'os_id': acc_apt_os_id,
+        'os_version': acc_apt_os_version,
+        'os_pretty': acc_apt_os_pretty,
+        'os_codename': acc_apt_os_codename,
+        'hostname': acc_apt_hostname,
+        'ram_mb': acc_apt_ram_mb | int,
+        'cpu_model': acc_apt_cpu_model,
+        'cpu_cores': acc_apt_cpu_cores | int,
+        'apt_available': acc_apt_available | bool,
+        'disk_total_gb': ((acc_apt_disk_total_bytes | int) / 1073741824) | round(2),
+        'disk_free_gb': ((acc_apt_disk_free_bytes | int) / 1073741824) | round(2),
+        'cache_free_gb': ((acc_apt_cache_free_bytes | int) / 1073741824) | round(2),
+        'min_free_gb': min_free_gb | default(2, true) | float,
+        'required_gb': ((acc_apt_required_bytes | int) / 1073741824) | round(2),
+        'cache_required_gb': ((acc_apt_cache_required_bytes | int) / 1073741824) | round(2),
+        'pending': acc_apt_pending | int,
+        'apt_download_mb': ((acc_apt_download_bytes | int) / 1048576) | round(1),
+        'apt_install_mb': ((acc_apt_install_bytes | int) / 1048576) | round(1),
+        'blocked': acc_apt_blocked | bool,
+        'blocked_reason': acc_apt_blocked_reason,
+        'space_ok': acc_apt_space_ok | bool,
+        'space_reason': acc_apt_space_reason,
+        'attention_kind': (
+          'migration' if (acc_apt_blocked | bool)
+          else ('space' if not (acc_apt_space_ok | bool) else '')
+        ),
+        'attention': (acc_apt_blocked | bool)
+          or (not (acc_apt_space_ok | bool)),
+        'attention_reason': (
+          acc_apt_blocked_reason if (acc_apt_blocked | bool)
+          else acc_apt_space_reason
+        )
+      } }}

@@ -5,6 +5,49 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Actualización del sistema (APT) operativa] — 2026-11-07
+
+### Añadido
+
+- **Tarjeta `apt-upgrade` activa** para estaciones Linux con `apt`, solo para
+  administradores y programable desde el formulario existente.
+- **Acción `APT`** en el motor: vista previa de solo lectura con
+  `ansible/apt_estado.yml`, ejecución con `ansible/apt_upgrade.yml` y hechos
+  compartidos en `ansible/tasks/apt_facts.yml`. La actualización usa
+  `apt-get upgrade` (`upgrade: safe`), `DEBIAN_FRONTEND=noninteractive`,
+  `force-confdef`/`force-confold`, `lock_timeout=300`, sin `dist-upgrade`,
+  sin eliminar paquetes y sin reiniciar el host.
+- **Política de migración configurable** (`ACC_APT_BLOCKED_OS`): Ubuntu 20.04,
+  Linux Mint 20, Linux Lite 5 y MX 19 (`ubuntu:20.04`, `linuxmint:20`,
+  `linuxlite:5`, `mx:19`) no se actualizan; también se detecta el codename
+  `focal` como respaldo. La app no ejecuta `do-release-upgrade`.
+- **Umbral de espacio configurable** (`ACC_APT_MIN_FREE_GB`, 2 GB por
+  defecto, editable por ejecución y programación). El umbral efectivo es
+  `max(configurado, estimación de APT + margen)` con margen
+  `max(20 %, 256 MB)`; si APT no estima, se exige 1 GB adicional. Se
+  comprueba el espacio de `/` y de `/var/cache/apt/archives`.
+- **Estado “Requiere atención”** (`attention`) con motivos `migration` y
+  `space`, separado de “Omitido”. Un lote con éxitos y atenciones queda en
+  `partial`.
+- **Informes separados**: el informe general incluye las estaciones con
+  espacio insuficiente (IP, nombre y motivo); las estaciones que requieren
+  migración se descargan en un **PDF de migración** aparte con nombre, IP, SO,
+  RAM, CPU, disco, acción recomendada y referencia de 25 GB de Ubuntu Server.
+  Rutas `/tarea/<task_id>/migracion.pdf` y
+  `/batches/<batch_id>/migracion.pdf`.
+- **Formulario y programación**: la tarjeta muestra el umbral mínimo; la
+  programación guarda `min_free_gb` en `schedules.params` y la acción `APT`
+  con valor `safe`.
+- **Notificaciones SMTP** incluyen el contador y las estaciones con atención.
+- **Migración SQLite v14 → v15**: columnas `attention_count` en
+  `execution_batches` y `min_free_gb` para el umbral del lote.
+- Los paquetes pendientes tras la actualización (retenidos o por fases) se
+  avisan en consola y en el estado, sin hacer fallar el lote.
+- Pruebas en `tests/test_catalog_apt_2026_11_07.py`, actualización de
+  `tests/test_safety_2026_11_07.py` (esquema v15) y `tests/test_windows.py`;
+  suite completa **344 passed, 1 skipped**. Documentación en `README.md` y
+  `docs/OPERACION.md` (§2.8, §3.1, §4.8 y §8.5).
+
 ## [Tarjeta Tapiz oficial] — 2026-11-07
 
 ### Añadido

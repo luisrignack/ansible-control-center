@@ -141,15 +141,25 @@ TASK_CATALOG: List[Dict[str, Any]] = [
             "debe ejecutarse dentro de la ventana de mantenimiento."
         ),
         "playbook": "apt_upgrade.yml",
-        "status": STATUS_PLANNED,
+        "status": STATUS_ACTIVE,
         "min_role": "admin",
         "destructive": False,
         "platforms": ["linux"],
+        # No transporta archivos ni secretos: puede reutilizar la
+        # programación existente (incluido el umbral de espacio).
+        "schedulable": True,
         "actions": ["APT"],
-        "chips": ["En preparación", "Mantenimiento", "Linux"],
+        "chips": [
+            "Operativa",
+            "Actualización segura",
+            "Sin reinicio automático",
+            "Umbral de espacio configurable",
+        ],
         "steps": [
-            "Actualizar el índice de paquetes con apt-get update.",
-            "Aplicar apt-get upgrade sin eliminar paquetes ni abrir preguntas interactivas.",
+            "Recolectar sistema operativo, RAM, CPU y espacio libre de la estación.",
+            "Omitir Ubuntu 20.04, Linux Mint 20, Linux Lite 5 y MX 19: requieren migración de distribución.",
+            "Verificar el espacio libre mínimo configurado y la estimación de APT antes de ejecutar.",
+            "Actualizar el índice y aplicar apt-get upgrade sin eliminar paquetes ni abrir preguntas interactivas.",
             "Verificar que no quedan paquetes pendientes y avisar si el host requiere reinicio.",
         ],
     },

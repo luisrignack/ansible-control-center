@@ -63,7 +63,7 @@ y deriva el estado global:
 |---|---|
 | `preview` | Lote de vista previa (no se aplicó nada) |
 | `success` | Todos los hosts procesados terminaron con éxito |
-| `partial` | Hay al menos un éxito y algún fallo/error |
+| `partial` | Hay al menos un éxito y algún fallo/error o estación con atención |
 | `failure` | Ningún host tuvo éxito |
 | `error` | Error global del lote o todos los hosts con resultado `error` |
 | `running` | Lote aún abierto (o huérfano; ver §4) |
@@ -83,6 +83,9 @@ y deriva el estado global:
   - `TZ` → zona IANA existente (`America/Caracas`). Antes del cambio, el
     playbook guarda `/etc/timezone` en `/etc/timezone.bak`.
   - `TIME` → `AAAA-MM-DDTHH:MM`; decide `utc` o `local`.
+  - `APT` → revisa el umbral de espacio libre y el estado de la estación en
+    la vista previa (migración o espacio insuficiente se informan, no se
+    ejecutan).
 - [ ] Política NTP elegida conscientemente (ver §2.3).
 - [ ] Ventana de mantenimiento si el salto de hora puede afectar servicios.
 - [ ] Copia reciente de SQLite y del vault.
@@ -197,6 +200,48 @@ fecha/hora, estado y causa del error. No hay soporte para Windows ni para
 escritorios distintos de GNOME; en esos casos la estación se reporta como
 fallida con la causa correspondiente.
 
+### 2.8. Actualización segura del sistema (APT)
+
+La tarjeta **Actualización del sistema** (`apt-upgrade`) aplica
+`apt-get upgrade` en estaciones Linux con `apt`. Solo la puede lanzar un
+administrador y también admite programación reutilizando el formulario
+existente.
+
+1. Abre `/tarea/apt-upgrade`, elige la acción **Actualización segura del
+   sistema (APT)** y ajusta el **umbral mínimo de espacio libre (GB)**. El
+   valor por defecto es `ACC_APT_MIN_FREE_GB` (2 GB); el rango del formulario
+   está acotado por `ACC_APT_MIN_FREE_GB_FLOOR`/`_CEILING`.
+2. **Vista previa** inspecciona sin modificar: sistema operativo, nombre,
+   RAM, CPU, disco, paquetes pendientes, estimación de descarga/instalación y
+   si la estación está bloqueada por política o por espacio.
+3. **Ejecutar** actualiza el índice y aplica `upgrade: safe` con
+   `DEBIAN_FRONTEND=noninteractive`, `force-confdef`/`force-confold` y
+   `lock_timeout=300`. No usa `dist-upgrade`/`full-upgrade`, no elimina
+   paquetes y no reinicia.
+4. Al terminar, la consola avisa si quedan paquetes pendientes (retenidos o
+   por fases) y si existe `/var/run/reboot-required`.
+
+**Política de migración.** Las distribuciones `ubuntu:20.04`,
+`linuxmint:20`, `linuxlite:5` y `mx:19` (configurables con
+`ACC_APT_BLOCKED_OS`) no se actualizan. Tampoco las versiones cuyo codename
+sea `focal`. La estación queda en estado **Requiere atención**, motivo
+`migration`, y se incluye en el **informe de migración** con su nombre, IP,
+SO, RAM, CPU, disco, acción recomendada y referencia de 25 GB de disco de
+Ubuntu Server. La migración se planifica fuera de la plataforma: no se
+ejecuta `do-release-upgrade`.
+
+**Política de espacio.** El umbral efectivo es
+`max(umbral_configurado, estimación_APT + margen)`, con margen
+`max(20 %, 256 MB)`; si APT no estima, se exige 1 GB adicional. Se compara el
+espacio libre de `/` y de `/var/cache/apt/archives`. Si no alcanza, la
+estación queda en **Requiere atención**, motivo `space`, y aparece con IP,
+nombre y motivo en el **informe general** del lote.
+
+Los resultados se ven en `/batches/<batch_id>` y `/history`; el botón
+**Informe de migración** del detalle (y de la tarjeta) genera el PDF aparte.
+Un lote con estaciones correctas y estaciones con atención queda en estado
+`partial`.
+
 ---
 
 ## 3. Interpretación de resultados
@@ -205,10 +250,11 @@ fallida con la causa correspondiente.
 
 | Resultado | Origen | Interpretación |
 |---|---|---|
-| `success` | `apply_host` | Playbook ejecutado y `HORA_VERIFIED=true` (o `TAPIZ_VERIFIED=true` en tapiz) |
+| `success` | `apply_host` | Playbook ejecutado y verificado (`HORA_VERIFIED`, `TAPIZ_VERIFIED` o `APT_VERIFIED`) |
 | `failure` | `apply_host` | Sin acceso, playbook fallido o verificación incorrecta |
 | `error` | Vista previa | No se pudo inspeccionar/autenticar |
 | `preview` | Vista previa | Inspección correcta; incluye plan |
+| `attention` | `apply_host` | APT no se ejecutó por política: `migration` (distribución bloqueada) o `space` (espacio insuficiente) |
 | `skipped` | Reservado | No se usa actualmente en el flujo |
 
 `error` de un host contiene el último error relevante: autenticación,
@@ -219,8 +265,11 @@ playbook o verificación. No contiene contraseñas.
 `before_state` y `after_state` son JSON. En ejecución contienen el estado leído
 por el playbook (`timezone`, `ntp`, `ntp_synchronized`, `local_rtc`, `utc`,
 `local`, `epoch`, `rtc`). Para `WALLPAPER` contienen `wallpaper_uri`,
-`image`, `applied_users` y `session_failures`. En vista previa, `after_state`
-es el plan.
+`image`, `applied_users` y `session_failures`. Para `APT` contienen
+`os_id`, `os_version`, `os_pretty`, `hostname`, `ram_mb`, `cpu_cores`,
+`disk_total_gb`, `disk_free_gb`, `pending`, `blocked`, `space_ok`,
+`attention_kind`, `attention_reason` y `reboot_required`. En vista previa,
+`after_state` es el plan.
 
 ### 3.3. Dónde mirar
 
@@ -341,6 +390,22 @@ un lote simulado no significa que la hora se haya aplicado.
 La vista previa es la excepción: su playbook de inspección es de solo lectura y
 se ejecuta de verdad incluso en `DRY_RUN`, para detectar hosts caídos o
 credenciales inválidas.
+
+### 4.8. `attention` en la tarjeta APT
+
+Una estación pasa a **Requiere atención** cuando la política decide no
+actualizarla. No es un fallo del motor ni cuenta como error:
+
+- `migration`: Ubuntu 20.04, Linux Mint 20, Linux Lite 5, MX 19 o codename
+  `focal`. Revisa el **informe de migración**; el espacio también aparece en
+  el informe general.
+- `space`: el espacio libre de `/` o de la caché de APT no alcanza
+  `max(umbral, estimación + margen)`. Libera espacio o reduce la caché y
+  relanza; el motivo incluye los GB libres, los requeridos y el umbral.
+
+El detalle del lote muestra IP, nombre y motivo, y el historial incluye el
+contador de atenciones. Si el lote mezcla éxitos y atenciones, el estado es
+`partial`.
 
 ---
 
@@ -516,17 +581,13 @@ sudo -u ansible-control-center ansible-vault rekey \
 Guarda la nueva contraseña en el gestor de secretos correspondiente. No se
 persiste en la aplicación.
 
-### 8.5. Actualización de paquetes del sistema (tarjeta en preparación)
+### 8.5. Actualización de paquetes del sistema (tarjeta APT)
 
-La tarjeta **Actualización del sistema** (`apt-upgrade`) está publicada en el
-catálogo en estado “En preparación”. Su playbook `ansible/apt_upgrade.yml` ya
-está escrito y validado, pero la activación requiere que el motor de ejecución
-admita la acción `APT` (vista previa, marcadores de verificación y formulario).
-
-Recomendación para automatización: usar **`apt-get`**, no `apt`. `apt` está
-pensado para uso interactivo y advierte de que su interfaz CLI no es estable
-para scripts. En Ansible se usa el módulo `ansible.builtin.apt`, que invoca
-`apt-get` internamente.
+La tarjeta **Actualización del sistema** (`apt-upgrade`) está operativa. El
+flujo completo está en §2.8. Recomendación para automatización: usar
+**`apt-get`**, no `apt`. `apt` está pensado para uso interactivo y advierte
+de que su interfaz CLI no es estable para scripts. En Ansible se usa el
+módulo `ansible.builtin.apt`, que invoca `apt-get` internamente.
 
 Equivalente manual de la política del playbook:
 
@@ -545,6 +606,12 @@ Decisiones:
   `full-upgrade`/`dist-upgrade` puede desinstalar paquetes y no se usa.
 - `force-confdef`/`force-confold` conservan la configuración local y evitan
   preguntas interactivas.
+- Las distribuciones de `ACC_APT_BLOCKED_OS` (Ubuntu 20.04 y derivados basados
+  en focal) quedan como `attention`/`migration`; la app no ejecuta
+  `do-release-upgrade`.
+- El espacio se valida antes de ejecutar con el umbral configurado o la
+  estimación de APT, lo que sea mayor. Una estación sin espacio queda como
+  `attention`/`space`.
 - No se reinicia automáticamente: se comprueba `/var/run/reboot-required` y
   se avisa para programar el reinicio en ventana.
 - Debe ejecutarse dentro de la ventana de mantenimiento del grupo; los hosts
@@ -646,6 +713,9 @@ sqlite3 /var/lib/ansible-control-center/acc.db \
 - El tapiz solo aplica a Linux con GNOME (`dconf`/`gsettings`). Windows y
   otros escritorios se reportan como fallo con su causa; no hay rollback
   automático del fondo anterior.
+- La tarjeta APT actualiza paquetes, no la distribución. Ubuntu 20.04 y sus
+  derivados quedan como “Requieren atención” para migración manual; tampoco
+  hay reinicio automático ni rollback de paquetes.
 - Solo Ubuntu/systemd; IPv6 no probado en el flujo de Ansible.
 
 El análisis detallado y el roadmap están en
