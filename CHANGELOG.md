@@ -5,6 +5,34 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Auditoría técnica documentada] — 2026-11-08
+
+### Añadido
+
+- **`docs/AUDITORIA_TECNICA_2026-11-08.md`**: verificación de solo lectura del
+  análisis técnico previo sobre `master` (`0a96da7`). Recoge el veredicto por
+  área, la evidencia comprobada, las fortalezas, los hallazgos abiertos
+  S1–S7 (seguridad), A1–A8 (arquitectura), T1–T3 (pruebas) y D1–D6
+  (despliegue/CI), las correcciones al análisis original y un plan de
+  corrección por bloques 0–4.
+- **Correcciones al análisis original**: el hueco de autorización está en
+  `api_task_status` (`app.py`, `/api/task-status/<task_id>`), no en el SSE;
+  `execute_with_progress` tiene 26 argumentos, no 27; 9 de 24 archivos de
+  prueba llevan fecha o nombre de sprint; la suite actual es 359 passed y
+  1 skipped.
+- **Nota de seguridad ajustada a 8/10** (antes 8,5/10) por los defaults de
+  `docker-compose.yml` y el endpoint de estado sin control de propiedad.
+
+### Notas
+
+- Este cambio es **solo documental**: no aplica ninguna de las correcciones
+  propuestas. Los hallazgos quedan registrados como abiertos y el bloque 0 del
+  plan (autorización de `/api/task-status`, defaults de Compose, SMTP
+  fail-closed, secretos `_FILE` y permisos 0750) es la siguiente acción
+  recomendada.
+- Índices actualizados en `docs/README.md` y `README.md`; el contador de
+  pruebas del README se alinea con la suite actual.
+
 ## [Contraseña administrativa operativa] — 2026-11-07
 
 ### Añadido

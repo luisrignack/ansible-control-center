@@ -34,8 +34,8 @@ El procedimiento completo está en [AGENTS.md](AGENTS.md).
 Fases **P0–P4, P4.1, P4.2 y bloque de operación continua** completadas,
 junto con las correcciones de alta prioridad del
 [análisis profundo 2026-11-06](docs/ANALISIS_PROFUNDO_2026-11-06.md).
-Suite de pruebas: **344 tests en verde y 1 integración SSH opcional omitida
-por defecto** (345 recopilados). Incluye empaquetado Docker con Nginx y TLS.
+Suite de pruebas: **359 tests en verde y 1 integración SSH opcional omitida
+por defecto** (360 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 | Fase | Contenido |
 |---|---|
@@ -902,6 +902,7 @@ Módulos:
 - [Operación y runbook](docs/OPERACION.md)
 - [Rendimiento y SLO](docs/RENDIMIENTO.md)
 - [Análisis profundo y recomendaciones](docs/ANALISIS_Y_RECOMENDACIONES.md)
+- [Auditoría técnica 2026-11-08](docs/AUDITORIA_TECNICA_2026-11-08.md)
 - [Análisis de calidad ISO/IEC 25010:2023](docs/ANALISIS_CALIDAD_ISO_25010.md)
 - [Mapeo ISO/IEC 27001:2022 y análisis de brechas](docs/ANALISIS_SEGURIDAD_ISO_27001.md)
 - [Análisis funcional y roadmap](ANALISIS.md)

@@ -13,6 +13,7 @@
 | [RENDIMIENTO](RENDIMIENTO.md) | SLO, métricas de latencia por ruta y por lote, y cómo interpretarlas |
 | [ANALISIS_Y_RECOMENDACIONES](ANALISIS_Y_RECOMENDACIONES.md) | Análisis profundo por aspecto, riesgos y roadmap |
 | [ANALISIS_PROFUNDO_2026-11-06](ANALISIS_PROFUNDO_2026-11-06.md) | Auditoría 2026-11-06, correcciones de alta prioridad aplicadas y roadmap pendiente |
+| [AUDITORIA_TECNICA_2026-11-08](AUDITORIA_TECNICA_2026-11-08.md) | Verificación del análisis técnico, hallazgos S/A/T/D abiertos y plan de corrección por bloques |
 | [ANALISIS_CALIDAD_ISO_25010](ANALISIS_CALIDAD_ISO_25010.md) | Análisis de brechas frente a ISO/IEC 25010:2023, métricas y plan priorizado |
 | [ANALISIS](../ANALISIS.md) | Análisis funcional y espacio de opciones |
 | [CHANGELOG](../CHANGELOG.md) | Historial de cambios P0–P4 |
@@ -23,5 +24,5 @@
 - **Nuevo en el proyecto:** README → ARQUITECTURA → OPERACION.
 - **Despliegue:** DEPLOYMENT → REFERENCIA (variables).
 - **Desarrollo:** REFERENCIA → ARQUITECTURA → tests.
-- **Revisión técnica o priorización:** ANALISIS_Y_RECOMENDACIONES y
-  ANALISIS_PROFUNDO_2026-11-06.
+- **Revisión técnica o priorización:** ANALISIS_Y_RECOMENDACIONES,
+  ANALISIS_PROFUNDO_2026-11-06 y AUDITORIA_TECNICA_2026-11-08.
