@@ -82,6 +82,8 @@
                                         <span class="text-warning"><i class="bi bi-image" aria-hidden="true"></i> Tapiz</span>
                                     {% elif batch.action == 'APT' %}
                                         <span class="text-warning"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Actualización APT</span>
+                                    {% elif batch.action == 'PASSWORD' %}
+                                        <span class="text-warning"><i class="bi bi-key" aria-hidden="true"></i> Cambio de contraseña</span>
                                     {% else %}
                                         <span class="text-warning"><i class="bi bi-clock" aria-hidden="true"></i> Hora exacta</span>
                                     {% endif %}

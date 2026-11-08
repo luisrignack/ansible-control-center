@@ -81,20 +81,31 @@ TASK_CATALOG: List[Dict[str, Any]] = [
         "icon": "bi-key",
         "tone": "amber",
         "summary": (
-            "Rota y sincroniza la contraseña del usuario administrador local "
-            "en los hosts objetivo, con el vault como origen."
+            "Rota la contraseña de un usuario local en los hosts objetivo. El "
+            "operador indica el usuario (ladmin por defecto) y la nueva "
+            "contraseña, que debe repetirse para evitar errores de escritura. "
+            "La contraseña no se guarda en el vault ni en la base de datos."
         ),
         "playbook": "contrasena.yml",
-        "status": STATUS_PLANNED,
+        "status": STATUS_ACTIVE,
         "min_role": "admin",
         "destructive": True,
         "platforms": ["linux"],
-        "actions": ["TZ", "TIME"],
-        "chips": ["En preparación", "Credenciales", "Rotación"],
+        # La contraseña no se persiste: una programación no puede transportar
+        # ni cifrar el secreto. Se ejecuta solo manualmente desde su tarjeta.
+        "schedulable": False,
+        "actions": ["PASSWORD"],
+        "chips": [
+            "Operativa",
+            "Usuario configurable",
+            "Contraseña con confirmación",
+            "Linux",
+        ],
         "steps": [
-            "Validar la contraseña candidata contra un host de muestra.",
-            "Aplicar la rotación en todos los hosts (best-effort).",
-            "Actualizar el vault cifrado con la nueva contraseña.",
+            "Validar que el usuario exista en la estación.",
+            "Comprobar que la nueva contraseña y su repetición coinciden.",
+            "Cambiar la contraseña sin mostrarla en la consola ni en los registros.",
+            "Verificar que la cuenta queda con una contraseña activa.",
         ],
     },
     {

@@ -146,6 +146,14 @@ por defecto** (345 recopilados). Incluye empaquetado Docker con Nginx y TLS.
   umbral se ajusta por ejecución y en las programaciones, y las estaciones
   afectadas se listan con IP, nombre y motivo en el informe general. El
   informe de migración se descarga aparte.
+- **Contraseña administrativa (Linux)**: cambia la contraseña de un usuario
+  local existente (por defecto `ladmin`, editable en el formulario). La nueva
+  contraseña se escribe dos veces para evitar errores, se envía al host por
+  `stdin` a `chpasswd` con `no_log` y **no se guarda** en SQLite, en el
+  historial, en la consola, en los informes ni en el vault. La vista previa
+  solo comprueba que el usuario exista; la ejecución real exige la contraseña
+  y la doble aprobación de otro administrador. La tarjeta no es programable
+  porque el secreto no se persiste.
 - **Métricas de rendimiento**: `/metricas` (solo `admin`) muestra p50/p95 por
   ruta y `/api/metricas` las expone en JSON; cada lote incluye p50/p95 por
   host desde SQLite. Los SLO están en
@@ -383,6 +391,8 @@ una `ACC_SECRET_KEY` aleatoria.
 | `ACC_APT_MIN_FREE_GB_FLOOR` | `0,5` | Valor mínimo aceptado en el formulario |
 | `ACC_APT_MIN_FREE_GB_CEILING` | `100` | Valor máximo aceptado en el formulario |
 | `ACC_APT_BLOCKED_OS` | `ubuntu:20.04,linuxmint:20,linuxlite:5,mx:19` | Distribuciones `id:prefijo_version` que requieren migración y no se actualizan |
+| `ACC_OS_PASSWORD_DEFAULT_USER` | `ladmin` | Usuario del sistema propuesto por defecto en la tarjeta de contraseña |
+| `ACC_OS_PASSWORD_MIN_LENGTH` | `8` | Longitud mínima de la nueva contraseña (8–128) |
 | `ACC_DEFAULT_NTP_SERVERS` | `pool.ntp.org` | Servidores NTP por defecto |
 | `ACC_MAX_NTP_SERVERS` | `8` | Máximo de servidores NTP |
 | `ACC_JOB_WORKERS` | `2` | Trabajos concurrentes de la cola |
@@ -505,9 +515,10 @@ Estas variables las lee `gunicorn.conf.py`, no `config.py`:
 2. **Contraseñas**: alta manual, importación `.txt` o vault `.yml/.yaml` ya
    cifrado. Se requiere la contraseña maestra.
 3. **Panel**: IP/CIDR/rango, usuario admin, origen de contraseñas, acción
-   (`TZ`/`TIME`/`APT`), valor, semántica UTC/local, política NTP, servidores
-   NTP, RTC y “Forzar”. Para `APT` se indica el umbral mínimo de espacio
-   libre en GB.
+   (`TZ`/`TIME`/`APT`/`PASSWORD`), valor, semántica UTC/local, política NTP,
+   servidores NTP, RTC y “Forzar”. Para `APT` se indica el umbral mínimo de
+   espacio libre en GB. Para `PASSWORD` se indica el usuario del sistema
+   (`ladmin` por defecto) y la nueva contraseña repetida dos veces.
 4. **Vista previa (recomendada)**: inspecciona todos los hosts sin cambiar
    nada y muestra estado actual, plan y si haría falta cambiar algo. Se ejecuta
    también con `DRY_RUN=1` porque es de solo lectura.
@@ -548,6 +559,17 @@ administrador desactiva el interruptor **Simulación** de la barra superior
 
   La plataforma **no** actualiza la distribución ni reinicia el host; solo
   informa de `/var/run/reboot-required` para programar el reinicio.
+- **PASSWORD**: cambia la contraseña de un usuario local existente en hosts
+  Linux. El operador escribe el usuario (por defecto
+  `ACC_OS_PASSWORD_DEFAULT_USER`, `ladmin`) y la nueva contraseña dos veces;
+  el servidor valida que coincidan y que cumplan
+  `ACC_OS_PASSWORD_MIN_LENGTH`. La contraseña viaja al playbook en un fichero
+  temporal `0600` y se entrega a `chpasswd` por `stdin` con `no_log: true`.
+  La vista previa solo comprueba que el usuario exista y su estado; la
+  ejecución real exige el secreto y, por ser una tarea destructiva, la
+  aprobación de otro administrador. El secreto queda excluido de los
+  parámetros de aprobación, del historial, de la consola y de los informes.
+  La tarjeta **no admite programación**: el secreto no se persiste.
 
 ### Políticas NTP
 
@@ -726,6 +748,34 @@ compara el espacio libre de `/` y de `/var/cache/apt/archives` con
 `max(umbral, estimación + margen)`. El margen es `max(20 %, 256 MB)` y, si
 APT no estima nada, se exige al menos 1 GB adicional al umbral.
 
+### `ansible/contrasena.yml`
+
+Cambio de contraseña de un usuario local. Variables:
+
+| Variable | Descripción |
+|---|---|
+| `target_user` | Usuario local existente (por defecto `ladmin`) |
+| `new_password` | Contraseña nueva; se entrega a `chpasswd` por `stdin` con `no_log` |
+
+Marcadores publicados:
+
+| Marcador | Contenido |
+|---|---|
+| `PASSWORD_BEFORE_B64` | Estado inicial del usuario (JSON base64) |
+| `PASSWORD_STATE_B64` | Estado final del usuario (JSON base64) |
+| `PASSWORD_CHANGED` | `true`/`false` |
+| `PASSWORD_VERIFIED` | `true`/`false` tras comprobar el estado `P` de `passwd -S` |
+
+El playbook rechaza usuarios inexistentes, valida el nombre y la longitud de
+la contraseña, y nunca imprime el secreto. Los marcadores solo contienen
+usuario, UID, shell y estado de la contraseña.
+
+### `ansible/contrasena_estado.yml`
+
+Solo lectura. Comprueba que el usuario exista y publica `PASSWORD_STATE_B64`
+con usuario, existencia, UID, shell y estado de la contraseña. No modifica
+nada y se ejecuta también en `DRY_RUN` y en la vista previa.
+
 ---
 
 ## Seguridad
@@ -833,6 +883,9 @@ Módulos:
   playbook de tapiz y informe de errores.
 - `test_catalog_apt_2026_11_07.py`: tarjeta APT, política de bloqueo, umbral
   de espacio, playbooks, resultado `attention` e informes PDF.
+- `test_contrasena_2026_11_07.py`: tarjeta de contraseña, validación del
+  usuario y de la repetición, playbooks `chpasswd`/inspección, exclusión del
+  secreto en aprobaciones y formulario.
 - `test_safety_2026_11_07.py`: criticidad, ventanas y migraciones de esquema.
 - `test_ssh_container.py`: integración opcional con un contenedor SSH; se
   omite salvo `ACC_RUN_SSH_TESTS=1` y Docker disponible.

@@ -1,0 +1,75 @@
+---
+# Inspección de solo lectura para la tarjeta de contraseña administrativa.
+#
+# Variables esperadas (--extra-vars desde la aplicación):
+#   target_user: usuario local a inspeccionar (por defecto ladmin)
+#
+# No cambia nada: comprueba que el usuario exista y publica su estado para que
+# la vista previa explique si el cambio se puede aplicar. Si el usuario no
+# existe, publica el estado y termina con error para que el operador lo vea.
+- name: Inspeccionar el usuario para el cambio de contraseña
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    target_user: ladmin
+
+  tasks:
+    - name: Validar el usuario
+      ansible.builtin.assert:
+        that:
+          - target_user is string
+          - target_user is match('^[a-z_][a-z0-9_.-]{0,31}$')
+        fail_msg: "Nombre de usuario no válido."
+        success_msg: "Usuario válido."
+
+    - name: Comprobar que el usuario existe
+      ansible.builtin.command:
+        argv:
+          - getent
+          - passwd
+          - "{{ target_user }}"
+      register: password_user_lookup
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Leer el estado de la contraseña
+      ansible.builtin.command:
+        argv:
+          - passwd
+          - -S
+          - "{{ target_user }}"
+      register: password_status_raw
+      changed_when: false
+      failed_when: false
+      when: password_user_lookup.rc == 0
+      no_log: true
+
+    - name: Extraer los datos del usuario
+      ansible.builtin.set_fact:
+        password_user_fields: "{{ (password_user_lookup.stdout | default('')).split(':') }}"
+        password_status_fields: >-
+          {{ (password_status_raw.stdout | default('')).split() }}
+
+    - name: Consolidar el estado
+      ansible.builtin.set_fact:
+        password_state:
+          user: "{{ target_user }}"
+          exists: "{{ password_user_lookup.rc == 0 }}"
+          uid: >-
+            {{ password_user_fields[2] if password_user_fields | length > 2 else '' }}
+          shell: >-
+            {{ password_user_fields[-1] | trim if password_user_fields | length > 2 else '' }}
+          status: >-
+            {{ password_status_fields[1] if password_status_fields | length > 1 else '' }}
+
+    - name: Publicar el estado
+      ansible.builtin.debug:
+        msg: "PASSWORD_STATE_B64={{ password_state | to_json | b64encode }}"
+
+    - name: Rechazar usuarios inexistentes
+      ansible.builtin.fail:
+        msg: "El usuario {{ target_user }} no existe en la estación."
+      when: password_user_lookup.rc != 0

@@ -322,6 +322,7 @@ ACTION_LABELS = {
     "TIME": "Hora exacta",
     "WALLPAPER": "Tapiz de escritorio",
     "APT": "Actualización segura del sistema",
+    "PASSWORD": "Cambio de contraseña",
 }
 
 

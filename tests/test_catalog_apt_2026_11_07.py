@@ -40,9 +40,14 @@ def test_apt_card_is_active_and_restricted_to_admin():
     assert task["schedulable"] is True
 
 
-def test_apt_card_is_the_only_new_active_task():
+def test_apt_card_is_active_alongside_the_other_operational_tasks():
     active = [task for task in TASK_CATALOG if task["status"] == "active"]
-    assert [task["id"] for task in active] == ["zona-todas", "tapiz", "apt-upgrade"]
+    assert [task["id"] for task in active] == [
+        "zona-todas",
+        "contrasena",
+        "tapiz",
+        "apt-upgrade",
+    ]
 
 
 def test_apt_playbook_uses_safe_apt_get_upgrade():

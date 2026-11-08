@@ -5,6 +5,36 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Contraseña administrativa operativa] — 2026-11-07
+
+### Añadido
+
+- **Tarjeta `contrasena` activa** para estaciones Linux, solo para
+  administradores y no programable: el secreto no se persiste.
+- **Acción `PASSWORD`** en el motor: vista previa de solo lectura con
+  `ansible/contrasena_estado.yml`, ejecución con `ansible/contrasena.yml` y
+  verificación del estado activo de la contraseña.
+- **Usuario configurable** en el formulario (por defecto `ladmin`, ajustable
+  con `ACC_OS_PASSWORD_DEFAULT_USER`) y **contraseña repetida** para evitar
+  errores de escritura. La longitud mínima se configura con
+  `ACC_OS_PASSWORD_MIN_LENGTH` (8 por defecto).
+- **Secreto no persistido**: la contraseña va al playbook por el fichero
+  temporal de variables `0600`, se entrega a `chpasswd` por `stdin` con
+  `no_log: true`, se redacta en la consola y queda excluida de SQLite, del
+  historial, de los informes PDF, del vault y de los parámetros de
+  aprobación.
+- **Vista previa sin secreto**: solo comprueba que el usuario exista y su
+  estado. La ejecución real exige contraseña válida y repetida; al ser una
+  tarea destructiva, mantiene la doble aprobación de otro administrador.
+- **Formulario y etiquetas**: campos de usuario, nueva contraseña y
+  repetición; resumen, confirmación, validación en el navegador y etiquetas en
+  historial, detalle de lote e informes.
+- Pruebas en `tests/test_contrasena_2026_11_07.py` y actualización de las
+  listas de tareas activas en `tests/test_catalog_apt_2026_11_07.py` y
+  `tests/test_windows.py`; suite completa **359 passed, 1 skipped**.
+  Documentación en `README.md` y `docs/OPERACION.md` (§2.9, §3.1, §3.2 y
+  §8.6).
+
 ## [Actualización del sistema (APT) operativa] — 2026-11-07
 
 ### Añadido

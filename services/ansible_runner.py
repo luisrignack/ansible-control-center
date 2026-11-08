@@ -35,6 +35,8 @@ from config import (
     HOST_KEY_CHECKING,
     INSPECT_PLAYBOOK_FILE,
     MAX_OUTPUT_BUFFER_LINES,
+    PASSWORD_APPLY_PLAYBOOK_FILE,
+    PASSWORD_INSPECT_PLAYBOOK_FILE,
     PLAYBOOK_FILE,
     PLAYBOOK_TIMEOUT,
     TIME_VERIFY_TOLERANCE,
@@ -772,6 +774,91 @@ def inspect_apt(
     )
 
 
+def inspect_password(
+    host: str,
+    user: str,
+    password: Optional[str] = None,
+    target_user: str = "ladmin",
+    timeout: int = None,
+    line_callback: Optional[Callable[[str], None]] = None,
+    cancel_event: Optional[threading.Event] = None,
+    private_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Comprueba el usuario objetivo sin cambiar su contraseña.
+
+    La inspección es de solo lectura y se ejecuta de verdad incluso en
+    ``DRY_RUN``. Publica ``PASSWORD_STATE`` con la existencia, UID, shell y
+    estado de la contraseña; nunca incluye la contraseña nueva.
+    """
+    path = str(PASSWORD_INSPECT_PLAYBOOK_FILE)
+
+    if not os.path.exists(path):
+        return _missing_playbook(host, path)
+
+    if not password:
+        return _result(
+            host,
+            False,
+            error="No se proporcionó ninguna contraseña candidata.",
+            playbook_path=path,
+        )
+
+    try:
+        process = _invoke_playbook(
+            host=host,
+            user=user,
+            password=password,
+            playbook_path=path,
+            extra_vars={"target_user": target_user or "ladmin"},
+            timeout=timeout,
+            line_callback=line_callback,
+            cancel_event=cancel_event,
+            private_key=private_key,
+            connection="ssh",
+        )
+    except FileNotFoundError:
+        return _result(
+            host,
+            False,
+            error="ansible-playbook no encontrado. Verifica la instalación de Ansible.",
+            playbook_path=path,
+        )
+    except JobCancelled:
+        return _result(
+            host,
+            False,
+            error="Operación cancelada por el usuario.",
+            playbook_path=path,
+        )
+    except subprocess.TimeoutExpired:
+        return _result(
+            host,
+            False,
+            error=f"Timeout al inspeccionar el host ({timeout or PLAYBOOK_TIMEOUT}s).",
+            playbook_path=path,
+        )
+    except Exception as exc:  # pragma: no cover - salvaguarda
+        logger.exception("Error inspeccionando el usuario %s en %s", target_user, host)
+        return _result(host, False, error=str(exc), playbook_path=path)
+
+    state = _decode_state(process.stdout, "PASSWORD_STATE")
+    success = process.returncode == 0 and state is not None
+    error = ""
+    if process.returncode != 0:
+        error = _playbook_error(host, path, process)
+    elif state is None:
+        error = "El playbook de inspección no devolvió el estado PASSWORD_STATE."
+
+    return _result(
+        host,
+        success,
+        output=process.stdout.strip(),
+        error=error,
+        state=state,
+        playbook_path=path,
+    )
+
+
 def apply_host(
     host: str,
     user: str,
@@ -798,6 +885,7 @@ def apply_host(
     wallpaper_path: Optional[str] = None,
     wallpaper_uri: str = "",
     min_free_gb: Optional[float] = None,
+    new_password: str = "",
 ) -> Dict[str, Any]:
     """Aplica el cambio en un host y verifica el resultado.
 
@@ -809,13 +897,18 @@ def apply_host(
     Con ``connection == "winrm"`` aplica el playbook de Windows (equivalente).
     Con ``action == "APT"`` actualiza paquetes de forma segura y puede devolver
     ``attention=True`` (migración o espacio insuficiente) sin aplicar cambios.
+    Con ``action == "PASSWORD"`` cambia la contraseña del usuario indicado en
+    ``value`` sin incluir el secreto en la salida.
     """
     is_wallpaper = action.upper() == "WALLPAPER"
     is_apt = action.upper() == "APT"
+    is_password = action.upper() == "PASSWORD"
     if is_wallpaper:
         path = str(WALLPAPER_APPLY_PLAYBOOK_FILE)
     elif is_apt:
         path = str(APT_UPGRADE_PLAYBOOK_FILE)
+    elif is_password:
+        path = str(PASSWORD_APPLY_PLAYBOOK_FILE)
     elif connection == "winrm":
         path = str(WINDOWS_APPLY_PLAYBOOK_FILE)
     else:
@@ -848,6 +941,8 @@ def apply_host(
                 f"actualización apt segura (umbral "
                 f"{min_free_gb if min_free_gb is not None else APT_MIN_FREE_GB} GiB)"
             )
+        elif is_password:
+            detail = f"cambio de contraseña del usuario {value} (oculto)"
         else:
             detail = f"{action}={value} (modo={time_mode}, ntp={ntp_policy})"
         _emit_line(
@@ -879,6 +974,14 @@ def apply_host(
             playbook_path=path,
         )
 
+    if is_password and not new_password:
+        return _result(
+            host,
+            False,
+            error="No se recibió la nueva contraseña del usuario.",
+            playbook_path=path,
+        )
+
     if is_wallpaper:
         extra_vars = {
             "accion": "WALLPAPER",
@@ -898,6 +1001,11 @@ def apply_host(
             ),
             "blocked_os": APT_BLOCKED_OS,
             "target_host": host,
+        }
+    elif is_password:
+        extra_vars = {
+            "target_user": value or "ladmin",
+            "new_password": new_password,
         }
     else:
         extra_vars = {
@@ -1000,6 +1108,18 @@ def apply_host(
             attention_reason = (
                 "La estación requiere atención antes de actualizar."
             )
+    elif is_password:
+        before_state = _decode_state(process.stdout, "PASSWORD_BEFORE")
+        after_state = _decode_state(process.stdout, "PASSWORD_STATE")
+        changed = _decode_bool_marker(process.stdout, "PASSWORD_CHANGED")
+        verified = _decode_bool_marker(process.stdout, "PASSWORD_VERIFIED")
+        errors = ""
+        warnings = ""
+        deviation = None
+        attention = False
+        attention_kind = ""
+        attention_reason = ""
+        policy_skipped = False
     else:
         before_state = _decode_state(process.stdout, "HORA_BEFORE")
         after_state = _decode_state(process.stdout, "HORA_STATE")
@@ -1026,7 +1146,11 @@ def apply_host(
         marker = (
             "TAPIZ_VERIFIED"
             if is_wallpaper
-            else ("APT_VERIFIED" if is_apt else "HORA_VERIFIED")
+            else (
+                "APT_VERIFIED"
+                if is_apt
+                else ("PASSWORD_VERIFIED" if is_password else "HORA_VERIFIED")
+            )
         )
         error = (
             "El playbook no devolvió el resultado de verificación "

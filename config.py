@@ -207,7 +207,21 @@ WALLPAPER_INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "estado_tapiz.yml"
 # comparten el archivo de hechos ``ansible/tasks/apt_facts.yml``.
 APT_UPGRADE_PLAYBOOK_FILE = ANSIBLE_DIR / "apt_upgrade.yml"
 APT_INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "apt_estado.yml"
+# Cambio de contraseña de un usuario del sistema. La contraseña se envía por
+# un fichero temporal 0600 y nunca se guarda en SQLite ni en el vault.
+PASSWORD_APPLY_PLAYBOOK_FILE = ANSIBLE_DIR / "contrasena.yml"
+PASSWORD_INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "contrasena_estado.yml"
 ANSIBLE_CFG = ANSIBLE_DIR / "ansible.cfg"
+
+# Usuario del sistema que la tarjeta propone por defecto y longitud mínima de
+# la nueva contraseña. El operador puede escribir otro usuario existente.
+OS_PASSWORD_DEFAULT_USER = (
+    os.environ.get("ACC_OS_PASSWORD_DEFAULT_USER", "ladmin").strip() or "ladmin"
+)
+OS_PASSWORD_MIN_LENGTH = _env_int(
+    "ACC_OS_PASSWORD_MIN_LENGTH", 8, minimum=8, maximum=128
+)
+OS_PASSWORD_MAX_LENGTH = 512
 
 # Política de distribuciones que no se actualizan automáticamente porque su
 # base (Ubuntu 20.04 / focal) ya no recibe soporte estándar y requiere una

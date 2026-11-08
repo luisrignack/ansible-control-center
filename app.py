@@ -72,6 +72,9 @@ from config import (
     HOST_KEY_CHECKING,
     HSTS_ENABLED,
     HSTS_MAX_AGE,
+    OS_PASSWORD_DEFAULT_USER,
+    OS_PASSWORD_MAX_LENGTH,
+    OS_PASSWORD_MIN_LENGTH,
     SSH_HOST_KEYS_AUTO,
     TARGET_ADMIN_USERNAME,
     TIMEZONE_BACKUP_DIR,
@@ -155,6 +158,7 @@ from services.ansible_runner import (
     apply_host,
     inspect_apt,
     inspect_host,
+    inspect_password,
     inspect_wallpaper,
 )
 from services.csrf import csrf_protect, generate_csrf_token, rotate_csrf_token
@@ -483,6 +487,7 @@ def read_temporal_passwords(uploaded) -> tuple[list[str], Optional[str]]:
 
 
 _TIMEZONE_RE = re.compile(r"^[A-Za-z0-9_+\-]+(?:/[A-Za-z0-9_+\-]+)*$")
+_OS_USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_.-]{0,31}$")
 _HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)"
     r"(?:[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)"
@@ -491,8 +496,8 @@ _HOSTNAME_RE = re.compile(
 
 # Acciones que el motor de ejecución sabe aplicar. ``WALLPAPER`` usa su
 # propio playbook y transporte de imagen; ``APT`` usa el de actualización
-# segura; el resto comparte el de hora.
-VALID_ACTIONS = {"TZ", "TIME", "WALLPAPER", "APT"}
+# segura; ``PASSWORD`` cambia la contraseña de un usuario del sistema.
+VALID_ACTIONS = {"TZ", "TIME", "WALLPAPER", "APT", "PASSWORD"}
 
 
 def _form_bool(name: str) -> bool:
@@ -561,6 +566,51 @@ def _parse_min_free_gb(raw: str) -> tuple[Optional[float], Optional[str]]:
     return value, None
 
 
+def _parse_target_user(raw: str) -> tuple[str, Optional[str]]:
+    """Normaliza el usuario del sistema al que se cambiará la contraseña."""
+    user = (raw or "").strip() or OS_PASSWORD_DEFAULT_USER
+    if not _OS_USERNAME_RE.fullmatch(user):
+        return "", (
+            "El usuario del sistema no es válido: usa minúsculas, números, "
+            "guion, punto o guion bajo (máximo 32 caracteres)."
+        )
+    return user, None
+
+
+def _validate_new_password(
+    password: str,
+    confirm: str,
+    *,
+    required: bool,
+) -> Optional[str]:
+    """Valida la contraseña nueva y su repetición sin recortar el secreto.
+
+    La repetición es obligatoria para evitar errores de escritura. La
+    contraseña no se registra ni se devuelve en el mensaje de error.
+    """
+    password = password or ""
+    confirm = confirm or ""
+    if not password and not confirm:
+        if required:
+            return "La nueva contraseña es obligatoria."
+        return None
+    if password != confirm:
+        return "La nueva contraseña y su repetición no coinciden."
+    if len(password) < OS_PASSWORD_MIN_LENGTH:
+        return (
+            "La nueva contraseña debe tener al menos "
+            f"{OS_PASSWORD_MIN_LENGTH} caracteres."
+        )
+    if len(password) > OS_PASSWORD_MAX_LENGTH:
+        return (
+            "La nueva contraseña supera el máximo de "
+            f"{OS_PASSWORD_MAX_LENGTH} caracteres."
+        )
+    if any(ord(char) < 32 or ord(char) == 127 for char in password):
+        return "La nueva contraseña no puede contener caracteres de control."
+    return None
+
+
 def _validate_operation_core(
     *,
     task: Optional[Dict[str, Any]],
@@ -576,6 +626,10 @@ def _validate_operation_core(
     enforce_time_ntp_off: bool = True,
     for_schedule: bool = False,
     min_free_gb_raw: str = "",
+    target_user_raw: str = "",
+    new_password: str = "",
+    new_password_confirm: str = "",
+    require_password: bool = False,
 ) -> tuple[Optional[Dict[str, Any]], List[str]]:
     """Reglas comunes a la ejecución manual y las programaciones.
 
@@ -653,6 +707,21 @@ def _validate_operation_core(
         min_free_gb, min_error = _parse_min_free_gb(min_free_gb_raw)
         if min_error:
             errors.append(min_error)
+
+    if action == "PASSWORD":
+        # El valor visible del lote es el usuario del sistema, nunca el
+        # secreto. La contraseña se valida aquí y se envía al playbook por el
+        # fichero temporal de variables, fuera de la línea de comandos.
+        value, user_error = _parse_target_user(target_user_raw)
+        if user_error:
+            errors.append(user_error)
+        password_error = _validate_new_password(
+            new_password,
+            new_password_confirm,
+            required=require_password,
+        )
+        if password_error:
+            errors.append(password_error)
 
     if action == "TZ":
         if not value:
@@ -763,6 +832,9 @@ def _parse_operation_form(
     ntp_policy = request.form.get("ntp_policy", "keep").strip().lower() or "keep"
     ntp_servers_raw = request.form.get("ntp_servers", "")
     min_free_gb_raw = request.form.get("min_free_gb", "")
+    target_user_raw = request.form.get("target_user", "")
+    new_password = request.form.get("new_password", "")
+    new_password_confirm = request.form.get("new_password_confirm", "")
     sync_rtc = _form_bool("sync_rtc")
     force = _form_bool("force")
 
@@ -890,6 +962,10 @@ def _parse_operation_form(
         reject_destructive=False,
         enforce_time_ntp_off=mode == "execute",
         min_free_gb_raw=min_free_gb_raw,
+        target_user_raw=target_user_raw,
+        new_password=new_password,
+        new_password_confirm=new_password_confirm,
+        require_password=action == "PASSWORD" and mode == "execute",
     )
     errors.extend(core_errors)
     if validated is not None:
@@ -1010,6 +1086,8 @@ def _parse_operation_form(
             "master_password": master_password,
             "action": action,
             "value": value,
+            "target_user": value if action == "PASSWORD" else "",
+            "new_password": new_password if action == "PASSWORD" else "",
             "mode": mode,
             "time_mode": time_mode,
             "time_zone": time_zone,
@@ -1079,6 +1157,11 @@ def _would_change(
         except (TypeError, ValueError):
             return None
         return pending > 0
+
+    if action == "PASSWORD":
+        # El cambio de contraseña siempre se aplica si el usuario existe; la
+        # inspección ya falla cuando no existe.
+        return bool(state.get("exists"))
 
     changed = False
     if action == "TZ":
@@ -2036,9 +2119,15 @@ def task_view(task_id):
             "sync_rtc",
             "force",
             "min_free_gb",
+            "target_user",
         )
     }
     prefill["operation_id"] = uuid.uuid4().hex
+    if not prefill.get("target_user"):
+        if prefill.get("action", "").upper() == "PASSWORD" and prefill.get("value"):
+            prefill["target_user"] = prefill["value"]
+        else:
+            prefill["target_user"] = OS_PASSWORD_DEFAULT_USER
     # Si la tarea corresponde a una acción específica, solo se ofrecen las
     # tareas activas. Los grupos del inventario alimentan el selector de
     # objetivo por grupo.
@@ -2061,6 +2150,9 @@ def task_view(task_id):
         default_min_free_gb=APT_MIN_FREE_GB,
         min_free_gb_floor=APT_MIN_FREE_GB_FLOOR,
         min_free_gb_ceiling=APT_MIN_FREE_GB_CEILING,
+        os_password_default_user=OS_PASSWORD_DEFAULT_USER,
+        os_password_min_length=OS_PASSWORD_MIN_LENGTH,
+        os_password_max_length=OS_PASSWORD_MAX_LENGTH,
     )
 
 
@@ -2983,11 +3075,21 @@ def _safety_gate(form: Dict[str, Any], operator: str, mode: str):
 
 
 def _approval_params(form: Dict[str, Any]) -> Dict[str, Any]:
-    """Parámetros estables de una ejecución, sin secretos, para aprobaciones."""
+    """Parámetros estables de una ejecución, sin secretos, para aprobaciones.
+
+    La nueva contraseña de la tarjeta ``PASSWORD`` tampoco se guarda: la
+    aprobación solo identifica el usuario y el resto de parámetros.
+    """
     return {
         key: value
         for key, value in form.items()
-        if key not in {"master_password", "temporal_passwords"}
+        if key
+        not in {
+            "master_password",
+            "temporal_passwords",
+            "new_password",
+            "new_password_confirm",
+        }
     }
 
 
@@ -3158,6 +3260,7 @@ def handle_execution(default_mode: str = "execute"):
             wallpaper_uri=form.get("wallpaper_uri", ""),
             wallpaper_name=form.get("wallpaper_name", ""),
             min_free_gb=form.get("min_free_gb"),
+            new_password=form.get("new_password", ""),
         )
     except JobQueueFull as exc:
         remove_task(tid)
@@ -3426,6 +3529,16 @@ def _run_preview_batch(
                         cancel_event=cancel_event,
                         private_key=private_key or None,
                     )
+                elif action == "PASSWORD":
+                    result = inspect_password(
+                        host=host,
+                        user=admin_user,
+                        password=candidate,
+                        target_user=value or OS_PASSWORD_DEFAULT_USER,
+                        line_callback=line_callback,
+                        cancel_event=cancel_event,
+                        private_key=private_key or None,
+                    )
                 else:
                     result = inspect_host(
                         host=host,
@@ -3486,6 +3599,7 @@ def _run_preview_batch(
                 "attention_kind": attention_kind,
                 "attention_reason": attention_reason,
                 "min_free_gb": min_free_gb if action == "APT" else None,
+                "target_user": value if action == "PASSWORD" else None,
             }
             ExecutionBatch.add_host_result(
                 batch_id=batch_id,
@@ -3596,6 +3710,7 @@ def _run_apply_batch(
     wallpaper_path: str = "",
     wallpaper_uri: str = "",
     min_free_gb: Optional[float] = None,
+    new_password: str = "",
 ) -> None:
     """Aplica el cambio en todos los hosts (best-effort) y registra cada uno.
 
@@ -3649,8 +3764,11 @@ def _run_apply_batch(
         _append_console(
             console_lines, tid, f"=== {host} ({index}/{total}) ==="
         )
+        console_secrets = list(candidates)
+        if new_password:
+            console_secrets.append(new_password)
         line_callback = _make_console_callback(
-            tid, host, console_lines, candidates
+            tid, host, console_lines, console_secrets
         )
 
         attempts = 0
@@ -3748,6 +3866,7 @@ def _run_apply_batch(
                     wallpaper_path=wallpaper_path,
                     wallpaper_uri=wallpaper_uri,
                     min_free_gb=min_free_gb,
+                    new_password=new_password,
                 )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_apply_error = str(exc)
@@ -3977,6 +4096,7 @@ def execute_with_progress(
     wallpaper_uri: str = "",
     wallpaper_name: str = "",
     min_free_gb: Optional[float] = None,
+    new_password: str = "",
 ) -> None:
     """Ejecuta una vista previa o un lote completo sobre todos los hosts.
 
@@ -4290,6 +4410,7 @@ def execute_with_progress(
                 wallpaper_path=wallpaper_path,
                 wallpaper_uri=wallpaper_uri,
                 min_free_gb=min_free_gb,
+                new_password=new_password,
             )
 
         if cancel_event is not None and cancel_event.is_set():

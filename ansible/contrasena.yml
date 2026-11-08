@@ -1,0 +1,138 @@
+---
+# Playbook de mantenimiento: cambio de contraseña de un usuario del sistema.
+#
+# Variables esperadas (--extra-vars desde la aplicación):
+#   target_user:  usuario local existente (por defecto ladmin)
+#   new_password: contraseña nueva (se envía por un fichero temporal 0600)
+#
+# Seguridad:
+#   - La contraseña nunca se pasa por la línea de comandos ni se muestra en la
+#     salida: chpasswd la recibe por stdin y la tarea usa ``no_log``.
+#   - No se guarda en SQLite, en el vault ni en los marcadores de estado.
+#   - Solo se admite un usuario existente y una contraseña sin caracteres de
+#     control (la app valida además que la repetición coincida).
+#
+# Marcadores de salida: PASSWORD_BEFORE_B64, PASSWORD_STATE_B64,
+# PASSWORD_CHANGED, PASSWORD_VERIFIED.
+- name: Cambiar la contraseña de un usuario del sistema
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    target_user: ladmin
+    new_password: ""
+
+  tasks:
+    - name: Validar los datos de la nueva contraseña
+      ansible.builtin.assert:
+        that:
+          - target_user is string
+          - target_user is match('^[a-z_][a-z0-9_.-]{0,31}$')
+          - new_password is string
+          - new_password | length >= 8
+          - new_password | length <= 512
+          - new_password is not search('[\x00-\x1f\x7f]')
+        fail_msg: >-
+          Datos de contraseña no válidos: revisa el usuario y la nueva
+          contraseña (mínimo 8 caracteres y sin caracteres de control).
+        success_msg: "Datos de contraseña válidos."
+      no_log: true
+
+    - name: Comprobar que el usuario existe
+      ansible.builtin.command:
+        argv:
+          - getent
+          - passwd
+          - "{{ target_user }}"
+      register: password_user_lookup
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Rechazar usuarios inexistentes
+      ansible.builtin.fail:
+        msg: "El usuario {{ target_user }} no existe en la estación."
+      when: password_user_lookup.rc != 0
+
+    - name: Leer el estado anterior de la contraseña
+      ansible.builtin.command:
+        argv:
+          - passwd
+          - -S
+          - "{{ target_user }}"
+      register: password_before
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Extraer el estado anterior
+      ansible.builtin.set_fact:
+        password_before_fields: "{{ (password_before.stdout | default('')).split() }}"
+        password_user_shell: >-
+          {{ ((password_user_lookup.stdout | default('')).split(':') | last | default('')) | trim }}
+
+    - name: Consolidar el estado anterior
+      ansible.builtin.set_fact:
+        password_before_state:
+          user: "{{ target_user }}"
+          exists: true
+          status: >-
+            {{ password_before_fields[1] if password_before_fields | length > 1 else '' }}
+          shell: "{{ password_user_shell }}"
+
+    - name: Publicar el estado anterior
+      ansible.builtin.debug:
+        msg: "PASSWORD_BEFORE_B64={{ password_before_state | to_json | b64encode }}"
+
+    - name: Cambiar la contraseña del usuario
+      ansible.builtin.command:
+        argv:
+          - chpasswd
+        stdin: "{{ target_user }}:{{ new_password }}"
+        stdin_add_newline: true
+      register: password_change
+      changed_when: password_change.rc == 0
+      no_log: true
+
+    - name: Leer el estado posterior de la contraseña
+      ansible.builtin.command:
+        argv:
+          - passwd
+          - -S
+          - "{{ target_user }}"
+      register: password_after
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Extraer la verificación
+      ansible.builtin.set_fact:
+        password_after_fields: "{{ (password_after.stdout | default('')).split() }}"
+
+    - name: Consolidar la verificación
+      ansible.builtin.set_fact:
+        password_status: >-
+          {{ password_after_fields[1] if password_after_fields | length > 1 else '' }}
+        password_verified: >-
+          {{ (password_after.rc == 0)
+             and ((password_after_fields[1] if password_after_fields | length > 1 else '') == 'P') }}
+
+    - name: Publicar el estado final
+      ansible.builtin.debug:
+        msg: "PASSWORD_STATE_B64={{ {
+          'user': target_user,
+          'exists': true,
+          'status': password_status,
+          'changed': password_change.changed,
+          'verified': password_verified | bool,
+          'reboot_required': false
+        } | to_json | b64encode }}"
+
+    - name: Publicar el cambio
+      ansible.builtin.debug:
+        msg: "PASSWORD_CHANGED={{ password_change.changed | bool }}"
+
+    - name: Publicar la verificación
+      ansible.builtin.debug:
+        msg: "PASSWORD_VERIFIED={{ password_verified | bool }}"

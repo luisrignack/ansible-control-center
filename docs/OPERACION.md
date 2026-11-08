@@ -242,6 +242,41 @@ Los resultados se ven en `/batches/<batch_id>` y `/history`; el botón
 Un lote con estaciones correctas y estaciones con atención queda en estado
 `partial`.
 
+### 2.9. Contraseña administrativa (Linux)
+
+La tarjeta **Contraseña administrativa** (`contrasena`) cambia la contraseña
+de un usuario local en estaciones Linux. Solo la puede lanzar un
+administrador y **no se puede programar**: la contraseña no se persiste en
+ningún sitio, por lo que no hay forma segura de transportarla a una ejecución
+desatendida.
+
+1. Abre `/tarea/contrasena`, elige la acción **Cambiar contraseña de usuario
+   (PASSWORD)**.
+2. Escribe el **usuario del sistema** al que se cambiará la contraseña. El
+   campo propone `ACC_OS_PASSWORD_DEFAULT_USER` (`ladmin` por defecto) y
+   admite cualquier usuario local existente con nombre válido.
+3. Escribe la **nueva contraseña** y **repítela**. El servidor exige que
+   coincidan y que tengan al menos `ACC_OS_PASSWORD_MIN_LENGTH` caracteres
+   (8 por defecto). La contraseña no se recorta ni se muestra en errores.
+4. **Vista previa** no pide contraseña: solo comprueba que el usuario exista
+   y muestra su estado. Si el usuario no existe, la estación se reporta como
+   fallo.
+5. **Ejecutar** exige la contraseña. La tarea es destructiva, así que otro
+   administrador debe aprobarla antes de que se aplique. Tras la aprobación,
+   vuelve a enviar el formulario con el usuario y la contraseña: el secreto no
+   forma parte de los parámetros de la aprobación y debe reescribirse.
+
+**Seguridad del secreto.** La contraseña se envía al playbook dentro del
+fichero temporal de variables (`0600`) y se entrega a `chpasswd` por `stdin`
+con `no_log: true`. No se guarda en SQLite, en el historial, en la consola, en
+los marcadores de estado, en los informes PDF ni en el vault. Los parámetros
+de aprobación solo contienen el usuario objetivo y los datos de la operación.
+
+**Resultado.** El playbook publica `PASSWORD_BEFORE_B64` y
+`PASSWORD_STATE_B64` (usuario, existencia, UID, shell y estado de
+`passwd -S`) y verifica que la cuenta quede con contraseña activa (`P`) en
+`PASSWORD_VERIFIED`. El valor visible del lote es el nombre del usuario.
+
 ---
 
 ## 3. Interpretación de resultados
@@ -250,7 +285,7 @@ Un lote con estaciones correctas y estaciones con atención queda en estado
 
 | Resultado | Origen | Interpretación |
 |---|---|---|
-| `success` | `apply_host` | Playbook ejecutado y verificado (`HORA_VERIFIED`, `TAPIZ_VERIFIED` o `APT_VERIFIED`) |
+| `success` | `apply_host` | Playbook ejecutado y verificado (`HORA_VERIFIED`, `TAPIZ_VERIFIED`, `APT_VERIFIED` o `PASSWORD_VERIFIED`) |
 | `failure` | `apply_host` | Sin acceso, playbook fallido o verificación incorrecta |
 | `error` | Vista previa | No se pudo inspeccionar/autenticar |
 | `preview` | Vista previa | Inspección correcta; incluye plan |
@@ -269,7 +304,9 @@ por el playbook (`timezone`, `ntp`, `ntp_synchronized`, `local_rtc`, `utc`,
 `os_id`, `os_version`, `os_pretty`, `hostname`, `ram_mb`, `cpu_cores`,
 `disk_total_gb`, `disk_free_gb`, `pending`, `blocked`, `space_ok`,
 `attention_kind`, `attention_reason` y `reboot_required`. En vista previa,
-`after_state` es el plan.
+`after_state` es el plan. Para `PASSWORD` contienen `user`, `exists`, `uid`,
+`shell`, `status` y, en ejecución, `changed`, `verified` y
+`reboot_required`. El secreto nunca aparece en estos estados.
 
 ### 3.3. Dónde mirar
 
@@ -617,7 +654,35 @@ Decisiones:
 - Debe ejecutarse dentro de la ventana de mantenimiento del grupo; los hosts
   críticos fuera de ventana quedan bloqueados por S1.
 
-### 8.6. Logs
+### 8.6. Cambio de contraseña de usuario (tarjeta Contraseña administrativa)
+
+La tarjeta **Contraseña administrativa** (`contrasena`) está operativa. El
+flujo completo está en §2.9. Equivalente manual del playbook:
+
+```bash
+# El nombre de usuario lo elige el operador; ladmin es el valor por defecto.
+printf '%s:%s\n' "$USER" "$NEW_PASSWORD" | sudo chpasswd
+sudo passwd -S "$USER"   # debe mostrar estado P
+```
+
+Decisiones:
+
+- La contraseña se pasa por `stdin`, nunca como argumento de `chpasswd` ni en
+  la línea de comandos del playbook, para que no aparezca en `ps`.
+- Las tareas de Ansible que manipulan el secreto usan `no_log: true`; la app
+  además redacta la contraseña de la consola en vivo.
+- El playbook solo admite un usuario existente y un nombre válido; no crea
+  usuarios.
+- La verificación exige que `passwd -S` devuelva `P` (contraseña activa). Si
+  no se puede verificar, el host se reporta como fallo.
+- La contraseña no se guarda: no hay historial de contraseñas ni
+  reprogramación segura. Para rotaciones periódicas, usa el gestor de secretos
+  corporativo y ejecuta la tarjeta manualmente.
+- Al ser destructiva, requiere la aprobación de un administrador distinto del
+  ejecutor. El aprobador autoriza el usuario objetivo, no el valor del
+  secreto; el ejecutor debe reescribir la contraseña después de la aprobación.
+
+### 8.7. Logs
 
 - `ACC_LOG_TO_FILE=1` escribe en `LOG_DIR/ansible-control-center.log` con rotación
   (`LOG_MAX_BYTES`, `LOG_BACKUPS`).

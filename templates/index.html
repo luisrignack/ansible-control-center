@@ -232,8 +232,76 @@
                                 Actualización segura del sistema (APT)
                             </option>
                             {% endif %}
+                            {% if 'PASSWORD' in selected_task.actions %}
+                            <option value="PASSWORD" {% if prefill.get('action') == 'PASSWORD' %}selected{% endif %}>
+                                Cambiar contraseña de usuario (PASSWORD)
+                            </option>
+                            {% endif %}
                         </select>
                     </div>
+
+                    {% if 'PASSWORD' in selected_task.actions %}
+                    <!-- Usuario del sistema al que se cambia la contraseña -->
+                    <div class="col-md-6 d-none" id="passwordUserField">
+                        <label for="targetUser" class="form-label fw-medium">
+                            <i class="bi bi-person-gear me-2"></i> Usuario del sistema
+                        </label>
+                        <input type="text" class="form-control" id="targetUser" name="target_user"
+                            value="{{ prefill.get('target_user') or os_password_default_user }}"
+                            placeholder="{{ os_password_default_user }}"
+                            pattern="[a-z_][a-z0-9_.-]{0,31}"
+                            autocomplete="off" spellcheck="false">
+                        <div class="form-text">
+                            Usuario local cuya contraseña se cambiará. Por defecto
+                            <code>{{ os_password_default_user }}</code>.
+                        </div>
+                    </div>
+
+                    <!-- Nueva contraseña y su repetición (solo ejecución) -->
+                    <div class="col-12 d-none" id="passwordSecretField">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label for="newPassword" class="form-label fw-medium">
+                                    <i class="bi bi-key me-2"></i> Nueva contraseña
+                                </label>
+                                <div class="password-field">
+                                    <input type="password" class="form-control" id="newPassword"
+                                        name="new_password" autocomplete="new-password"
+                                        minlength="{{ os_password_min_length }}"
+                                        maxlength="{{ os_password_max_length }}">
+                                    <button type="button" class="password-toggle"
+                                        data-password-toggle aria-pressed="false"
+                                        aria-label="Mostrar contraseña" title="Mostrar contraseña">
+                                        <i class="bi bi-eye" aria-hidden="true"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="newPasswordConfirm" class="form-label fw-medium">
+                                    <i class="bi bi-key-fill me-2"></i> Repetir contraseña
+                                </label>
+                                <div class="password-field">
+                                    <input type="password" class="form-control" id="newPasswordConfirm"
+                                        name="new_password_confirm" autocomplete="new-password"
+                                        minlength="{{ os_password_min_length }}"
+                                        maxlength="{{ os_password_max_length }}">
+                                    <button type="button" class="password-toggle"
+                                        data-password-toggle aria-pressed="false"
+                                        aria-label="Mostrar contraseña" title="Mostrar contraseña">
+                                        <i class="bi bi-eye" aria-hidden="true"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-text">
+                            Mínimo {{ os_password_min_length }} caracteres. Debe repetirse
+                            igual para evitar errores de escritura. La contraseña se envía
+                            al host por un canal privado y <strong>no se guarda</strong> en
+                            la base de datos, el historial ni el vault. La vista previa no
+                            necesita contraseña.
+                        </div>
+                    </div>
+                    {% endif %}
 
                     {% if 'APT' in selected_task.actions %}
                     <!-- Umbral mínimo de espacio libre para la actualización -->
@@ -547,6 +615,7 @@ const defaultNtpServers = {{ default_ntp_servers | tojson }};
 const dryRunEnabled = {{ dry_run | tojson }};
 const maxHosts = {{ max_hosts | tojson }};
 const maxUploadBytes = {{ max_upload_bytes | tojson }};
+const osPasswordMinLength = {{ os_password_min_length | tojson }};
 
 function splitTargetList(value) {
     return (value || '').split(',').map((piece) => piece.trim()).filter(Boolean);
@@ -581,6 +650,11 @@ function actionDisplayValue() {
     if (action && action.value === 'APT') {
         return 'Actualización segura (' + aptThresholdText() + ')';
     }
+    if (action && action.value === 'PASSWORD') {
+        const user = document.getElementById('targetUser');
+        const userText = (user && user.value.trim()) || '—';
+        return 'Cambio de contraseña de ' + userText;
+    }
     const valueInput = document.getElementById('actionValue');
     return (valueInput && valueInput.value) || '—';
 }
@@ -604,6 +678,41 @@ function validateWallpaperFile(event) {
         return false;
     }
     input.classList.remove('is-invalid');
+    return true;
+}
+
+function validatePasswordFields(event) {
+    const action = document.getElementById('action');
+    if (!action || action.value !== 'PASSWORD') return true;
+    const user = document.getElementById('targetUser');
+    const password = document.getElementById('newPassword');
+    const confirm = document.getElementById('newPasswordConfirm');
+    const execute = !!(event.submitter && event.submitter.value === 'execute');
+    for (const field of [user, password, confirm]) {
+        if (field) field.classList.remove('is-invalid');
+    }
+    // La vista previa solo comprueba que el usuario exista: no pide secreto.
+    if (!execute) return true;
+
+    let firstInvalid = null;
+    if (!user || !user.value.trim()) {
+        if (user) user.classList.add('is-invalid');
+        firstInvalid = firstInvalid || user;
+    }
+    const secret = password ? password.value : '';
+    if (secret.length < osPasswordMinLength) {
+        if (password) password.classList.add('is-invalid');
+        firstInvalid = firstInvalid || password;
+    }
+    if (!confirm || confirm.value !== secret) {
+        if (confirm) confirm.classList.add('is-invalid');
+        firstInvalid = firstInvalid || confirm;
+    }
+    if (firstInvalid) {
+        event.preventDefault();
+        firstInvalid.focus();
+        return false;
+    }
     return true;
 }
 
@@ -981,6 +1090,9 @@ function updateSummary() {
         value = selectedWallpaperName();
     } else if (action && action.value === 'APT') {
         value = 'Actualización segura · ' + aptThresholdText();
+    } else if (action && action.value === 'PASSWORD') {
+        const user = document.getElementById('targetUser');
+        value = 'Cambio de contraseña de ' + ((user && user.value.trim()) || '—');
     }
     const timeMode = document.getElementById('timeMode');
     const timeZone = document.getElementById('timeZone');
@@ -1071,9 +1183,15 @@ function timeModeFieldExists() {
 function updateValueField(action, currentValue) {
     const valueField = document.getElementById('valueField');
     const aptField = document.getElementById('aptField');
+    const passwordUserField = document.getElementById('passwordUserField');
+    const passwordSecretField = document.getElementById('passwordSecretField');
     const existing = document.getElementById('actionValue');
     if (aptField) aptField.classList.toggle('d-none', action !== 'APT');
-    if (valueField) valueField.classList.toggle('d-none', action === 'APT');
+    if (passwordUserField) passwordUserField.classList.toggle('d-none', action !== 'PASSWORD');
+    if (passwordSecretField) passwordSecretField.classList.toggle('d-none', action !== 'PASSWORD');
+    if (valueField) {
+        valueField.classList.toggle('d-none', action === 'APT' || action === 'PASSWORD');
+    }
     // Las tareas con valor fijo (p. ej. America/Caracas) no cambian el campo.
     if (existing && existing.dataset.fixed) {
         updateSummary();
@@ -1114,6 +1232,7 @@ const confirmModal = new bootstrap.Modal(confirmModalElement);
 
 execForm.addEventListener('submit', (event) => {
     if (!validateWallpaperFile(event)) return;
+    if (!validatePasswordFields(event)) return;
     if (currentTargetMode() === 'group') {
         if (targetGroupSelect && !targetGroupSelect.value) {
             event.preventDefault();
