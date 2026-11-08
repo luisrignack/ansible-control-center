@@ -135,11 +135,18 @@ ACC_HOST_KEY_CHECKING=0
 
 La app puede rellenar `known_hosts` con `ssh-keyscan`, pero está **desactivado
 por defecto** porque aceptar una huella en el primer contacto debilita TOFU.
-Actívalo solo en redes de gestión de confianza:
+Actívalo solo en redes de gestión de confianza, preferiblemente con el perfil
+de laboratorio en lugar de cambiar el `.env.docker` de producción:
 
-```env
-ACC_SSH_HOST_KEYS_AUTO=1
+```bash
+docker compose -f docker-compose.yml -f docker-compose.lab.yml up -d
 ```
+
+Ese perfil activa `ACC_SSH_HOST_KEYS_AUTO=1`. En producción, precarga huellas
+verificadas con `flask --app app sync-known-hosts` o con `ssh-keyscan` revisado
+manualmente. En un despliegue nuevo con el modo automático desactivado, el
+primer lote fallará para los hosts que no estén en `known_hosts`: es el
+comportamiento esperado (fail-closed).
 
 Las contraseñas candidatas se guardan cifradas con `ansible-vault` en el volumen
 `acc_secrets`. La contraseña maestra se introduce en la interfaz y no se

@@ -896,3 +896,75 @@ def test_manual_execution_forces_task_fixed_value(client, monkeypatch):
     # Posiciones de execute_with_progress: tid, target, admin_user, origin,
     # master_password, action, value, ...
     assert captured["args"][6] == "America/Caracas"
+
+
+def test_notifier_refuses_credentials_without_encryption(monkeypatch):
+    """Con usuario SMTP y sin TLS no se abre conexión: la clave no viaja en claro."""
+    import config as config_module
+    import services.notifier as notifier
+
+    monkeypatch.setattr(config_module, "SMTP_HOST", "smtp.example.com")
+    monkeypatch.setattr(config_module, "NOTIFY_TO", ["ops@example.com"])
+    monkeypatch.setattr(config_module, "NOTIFY_LEVEL", "all")
+    monkeypatch.setattr(config_module, "SMTP_USER", "usuario")
+    monkeypatch.setattr(config_module, "SMTP_PASSWORD", "secreto")
+    monkeypatch.setattr(config_module, "SMTP_STARTTLS", False)
+    monkeypatch.setattr(config_module, "SMTP_SSL", False)
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("no debe abrir SMTP sin cifrado")
+
+    monkeypatch.setattr(notifier.smtplib, "SMTP", forbidden)
+    monkeypatch.setattr(notifier.smtplib, "SMTP_SSL", forbidden)
+
+    error = notifier.notify_batch_result(FakeBatch(), [])
+    assert error and "sin cifrado" in error
+
+
+def test_notifier_uses_implicit_tls_with_credentials(monkeypatch):
+    import config as config_module
+    import services.notifier as notifier
+
+    monkeypatch.setattr(config_module, "SMTP_HOST", "smtp.example.com")
+    monkeypatch.setattr(config_module, "NOTIFY_TO", ["ops@example.com"])
+    monkeypatch.setattr(config_module, "NOTIFY_LEVEL", "all")
+    monkeypatch.setattr(config_module, "SMTP_USER", "usuario")
+    monkeypatch.setattr(config_module, "SMTP_PASSWORD", "secreto")
+    monkeypatch.setattr(config_module, "SMTP_STARTTLS", False)
+    monkeypatch.setattr(config_module, "SMTP_SSL", True)
+    monkeypatch.setattr(config_module, "SMTP_PORT", 465)
+
+    calls = {}
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=None, context=None):
+            calls["connect"] = (host, port)
+            calls["context"] = context is not None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def starttls(self, context=None):
+            calls["starttls"] = True
+
+        def login(self, user, password):
+            calls["login"] = (user, password)
+
+        def send_message(self, _message):
+            calls["sent"] = True
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("con TLS implícito no debe usarse SMTP plano")
+
+    monkeypatch.setattr(notifier.smtplib, "SMTP_SSL", FakeSMTP)
+    monkeypatch.setattr(notifier.smtplib, "SMTP", forbidden)
+
+    assert notifier.notify_batch_result(FakeBatch(), []) is None
+    assert calls["connect"] == ("smtp.example.com", 465)
+    assert calls["context"] is True
+    assert calls["login"] == ("usuario", "secreto")
+    assert calls["sent"] is True
+    assert "starttls" not in calls

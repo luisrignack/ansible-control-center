@@ -251,19 +251,26 @@ def test_admin_cancela_tarea_ajena(client, monkeypatch):
     assert app_module._get_task(task_id)["cancellation_requested"] is True
 
 
-def test_progress_oculta_cancelar_a_quien_no_es_dueno(client):
+def test_progress_solo_visible_para_dueno_o_admin(client):
     task_id = app_module.create_task(owner="alice")
     app_module.update_task(task_id, {"status": "running"})
 
     assert _login(client, "bob", "bob-password-123").status_code == 302
-    page = client.get(f"/progress/{task_id}")
-    assert page.status_code == 200
-    assert b"const canCancel = false;" in page.data
+    # Otro operador no puede ver la consola: recibe el mismo 404 que una tarea
+    # inexistente, sin confirmar que el identificador existe.
+    assert client.get(f"/progress/{task_id}").status_code == 404
+    assert client.get(f"/progress/{task_id}/events").status_code == 404
+    assert client.get(f"/api/task-status/{task_id}").get_json() == {
+        "status": "not_found",
+        "exists": False,
+    }
 
     _logout(client)
     assert _login(client, "alice", "alice-password-123").status_code == 302
     page = client.get(f"/progress/{task_id}")
+    assert page.status_code == 200
     assert b"const canCancel = true;" in page.data
+    assert client.get(f"/api/task-status/{task_id}").get_json()["exists"] is True
 
 
 # ---------------------------------------------------------------------------

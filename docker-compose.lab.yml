@@ -1,0 +1,19 @@
+# Perfil de laboratorio — solo para redes de gestión aisladas y de confianza.
+#
+# Relaja el único supuesto de seguridad que el despliegue de producción deja
+# cerrado a propósito: el aprovisionamiento automático de ``known_hosts`` con
+# ``ssh-keyscan``. Aceptar la huella del primer contacto (TOFU) permite que un
+# atacante en la red se haga pasar por el host y reciba después las
+# credenciales SSH, así que en producción debe usarse ``known_hosts``
+# pre-poblado o ``flask --app app sync-known-hosts`` con huellas verificadas.
+#
+# Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.lab.yml up -d
+#
+# No lo uses como base de un despliegue real.
+name: hora-admin
+
+services:
+  app:
+    environment:
+      ACC_SSH_HOST_KEYS_AUTO: "1"

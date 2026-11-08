@@ -7,8 +7,14 @@ Configuración por entorno (ver ``config.py``):
 - ``ACC_SMTP_USER`` / ``ACC_SMTP_PASSWORD``  credenciales opcionales.
 - ``ACC_SMTP_FROM``      remitente.
 - ``ACC_SMTP_STARTTLS``  activar STARTTLS (por defecto en 587).
+- ``ACC_SMTP_SSL``       TLS implícito tipo SMTPS (por defecto en 465).
 - ``ACC_NOTIFY_TO``      lista de destinatarios separados por comas.
 - ``ACC_NOTIFY_LEVEL``   ``off`` (por defecto), ``failures`` o ``all``.
+
+Con credenciales SMTP, el envío exige cifrado: si no hay STARTTLS ni TLS
+implícito se rechaza y se devuelve el motivo, para no enviar la contraseña en
+claro. El fallo se registra en el log y en la consola del lote; nunca tumba la
+ejecución.
 
 Nunca lanza excepciones hacia el flujo del lote: un fallo de correo se
 registra en el log y no debe afectar el resultado de la operación.
@@ -44,9 +50,20 @@ def _send(subject: str, body: str) -> Optional[str]:
         SMTP_HOST,
         SMTP_PASSWORD,
         SMTP_PORT,
+        SMTP_SSL,
         SMTP_STARTTLS,
         SMTP_USER,
     )
+
+    # Fail-closed: con credenciales, la conexión debe ir cifrada. Sin esta
+    # comprobación, un puerto 25 con usuario enviaría la contraseña en claro.
+    if SMTP_USER and not (SMTP_STARTTLS or SMTP_SSL):
+        error = (
+            "credenciales SMTP sin cifrado: activa ACC_SMTP_STARTTLS "
+            "(587) o ACC_SMTP_SSL (465)"
+        )
+        logger.warning("No se envía la notificación: %s", error)
+        return error
 
     try:
         message = EmailMessage()
@@ -55,9 +72,17 @@ def _send(subject: str, body: str) -> Optional[str]:
         message["To"] = ", ".join(NOTIFY_TO)
         message.set_content(body)
 
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as smtp:
-            if SMTP_STARTTLS:
-                smtp.starttls(context=ssl.create_default_context())
+        context = ssl.create_default_context()
+        client: Any
+        if SMTP_SSL:
+            client = smtplib.SMTP_SSL(
+                SMTP_HOST, SMTP_PORT, timeout=15, context=context
+            )
+        else:
+            client = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15)
+        with client as smtp:
+            if SMTP_STARTTLS and not SMTP_SSL:
+                smtp.starttls(context=context)
             if SMTP_USER:
                 smtp.login(SMTP_USER, SMTP_PASSWORD or "")
             smtp.send_message(message)

@@ -5,6 +5,47 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Bloque 0 de seguridad: autorización, TOFU y SMTP] — 2026-11-08
+
+### Seguridad
+
+- **Autorización de tareas (S3).** `/api/task-status/<task_id>`,
+  `/progress/<task_id>` y `/progress/<task_id>/events` solo devuelven la tarea
+  a su propietario o a un administrador. La regla vive en `_can_view_task`; las
+  tareas sin dueño (programaciones desatendidas) quedan reservadas a
+  administradores, igual que su cancelación. Quien no tiene permiso recibe el
+  mismo `404` que una tarea inexistente, para no confirmar que el identificador
+  existe. Antes, cualquier usuario autenticado podía leer la consola y el log
+  de una tarea ajena.
+- **TOFU SSH desactivado por defecto en Docker (S1).**
+  `docker-compose.yml` usa `ACC_SSH_HOST_KEYS_AUTO=0`, alineado con
+  `config.py`. El modo automático queda en el nuevo perfil
+  `docker-compose.lab.yml`, pensado solo para redes de laboratorio aisladas.
+  Un despliegue nuevo exige `known_hosts` pre-poblado o
+  `flask --app app sync-known-hosts`.
+- **SMTP fail-closed (S4).** Con credenciales SMTP y sin STARTTLS ni TLS
+  implícito, el notificador rechaza el envío y deja el motivo en la consola del
+  lote, en lugar de transmitir la contraseña en claro. Nueva variable
+  `ACC_SMTP_SSL` (activa por defecto en el puerto 465) para SMTPS.
+
+### Añadido
+
+- `docker-compose.lab.yml`: perfil de laboratorio que activa el
+  aprovisionamiento automático de `known_hosts`.
+- Pruebas de autorización por rol y propiedad (operador, viewer, admin y tarea
+  sin dueño) en `tests/test_security.py`, y de SMTP con y sin cifrado en
+  `tests/test_ops.py`. Una prueba adicional fija el default de Compose en `0`.
+
+### Cambiado
+
+- `README.md`, `DEPLOYMENT.md`, `docs/DOCKER.md`, `docs/REFERENCIA.md` y
+  `.env.docker.example` describen el nuevo default de SSH, el perfil de
+  laboratorio, la autorización de tareas y las variables SMTP.
+- `docs/AUDITORIA_TECNICA_2026-11-08.md` marca S1, S3 y S4 como corregidos,
+  corrige el alcance real de S3 (también afectaba al SSE) y actualiza la nota
+  de seguridad a 8,5/10.
+- Suite: **365 passed, 1 skipped** (366 recopiladas).
+
 ## [Auditoría técnica documentada] — 2026-11-08
 
 ### Añadido
@@ -15,23 +56,21 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
   S1–S7 (seguridad), A1–A8 (arquitectura), T1–T3 (pruebas) y D1–D6
   (despliegue/CI), las correcciones al análisis original y un plan de
   corrección por bloques 0–4.
-- **Correcciones al análisis original**: el hueco de autorización está en
-  `api_task_status` (`app.py`, `/api/task-status/<task_id>`), no en el SSE;
+- **Correcciones al análisis original**: el hueco de autorización afectaba a
+  `api_task_status`, a la página de progreso y al SSE (no solo al SSE);
   `execute_with_progress` tiene 26 argumentos, no 27; 9 de 24 archivos de
-  prueba llevan fecha o nombre de sprint; la suite actual es 359 passed y
-  1 skipped.
+  prueba llevan fecha o nombre de sprint; la suite era 359 passed y 1 skipped.
 - **Nota de seguridad ajustada a 8/10** (antes 8,5/10) por los defaults de
   `docker-compose.yml` y el endpoint de estado sin control de propiedad.
 
 ### Notas
 
 - Este cambio es **solo documental**: no aplica ninguna de las correcciones
-  propuestas. Los hallazgos quedan registrados como abiertos y el bloque 0 del
-  plan (autorización de `/api/task-status`, defaults de Compose, SMTP
-  fail-closed, secretos `_FILE` y permisos 0750) es la siguiente acción
-  recomendada.
-- Índices actualizados en `docs/README.md` y `README.md`; el contador de
-  pruebas del README se alinea con la suite actual.
+  propuestas. Los hallazgos quedan registrados como abiertos; el bloque 0 del
+  plan es la siguiente acción recomendada.
+- Índices actualizados en `docs/README.md` y `README.md`.
+- **Actualización posterior el mismo día:** se aplicaron S1, S3 y S4; ver la
+  entrada «Bloque 0 de seguridad: autorización, TOFU y SMTP».
 
 ## [Contraseña administrativa operativa] — 2026-11-07
 

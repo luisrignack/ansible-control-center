@@ -33,9 +33,11 @@ services:
       ACC_ADMIN_PASSWORD: "${ACC_ADMIN_PASSWORD:-}"
       ACC_DRY_RUN: "${ACC_DRY_RUN:-1}"
       ACC_HOST_KEY_CHECKING: "${ACC_HOST_KEY_CHECKING:-1}"
-      # Aprovisiona known_hosts con ssh-keyscan antes de cada lote. Cubre
-      # también IPs nuevas; el volumen acc_ssh conserva las huellas.
-      ACC_SSH_HOST_KEYS_AUTO: "${ACC_SSH_HOST_KEYS_AUTO:-1}"
+      # Aprovisiona known_hosts con ssh-keyscan antes de cada lote. Desactivado
+      # por defecto: aceptar la huella del primer contacto debilita TOFU. Para
+      # laboratorio o primera instalación controlada usa el perfil
+      # docker-compose.lab.yml o activa ACC_SSH_HOST_KEYS_AUTO=1 a conciencia.
+      ACC_SSH_HOST_KEYS_AUTO: "${ACC_SSH_HOST_KEYS_AUTO:-0}"
       # Ruta alternativa de known_hosts (vacío = /home/acc/.ssh/known_hosts).
       ACC_KNOWN_HOSTS_FILE: "${ACC_KNOWN_HOSTS_FILE:-}"
       ACC_ALLOWED_NETWORKS: "${ACC_ALLOWED_NETWORKS:-}"

@@ -452,6 +452,10 @@ SMTP_USER = os.environ.get("ACC_SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("ACC_SMTP_PASSWORD", "")
 SMTP_FROM = os.environ.get("ACC_SMTP_FROM", "")
 SMTP_STARTTLS = _env_bool("ACC_SMTP_STARTTLS", SMTP_PORT == 587)
+# TLS implícito (SMTPS, normalmente puerto 465): la conexión nace cifrada y no
+# se negocia STARTTLS. Sin STARTTLS ni TLS implícito, el notificador rechaza
+# enviar credenciales en claro.
+SMTP_SSL = _env_bool("ACC_SMTP_SSL", SMTP_PORT == 465)
 NOTIFY_LEVEL = os.environ.get("ACC_NOTIFY_LEVEL", "off").strip().lower()
 NOTIFY_TO = [
     addr.strip()

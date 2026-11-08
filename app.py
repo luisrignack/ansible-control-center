@@ -1331,6 +1331,25 @@ def _refresh_task_from_db(
         return persisted
 
 
+def _task_viewer_actor() -> str:
+    """Identidad del usuario actual para compararla con el dueño de la tarea."""
+    return getattr(current_user, "username", "") or str(current_user.get_id())
+
+
+def _can_view_task(task: Dict[str, Any]) -> bool:
+    """Indica si el usuario actual puede ver la tarea completa.
+
+    La tarea incluye consola, log y metadatos de ejecución, así que solo la
+    ven su dueño y los administradores. Las tareas sin dueño (programaciones
+    desatendidas) quedan reservadas a los administradores, igual que su
+    cancelación. Para no revelar la existencia de tareas ajenas, quien no
+    tiene permiso recibe el mismo 404 que una tarea inexistente.
+    """
+    if current_user.has_role("admin"):
+        return True
+    return str(task.get("owner") or "") == _task_viewer_actor()
+
+
 def _get_task(
     tid: str, refresh: bool = False
 ) -> Optional[Dict[str, Any]]:
@@ -4507,9 +4526,9 @@ def execute_with_progress(
 @login_required
 def progress_page(task_id: str):
     task = _get_task(task_id, refresh=True)
-    if task is None:
+    if task is None or not _can_view_task(task):
         abort(404)
-    actor = getattr(current_user, "username", "") or str(current_user.get_id())
+    actor = _task_viewer_actor()
     can_cancel = current_user.has_role("admin") or str(
         task.get("owner") or ""
     ) == actor
@@ -4521,7 +4540,8 @@ def progress_page(task_id: str):
 @app.route("/progress/<task_id>/events")
 @login_required
 def progress_sse(task_id: str):
-    if _get_task(task_id, refresh=True) is None:
+    task = _get_task(task_id, refresh=True)
+    if task is None or not _can_view_task(task):
         abort(404)
     response = Response(
         stream_with_context(generate_progress_events(task_id)),
@@ -4536,7 +4556,9 @@ def progress_sse(task_id: str):
 @login_required
 def api_task_status(task_id: str):
     task = _get_task(task_id, refresh=True)
-    if task is None:
+    if task is None or not _can_view_task(task):
+        # Mismo resultado que una tarea inexistente: no se confirma que el
+        # identificador pertenece a otro usuario.
         response = jsonify({"status": "not_found", "exists": False})
     else:
         response = jsonify({**task, "exists": True})

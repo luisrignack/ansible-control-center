@@ -34,8 +34,8 @@ El procedimiento completo está en [AGENTS.md](AGENTS.md).
 Fases **P0–P4, P4.1, P4.2 y bloque de operación continua** completadas,
 junto con las correcciones de alta prioridad del
 [análisis profundo 2026-11-06](docs/ANALISIS_PROFUNDO_2026-11-06.md).
-Suite de pruebas: **359 tests en verde y 1 integración SSH opcional omitida
-por defecto** (360 recopilados). Incluye empaquetado Docker con Nginx y TLS.
+Suite de pruebas: **364 tests en verde y 1 integración SSH opcional omitida
+por defecto** (366 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 | Fase | Contenido |
 |---|---|
@@ -187,8 +187,14 @@ por defecto** (360 recopilados). Incluye empaquetado Docker con Nginx y TLS.
   `--extra-vars @fichero`, nunca en la línea de comandos.
 - Verificación estricta de clave SSH (`known_hosts`) por defecto. El
   provisionamiento automático con `ssh-keyscan` es **opcional y desactivado
-  por defecto** (`ACC_SSH_HOST_KEYS_AUTO=1`): aceptar una huella en el primer
-  contacto debilita el modelo TOFU.
+  por defecto**, también en Docker (`ACC_SSH_HOST_KEYS_AUTO=0`): aceptar una
+  huella en el primer contacto debilita el modelo TOFU. Para laboratorio
+  existe `docker-compose.lab.yml`.
+- Consola, log y estado de una tarea visibles solo para su dueño y los
+  administradores: `/api/task-status`, la página de progreso y el SSE aplican
+  la misma regla; el resto recibe el mismo 404 que una tarea inexistente.
+- Con credenciales SMTP, el envío exige STARTTLS o TLS implícito: el
+  notificador rechaza el correo sin cifrar.
 - Modo temporal `.txt`: el archivo se procesa en memoria y no se guarda.
 
 ### Registro y auditoría
@@ -372,7 +378,7 @@ una `ACC_SECRET_KEY` aleatoria.
 |---|---|---|
 | `ACC_DRY_RUN` | `1` | No ejecuta Ansible real |
 | `ACC_HOST_KEY_CHECKING` | `1` | Verificación estricta de clave SSH |
-| `ACC_SSH_HOST_KEYS_AUTO` | `0` | Provisiona `known_hosts` con `ssh-keyscan` (debilita TOFU; solo redes de confianza) |
+| `ACC_SSH_HOST_KEYS_AUTO` | `0` | Provisiona `known_hosts` con `ssh-keyscan` (debilita TOFU; solo redes de confianza). El `docker-compose.yml` incluido mantiene `0`; el perfil `docker-compose.lab.yml` lo activa |
 | `ACC_KNOWN_HOSTS_FILE` | vacío | Ruta alternativa de `known_hosts`; vacío usa `$HOME/.ssh/known_hosts` |
 | `ACC_MAX_HOSTS` | `256` | Máximo de hosts por ejecución |
 | `ACC_MIN_CIDR_PREFIX` | `22` | Prefijo IPv4 mínimo aceptado |
@@ -459,12 +465,17 @@ una `ACC_SECRET_KEY` aleatoria.
 | Variable | Por defecto | Descripción |
 |---|---|---|
 | `ACC_SMTP_HOST` | vacío | Servidor SMTP; vacío desactiva el envío |
-| `ACC_SMTP_PORT` | `25` | Puerto SMTP (`587` con STARTTLS) |
+| `ACC_SMTP_PORT` | `25` | Puerto SMTP (`587` con STARTTLS, `465` con TLS implícito) |
 | `ACC_SMTP_USER` / `ACC_SMTP_PASSWORD` | — | Credenciales opcionales |
 | `ACC_SMTP_FROM` | usuario SMTP | Remitente |
-| `ACC_SMTP_STARTTLS` | según puerto | Activa STARTTLS |
+| `ACC_SMTP_STARTTLS` | `1` en 587 | STARTTLS |
+| `ACC_SMTP_SSL` | `1` en 465 | TLS implícito (SMTPS) |
 | `ACC_NOTIFY_TO` | vacío | Destinatarios separados por comas |
 | `ACC_NOTIFY_LEVEL` | `off` | `off`, `failures` o `all` |
+
+Con credenciales SMTP, el envío exige cifrado: si no hay STARTTLS ni TLS
+implícito, el notificador rechaza el correo y deja el motivo en la consola del
+lote, en lugar de enviar la contraseña en claro.
 
 ### Programaciones
 

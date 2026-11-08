@@ -24,21 +24,24 @@ corregidos. La deuda principal no es de corrección funcional, sino
   ejecución.
 - El estado de tareas vive en memoria y limita el despliegue a un worker.
 - La cadena de build y el CI pueden endurecerse.
-- Quedan dos defaults de seguridad mejorables en Docker y un hueco de
-  autorización en la API de estado.
+- Tras el endurecimiento del 2026-11-08 queda un default de seguridad
+  mejorable en Docker (WinRM) y dos cuestiones operativas (permisos y secretos
+  por entorno).
 
 | Área | Nota orientativa | Comentario |
 |---|---:|---|
-| Seguridad | 8/10 | Defensa en profundidad real; dos defaults de compose y un endpoint que revisar |
+| Seguridad | 8,5/10 | Defensa en profundidad real; S1, S3 y S4 cerrados; queda WinRM por defecto |
 | Corrección funcional | 8/10 | Flujos completos, idempotencia y verificación posterior |
 | Arquitectura | 5/10 | Monolito de 5.485 líneas; estado en memoria y motor sin extraer |
 | Pruebas | 7/10 | Suite amplia; integración real de LDAP/WinRM/scheduler incompleta |
 | Despliegue / CI | 6/10 | Build de imagen no reproducible y gates todavía laxos |
 | Documentación | 8/10 | Extensa y mayormente fiel; alguna deriva menor en el paquete portable |
 
-La nota de seguridad del análisis original era 8,5/10. La rebajo a 8/10 por
-coherencia entre lo que el código promete y lo que activa el despliegue por
-defecto; no por un fallo crítico.
+La nota de seguridad del análisis original era 8,5/10. En la primera versión de
+este documento se rebajó a 8/10 por los dos defaults de Compose y el hueco de
+autorización. Tras cerrar S1, S3 y S4 (2026-11-08) vuelve a **8,5/10**: sigue
+pendiente el default de WinRM y las mejoras operativas, pero ya no hay ningún
+hallazgo de autorización abierto.
 
 ---
 
@@ -66,6 +69,10 @@ Comprobaciones ejecutadas sobre el árbol actual, sin modificar código:
 La verificación fue estática y de ejecución local. No se probó contra
 infraestructura real LDAP, WinRM ni SSH; esas pruebas siguen siendo opcionales
 o simuladas, como se indica en los hallazgos.
+
+Las cifras de la tabla corresponden al estado **previo** al endurecimiento del
+bloque 0. Tras aplicar S1, S3 y S4, la suite queda en **365 passed, 1 skipped**
+(366 recopiladas) y el gate de calidad sigue en verde.
 
 ---
 
@@ -100,17 +107,17 @@ hallazgos críticos ni altos.
 
 | ID | Hallazgo | Severidad | Estado |
 |---|---|---|---|
-| S1 | TOFU SSH activado por defecto en Docker | Media | Abierto |
-| S2 | WinRM sin TLS por defecto (5985 + NTLM) | Media | Abierto |
-| S3 | `/api/task-status` permite leer consolas ajenas | Media-baja | Abierto |
-| S4 | SMTP sin cifrar si se usan credenciales fuera del puerto 587 | Baja | Abierto |
+| S1 | TOFU SSH activado por defecto en Docker | Media | **Corregido 2026-11-08** |
+| S2 | WinRM sin TLS por defecto (5985 + NTLM) | Media | Abierto (diferido) |
+| S3 | `/api/task-status` permite leer consolas ajenas | Media-baja | **Corregido 2026-11-08** |
+| S4 | SMTP sin cifrar si se usan credenciales fuera del puerto 587 | Baja | **Corregido 2026-11-08** |
 | S5 | Rate limiter en memoria por proceso | Baja | Limitación aceptada con 1 worker |
 | S6 | `certs/` e `instance/` con permisos 0775 | Baja | Abierto |
 | S7 | Secretos por variable de entorno en `docker inspect` | Baja-media | Abierto |
 
 #### S1. TOFU SSH por defecto en Docker
 
-**Evidencia:** `docker-compose.yml:38` define
+**Evidencia:** `docker-compose.yml:38` definía
 `ACC_SSH_HOST_KEYS_AUTO: "${ACC_SSH_HOST_KEYS_AUTO:-1}"`, mientras que
 `config.py:484` usa `False` por defecto.
 
@@ -120,6 +127,12 @@ MITM en el primer contacto podría recibir después las credenciales SSH.
 **Recomendación:** alinear compose con el default seguro (`0`), documentar el
 modo automático como perfil de laboratorio o primera instalación controlada, y
 exigir `known_hosts` pre-poblado en producción.
+
+**Estado: corregido el 2026-11-08.** `docker-compose.yml` usa `0` por defecto;
+`docker-compose.lab.yml` activa el modo automático solo en laboratorio;
+`.env.docker.example`, `README.md`, `DEPLOYMENT.md` y `docs/DOCKER.md`
+describen el nuevo comportamiento y el fail-closed esperado. Una prueba en
+`tests/test_security.py` comprueba que el default de compose sigue en `0`.
 
 #### S2. WinRM sin TLS por defecto
 
@@ -132,35 +145,52 @@ transporte `ntlm`; `docker-compose.yml:52-53` repite esos valores.
 **Recomendación:** usar 5986 + TLS + `validate` como default de producción y
 dejar 5985/NTLM en un perfil `lab` explícito.
 
-#### S3. `/api/task-status` sin control de propiedad
+**Estado: abierto y diferido a propósito.** Cambiar el default puede dejar
+fuera de servicio estaciones Windows que hoy usan HTTP; antes hay que
+inventariar los hosts y decidir el perfil de compatibilidad.
 
-**Evidencia:** `app.py:4537` define `api_task_status` solo con
-`@login_required`; devuelve el diccionario completo de la tarea, incluidos
-`console`, `log` y `password_hash`. El SSE sí comprueba propietario o admin en
-`app.py:4563`.
+#### S3. Tareas visibles para cualquier usuario autenticado
+
+**Evidencia:** `api_task_status` (`app.py`) solo tenía `@login_required` y
+devolvía el diccionario completo de la tarea, incluidos `console`, `log` y
+`password_hash`. El SSE (`progress_sse`) y la página de progreso tampoco
+comprobaban propiedad: solo `cancel_task` lo hacía.
 
 **Impacto:** divulgación de consolas y metadatos entre usuarios autenticados.
 Mitigado porque los IDs son UUID no adivinables y la consola redacta secretos.
 
-**Recomendación:** devolver el estado completo solo al propietario o admin y
-`403` (o un subconjunto mínimo) al resto, igual que el SSE. Añadir pruebas de
-autorización.
+**Recomendación:** permitir el estado completo solo al propietario o admin.
 
-> **Corrección al análisis original:** el hallazgo “viewer ve consolas ajenas”
-> es correcto en el fondo, pero la ruta citada (`app.py:4521`, SSE) no es el
-> origen. El SSE está protegido; el hueco real es `api_task_status`.
+**Estado: corregido el 2026-11-08.** `_can_view_task` centraliza la regla
+(propietario o administrador; las tareas sin dueño quedan reservadas a
+administradores, igual que su cancelación) y se aplica a
+`/api/task-status/<task_id>`, `/progress/<task_id>` y
+`/progress/<task_id>/events`. Quien no tiene permiso recibe el mismo `404` que
+una tarea inexistente, para no confirmar que el identificador existe. Pruebas
+en `tests/test_security.py` (operador, viewer, admin y tarea sin dueño) y en
+`tests/test_mejoras_2026_11_06_parte2.py`.
+
+> **Corrección a este documento:** la primera versión afirmaba que el SSE ya
+> comprobaba propietario o admin. No era así: la comprobación citada pertenecía
+> a `cancel_task`. El hueco afectaba al endpoint de estado, a la página de
+> progreso y al SSE.
 
 #### S4. SMTP sin cifrar con credenciales
 
-**Evidencia:** `services/notifier.py:58-62` usa `smtplib.SMTP` y solo llama a
-`starttls()` si `SMTP_STARTTLS` es verdadero. `config.py:450` y `config.py:454`
-hacen que STARTTLS sea verdadero solo en el puerto 587.
+**Evidencia:** `services/notifier.py` usaba `smtplib.SMTP` y solo llamaba a
+`starttls()` si `SMTP_STARTTLS` era verdadero. `config.py` hacía que STARTTLS
+fuera verdadero solo en el puerto 587.
 
 **Impacto:** con usuario y contraseña SMTP en el puerto 25, las credenciales
-viajan sin cifrar. Mitigado porque el notificador está apagado por defecto.
+viajaban sin cifrar. Mitigado porque el notificador está apagado por defecto.
 
 **Recomendación:** rechazar el envío si hay credenciales y no hay STARTTLS o
-TLS implícito; valorar soporte de 465 con `SMTP_SSL`.
+TLS implícito; soportar 465 con `SMTP_SSL`.
+
+**Estado: corregido el 2026-11-08.** El notificador rechaza el envío con
+credenciales si no hay STARTTLS ni TLS implícito y devuelve el motivo, que
+aparece en la consola del lote. Se añadió `ACC_SMTP_SSL` (por defecto activo
+en 465) para SMTPS. Pruebas en `tests/test_ops.py`.
 
 #### S5. Rate limiter en memoria
 
@@ -325,13 +355,13 @@ La lectura de lotes e historial por parte de un `viewer` es intencionada
 
 | Punto del análisis | Matiz verificado |
 |---|---|
-| “Viewer ve consolas ajenas (`app.py:4521`)” | El SSE está protegido; el hueco real es `api_task_status` (`app.py:4537`) |
+| “Viewer ve consolas ajenas (`app.py:4521`)” | El hueco afectaba a `api_task_status`, a la página de progreso y al SSE; los tres se corrigen el 2026-11-08 |
 | “`execute_with_progress` 27–28 parámetros” | Son **26** argumentos por AST; `_run_apply_batch` sí tiene 28 |
 | “8 de 24 tests con fecha” | Ahora son **9 de 24** tras añadir `test_contrasena_2026_11_07.py` |
-| “344 tests en verde” | El estado actual es **359 passed, 1 skipped** (360 recopilados) |
+| “344 tests en verde” | Antes del endurecimiento: **359 passed, 1 skipped** (360 recopilados) |
 | “`dist/` obsoleto” | Se regeneró y apunta a `0a96da7b115e`; sigue siendo un artefacto a regenerar |
 | “Build no reproducible” | Correcto para la imagen; el CI sí tiene un job `lock` que instala el lockfile |
-| “Seguridad 8,5/10” | Se ajusta a **8/10** por los defaults de compose y el endpoint de estado |
+| “Seguridad 8,5/10” | Bajó a **8/10** con el análisis; vuelve a **8,5/10** tras cerrar S1, S3 y S4 |
 
 ---
 
@@ -339,16 +369,22 @@ La lectura de lotes e historial por parte de un `viewer` es intencionada
 
 ### Bloque 0 — Seguridad inmediata (0,5–1 día)
 
-1. Autorizar `api_task_status` por propietario/admin.
-2. Alinear compose con el default seguro de SSH y pasar WinRM a 5986/TLS.
-3. SMTP fail-closed si hay credenciales sin TLS.
-4. Cablear `_FILE` para secretos en Compose.
-5. Ajustar permisos de `certs/` e `instance/` a 0750.
-6. Documentar el modelo de confianza y los perfiles de laboratorio.
+1. ~~Autorizar `api_task_status` por propietario/admin.~~ **Hecho el 2026-11-08**
+   (extendido a la página de progreso y al SSE).
+2. ~~Alinear compose con el default seguro de SSH~~ **Hecho el 2026-11-08**;
+   pasar WinRM a 5986/TLS queda pendiente (diferido).
+3. ~~SMTP fail-closed si hay credenciales sin TLS.~~ **Hecho el 2026-11-08**,
+   con soporte de TLS implícito (`ACC_SMTP_SSL`).
+4. Cablear `_FILE` para secretos en Compose. Pendiente.
+5. Ajustar permisos de `certs/` e `instance/` a 0750. Pendiente: verificar
+   antes que Nginx y la app conservan acceso.
+6. ~~Documentar el modelo de confianza y los perfiles de laboratorio.~~
+   **Hecho el 2026-11-08** (`docker-compose.lab.yml` y guías).
 
-**Criterio de cierre:** un despliegue nuevo no acepta TOFU ni WinRM HTTP sin
-una activación explícita; ningún usuario puede leer la consola de otro; las
-pruebas de autorización y TLS pasan.
+**Criterio de cierre:** un despliegue nuevo no acepta WinRM HTTP sin una
+activación explícita; ningún usuario puede leer la consola de otro; las
+pruebas de autorización y TLS pasan. Los dos primeros puntos ya se cumplen;
+el de WinRM sigue abierto.
 
 ### Bloque 1 — Cadena de suministro y CI (1–2 días)
 
@@ -430,3 +466,11 @@ si se respeta ese orden.
 Este documento es la referencia de la auditoría del 2026-11-08. Las
 correcciones que se apliquen deben actualizar su estado, el `CHANGELOG.md` y
 las pruebas correspondientes.
+
+### Actualización 2026-11-08 — bloque 0 parcial
+
+Se aplicaron S1 (compose sin TOFU por defecto), S3 (autorización de tareas) y
+S4 (SMTP fail-closed), con pruebas de regresión, documentación y un perfil
+`docker-compose.lab.yml` para laboratorio. Siguen abiertos S2 (WinRM), S6
+(permisos), S7 (secretos `_FILE`) y todo el bloque 1. El siguiente paso
+recomendado es el lockfile con hashes y el build reproducible de la imagen.

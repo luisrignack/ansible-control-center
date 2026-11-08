@@ -325,3 +325,103 @@ def test_resolve_target_rejects_comma_list_above_max_hosts():
         )
         == []
     )
+
+
+# ---------------------------------------------------------------------------
+# Autorización de tareas: consola, log y estado solo para dueño o admin
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def auth_client(tmp_path, monkeypatch):
+    """Cliente con tres roles y base de datos propia por prueba."""
+    from models.user import User
+
+    db_path = str(tmp_path / "auth.db")
+    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    app_module.init_db()
+    User.create_or_update(
+        "admin", "admin-password-123", db_path=db_path, role="admin"
+    )
+    User.create_or_update(
+        "operador", "operador-password-123", db_path=db_path, role="operator"
+    )
+    User.create_or_update(
+        "viewer", "viewer-password-123", db_path=db_path, role="viewer"
+    )
+    app_module.app.config.update(TESTING=True)
+    with app_module.app.test_client() as client:
+        yield client
+
+
+def _auth_token(client) -> str:
+    with client.session_transaction() as sess:
+        token = sess.get("_csrf_token")
+    if not token:
+        client.get("/login")
+        with client.session_transaction() as sess:
+            token = sess.get("_csrf_token")
+    return token
+
+
+def _login_as(client, username: str, password: str):
+    with client.session_transaction() as sess:
+        sess.clear()
+    return client.post(
+        "/login",
+        data={
+            "username": username,
+            "password": password,
+            "csrf_token": _auth_token(client),
+        },
+    )
+
+
+def test_task_status_only_for_owner_or_admin(auth_client):
+    task_id = app_module.create_task(owner="operador")
+
+    _login_as(auth_client, "operador", "operador-password-123")
+    response = auth_client.get(f"/api/task-status/{task_id}")
+    assert response.status_code == 200
+    assert response.get_json()["exists"] is True
+
+    _login_as(auth_client, "viewer", "viewer-password-123")
+    response = auth_client.get(f"/api/task-status/{task_id}")
+    assert response.status_code == 200
+    assert response.get_json() == {"status": "not_found", "exists": False}
+
+    _login_as(auth_client, "admin", "admin-password-123")
+    response = auth_client.get(f"/api/task-status/{task_id}")
+    assert response.status_code == 200
+    assert response.get_json()["exists"] is True
+
+
+def test_progress_page_and_sse_match_task_ownership(auth_client):
+    task_id = app_module.create_task(owner="operador")
+
+    _login_as(auth_client, "viewer", "viewer-password-123")
+    assert auth_client.get(f"/progress/{task_id}").status_code == 404
+    assert auth_client.get(f"/progress/{task_id}/events").status_code == 404
+
+    _login_as(auth_client, "operador", "operador-password-123")
+    assert auth_client.get(f"/progress/{task_id}").status_code == 200
+
+
+def test_ownerless_task_is_reserved_to_admins(auth_client):
+    task_id = app_module.create_task()
+
+    _login_as(auth_client, "operador", "operador-password-123")
+    response = auth_client.get(f"/api/task-status/{task_id}")
+    assert response.get_json() == {"status": "not_found", "exists": False}
+
+    _login_as(auth_client, "admin", "admin-password-123")
+    response = auth_client.get(f"/api/task-status/{task_id}")
+    assert response.get_json()["exists"] is True
+
+
+def test_compose_does_not_enable_ssh_tofu_by_default():
+    """El default de despliegue no acepta huellas SSH del primer contacto."""
+    root = Path(__file__).resolve().parent.parent
+    compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
+    assert 'ACC_SSH_HOST_KEYS_AUTO: "${ACC_SSH_HOST_KEYS_AUTO:-0}"' in compose
+
+    lab = (root / "docker-compose.lab.yml").read_text(encoding="utf-8")
+    assert 'ACC_SSH_HOST_KEYS_AUTO: "1"' in lab

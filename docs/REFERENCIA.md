@@ -15,9 +15,9 @@ contrato de los playbooks.
 | POST | `/` | Sí | Ejecuta según `mode` (`preview`/`execute`) |
 | POST | `/preview` | Sí | Alias de vista previa |
 | POST | `/execute` | Sí | Alias de ejecución |
-| GET | `/progress/<task_id>` | Sí | Página de progreso |
-| GET | `/progress/<task_id>/events` | Sí | Stream SSE |
-| GET | `/api/task-status/<task_id>` | Sí | Estado JSON de la tarea |
+| GET | `/progress/<task_id>` | Sí (dueño/admin) | Página de progreso |
+| GET | `/progress/<task_id>/events` | Sí (dueño/admin) | Stream SSE |
+| GET | `/api/task-status/<task_id>` | Sí (dueño/admin) | Estado JSON de la tarea |
 | GET | `/batches/<batch_id>` | Sí | Detalle del lote |
 | GET | `/preview/<batch_id>` | Sí | Redirección a `/batches/<batch_id>` |
 | GET, POST | `/passwords` | Sí | Gestión del vault |

@@ -114,7 +114,7 @@ flask --app app init-admin
 | `ACC_LOG_DIR` | `/var/log/ansible-control-center` | Logs |
 | `ACC_DRY_RUN` | `1` | Modo simulación inicial (luego se controla desde la interfaz) |
 | `ACC_HOST_KEY_CHECKING` | `1` | Verificación estricta de host SSH |
-| `ACC_SSH_HOST_KEYS_AUTO` | `0` | Rellenar `known_hosts` con `ssh-keyscan` (debilita TOFU; solo redes de confianza). El `docker-compose.yml` incluido lo activa por defecto (`1`). |
+| `ACC_SSH_HOST_KEYS_AUTO` | `0` | Rellenar `known_hosts` con `ssh-keyscan` (debilita TOFU; solo redes de confianza). El `docker-compose.yml` incluido mantiene `0`; usa `docker-compose.lab.yml` solo en laboratorio. |
 | `ACC_KNOWN_HOSTS_FILE` | vacío | Ruta alternativa de `known_hosts`; vacío usa `$HOME/.ssh/known_hosts` |
 | `ACC_LDAP_ENABLED` | `0` | Activa la autenticación corporativa LDAP |
 | `ACC_LDAP_URL` | vacío | Debe usar `ldaps://`; `ldap://` se rechaza por defecto |
@@ -521,11 +521,15 @@ Prueba la restauración periódicamente. El procedimiento completo está en
   logs. El fichero se borra tras cada intento.
 - Por defecto se verifica la clave SSH del host. En el despliegue Docker,
   `ACC_SSH_HOST_KEYS_AUTO=1` añade automáticamente al `known_hosts` la huella
-  de cada host que falte, incluidas IPs nuevas, antes de cada lote. El volumen
-  `acc_ssh` conserva las huellas entre reinicios. Si prefieres precargar todo
-  el inventario de una vez:
+  de cada host que falte, incluidas IPs nuevas, antes de cada lote; el valor
+  por defecto es `0`, así que en producción hay que precargar las huellas
+  verificadas. El volumen `acc_ssh` conserva el fichero entre reinicios. Si
+  prefieres precargar todo el inventario de una vez:
   `docker compose exec app flask --app app sync-known-hosts`.
-  No uses `ACC_HOST_KEY_CHECKING=0` salvo en un laboratorio aislado.
+  Solo para un laboratorio aislado puedes usar
+  `docker compose -f docker-compose.yml -f docker-compose.lab.yml up -d`, que
+  activa el modo automático. No uses `ACC_HOST_KEY_CHECKING=0` salvo en un
+  laboratorio aislado.
 - El modo temporal `.txt` procesa el archivo en memoria; no se guarda en disco.
 - SQLite en modo WAL: al copiar la base de datos en caliente, copia también
   `acc.db-wal` y `acc.db-shm`, o detén el servicio antes.
