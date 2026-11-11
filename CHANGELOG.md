@@ -25,6 +25,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 - Despliegue con CA corporativa: montar el PEM de la CA en el contenedor
   (p. ej. `./certs:/certs:ro`) y apuntar `ACC_LDAP_TLS_CA_FILE` a
   `/certs/ca-etecsa.pem`. El bundle debe incluir la CA intermedia y su raíz.
+- El servicio `app` de `docker-compose.yml` ya monta `./certs` en `/certs:ro`,
+  de modo que basta con dejar la CA en `./certs/` y fijar
+  `ACC_LDAP_TLS_CA_FILE=/certs/ca-etecsa.pem` para que LDAPS valide en
+  desarrollo y en producción sin retoques manuales del compose.
 
 ## [Documentación de Ansible para redes] — 2026-11-10
 

@@ -86,6 +86,8 @@ services:
       - acc_secrets:/secrets
       - acc_logs:/logs
       - acc_ssh:/home/acc/.ssh
+      # CA del directorio para LDAPS (ACC_LDAP_TLS_CA_FILE=/certs/ca-etecsa.pem).
+      - ./certs:/certs:ro
     networks:
       - backend
     healthcheck:
