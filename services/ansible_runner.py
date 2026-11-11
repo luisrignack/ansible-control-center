@@ -32,6 +32,8 @@ from config import (
     BIN_ANSIBLE_PLAYBOOK,
     CONNECT_TIMEOUT,
     DRY_RUN,
+    FIREWALL_APPLY_PLAYBOOK_FILE,
+    FIREWALL_INSPECT_PLAYBOOK_FILE,
     HOST_KEY_CHECKING,
     INSPECT_PLAYBOOK_FILE,
     MAX_OUTPUT_BUFFER_LINES,
@@ -859,6 +861,92 @@ def inspect_password(
     )
 
 
+def inspect_firewall(
+    host: str,
+    user: str,
+    password: Optional[str] = None,
+    timeout: int = None,
+    line_callback: Optional[Callable[[str], None]] = None,
+    cancel_event: Optional[threading.Event] = None,
+    private_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Lee el estado del firewall sin cambiar nada.
+
+    Publica ``FIREWALL_STATE`` con el gestor detectado (``ufw``,
+    ``firewalld`` o ``none``), si está activo y las IP/redes de origen
+    permitidas. La inspección se ejecuta de verdad incluso en ``DRY_RUN``.
+    """
+    path = str(FIREWALL_INSPECT_PLAYBOOK_FILE)
+
+    if not os.path.exists(path):
+        return _missing_playbook(host, path)
+
+    if not password:
+        return _result(
+            host,
+            False,
+            error="No se proporcionó ninguna contraseña candidata.",
+            playbook_path=path,
+        )
+
+    try:
+        process = _invoke_playbook(
+            host=host,
+            user=user,
+            password=password,
+            playbook_path=path,
+            extra_vars={},
+            timeout=timeout,
+            line_callback=line_callback,
+            cancel_event=cancel_event,
+            private_key=private_key,
+            connection="ssh",
+        )
+    except FileNotFoundError:
+        return _result(
+            host,
+            False,
+            error="ansible-playbook no encontrado. Verifica la instalación de Ansible.",
+            playbook_path=path,
+        )
+    except JobCancelled:
+        return _result(
+            host,
+            False,
+            error="Operación cancelada por el usuario.",
+            playbook_path=path,
+        )
+    except subprocess.TimeoutExpired:
+        return _result(
+            host,
+            False,
+            error=f"Timeout al inspeccionar el host ({timeout or PLAYBOOK_TIMEOUT}s).",
+            playbook_path=path,
+        )
+    except Exception as exc:  # pragma: no cover - salvaguarda
+        logger.exception("Error inspeccionando el firewall en %s", host)
+        return _result(host, False, error=str(exc), playbook_path=path)
+
+    state = _decode_state(process.stdout, "FIREWALL_STATE")
+    success = process.returncode == 0 and state is not None
+    error = ""
+    if process.returncode != 0:
+        error = _playbook_error(host, path, process)
+    elif state is None:
+        error = (
+            "El playbook de inspección no devolvió el estado FIREWALL_STATE."
+        )
+
+    return _result(
+        host,
+        success,
+        output=process.stdout.strip(),
+        error=error,
+        state=state,
+        playbook_path=path,
+    )
+
+
 def apply_host(
     host: str,
     user: str,
@@ -899,16 +987,21 @@ def apply_host(
     ``attention=True`` (migración o espacio insuficiente) sin aplicar cambios.
     Con ``action == "PASSWORD"`` cambia la contraseña del usuario indicado en
     ``value`` sin incluir el secreto en la salida.
+    Con ``action == "FIREWALL"`` activa, desactiva o añade una regla de
+    origen en el firewall del host y lo recarga para aplicarla.
     """
     is_wallpaper = action.upper() == "WALLPAPER"
     is_apt = action.upper() == "APT"
     is_password = action.upper() == "PASSWORD"
+    is_firewall = action.upper() == "FIREWALL"
     if is_wallpaper:
         path = str(WALLPAPER_APPLY_PLAYBOOK_FILE)
     elif is_apt:
         path = str(APT_UPGRADE_PLAYBOOK_FILE)
     elif is_password:
         path = str(PASSWORD_APPLY_PLAYBOOK_FILE)
+    elif is_firewall:
+        path = str(FIREWALL_APPLY_PLAYBOOK_FILE)
     elif connection == "winrm":
         path = str(WINDOWS_APPLY_PLAYBOOK_FILE)
     else:
@@ -943,6 +1036,8 @@ def apply_host(
             )
         elif is_password:
             detail = f"cambio de contraseña del usuario {value} (oculto)"
+        elif is_firewall:
+            detail = f"firewall {value} (con recarga de reglas)"
         else:
             detail = f"{action}={value} (modo={time_mode}, ntp={ntp_policy})"
         _emit_line(
@@ -1006,6 +1101,12 @@ def apply_host(
         extra_vars = {
             "target_user": value or "ladmin",
             "new_password": new_password,
+        }
+    elif is_firewall:
+        extra_vars = {
+            "accion": "FIREWALL",
+            "valor": value,
+            "target_host": host,
         }
     else:
         extra_vars = {
@@ -1120,6 +1221,18 @@ def apply_host(
         attention_kind = ""
         attention_reason = ""
         policy_skipped = False
+    elif is_firewall:
+        before_state = _decode_state(process.stdout, "FIREWALL_BEFORE")
+        after_state = _decode_state(process.stdout, "FIREWALL_STATE")
+        changed = _decode_bool_marker(process.stdout, "FIREWALL_CHANGED")
+        verified = _decode_bool_marker(process.stdout, "FIREWALL_VERIFIED")
+        errors = _decode_text_marker(process.stdout, "FIREWALL_ERRORS")
+        warnings = ""
+        deviation = None
+        attention = False
+        attention_kind = ""
+        attention_reason = ""
+        policy_skipped = False
     else:
         before_state = _decode_state(process.stdout, "HORA_BEFORE")
         after_state = _decode_state(process.stdout, "HORA_STATE")
@@ -1149,7 +1262,15 @@ def apply_host(
             else (
                 "APT_VERIFIED"
                 if is_apt
-                else ("PASSWORD_VERIFIED" if is_password else "HORA_VERIFIED")
+                else (
+                    "PASSWORD_VERIFIED"
+                    if is_password
+                    else (
+                        "FIREWALL_VERIFIED"
+                        if is_firewall
+                        else "HORA_VERIFIED"
+                    )
+                )
             )
         )
         error = (

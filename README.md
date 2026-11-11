@@ -13,7 +13,9 @@ Windows, con backup previo de `/etc/timezone`; la tarjeta **Tapiz oficial**
 permite subir una imagen y dejarla como fondo persistente en Linux/GNOME; y la
 tarjeta **Actualización del sistema** aplica `apt-get upgrade` sin eliminar
 paquetes ni reiniciar, omitiendo Ubuntu 20.04 y sus derivados para una
-migración controlada.
+migración controlada. La tarjeta **Firewall** activa o desactiva el firewall
+de la estación (ufw, o firewalld si está instalado) y permite añadir una IP o
+red de confianza recargando las reglas al aplicarla.
 
 > **Uso responsable:** la aplicación prueba credenciales contra hosts y puede
 > cambiar su reloj. Úsala únicamente sobre equipos para los que tengas
@@ -34,8 +36,8 @@ El procedimiento completo está en [AGENTS.md](AGENTS.md).
 Fases **P0–P4, P4.1, P4.2 y bloque de operación continua** completadas,
 junto con las correcciones de alta prioridad del
 [análisis profundo 2026-11-06](docs/ANALISIS_PROFUNDO_2026-11-06.md).
-Suite de pruebas: **374 tests en verde y 1 integración SSH opcional omitida
-por defecto** (375 recopilados). Incluye empaquetado Docker con Nginx y TLS.
+Suite de pruebas: **399 tests en verde y 1 integración SSH opcional omitida
+por defecto** (400 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 | Fase | Contenido |
 |---|---|
@@ -154,6 +156,13 @@ por defecto** (375 recopilados). Incluye empaquetado Docker con Nginx y TLS.
   solo comprueba que el usuario exista; la ejecución real exige la contraseña
   y la doble aprobación de otro administrador. La tarjeta no es programable
   porque el secreto no se persiste.
+- **Firewall (Linux)**: activa o desactiva el firewall de la estación y
+  permite añadir una IP o red de confianza (IPv4, IPv6 o CIDR). Detecta
+  automáticamente **ufw** (Debian/Ubuntu) o **firewalld**; tras añadir una
+  regla ejecuta `ufw reload` o `firewall-cmd --reload`, que aplica los cambios
+  sin cortar la sesión SSH en curso. Se rechaza `0.0.0.0/0` y `::/0` para no
+  abrir el firewall a cualquier origen. La vista previa muestra el gestor, si
+  está activo y las reglas de origen actuales. Solo `admin`, no programable.
 - **Métricas de rendimiento**: `/metricas` (solo `admin`) muestra p50/p95 por
   ruta y `/api/metricas` las expone en JSON; cada lote incluye p50/p95 por
   host desde SQLite. Los SLO están en

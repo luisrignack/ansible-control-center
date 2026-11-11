@@ -306,7 +306,9 @@ por el playbook (`timezone`, `ntp`, `ntp_synchronized`, `local_rtc`, `utc`,
 `attention_kind`, `attention_reason` y `reboot_required`. En vista previa,
 `after_state` es el plan. Para `PASSWORD` contienen `user`, `exists`, `uid`,
 `shell`, `status` y, en ejecución, `changed`, `verified` y
-`reboot_required`. El secreto nunca aparece en estos estados.
+`reboot_required`. Para `FIREWALL` contienen `manager` (`ufw`, `firewalld` o
+`none`), `active` y `allowed_sources` (IP/redes de origen permitidas). El
+secreto nunca aparece en estos estados.
 
 ### 3.3. Dónde mirar
 

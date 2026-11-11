@@ -237,6 +237,11 @@
                                 Cambiar contraseña de usuario (PASSWORD)
                             </option>
                             {% endif %}
+                            {% if 'FIREWALL' in selected_task.actions %}
+                            <option value="FIREWALL" {% if prefill.get('action') == 'FIREWALL' %}selected{% endif %}>
+                                Firewall: activar, desactivar o permitir IP
+                            </option>
+                            {% endif %}
                         </select>
                     </div>
 
@@ -303,6 +308,39 @@
                     </div>
                     {% endif %}
 
+                    {% if 'FIREWALL' in selected_task.actions %}
+                    <!-- Operación del firewall (solo tareas con acción FIREWALL) -->
+                    <div class="col-md-6 d-none" id="firewallOpField">
+                        <label for="firewallOp" class="form-label fw-medium">
+                            <i class="bi bi-shield-lock me-2"></i> Operación de firewall
+                        </label>
+                        <select class="form-select" id="firewallOp" name="firewall_op">
+                            <option value="enable">Activar el firewall</option>
+                            <option value="disable">Desactivar el firewall</option>
+                            <option value="allow">Permitir una IP o red</option>
+                        </select>
+                        <div class="form-text">
+                            «Permitir» añade una regla de origen y recarga el
+                            firewall para aplicarla. Desactivar el firewall deja
+                            la estación sin filtrado de red.
+                        </div>
+                    </div>
+
+                    <div class="col-md-6 d-none" id="firewallIpField">
+                        <label for="firewallIp" class="form-label fw-medium">
+                            <i class="bi bi-hdd-network me-2"></i> IP o red a permitir
+                        </label>
+                        <input type="text" class="form-control" id="firewallIp"
+                            name="firewall_ip" placeholder="Ej: 192.168.1.25 o 10.0.0.0/24"
+                            autocomplete="off" spellcheck="false">
+                        <div class="form-text">
+                            Admite IPv4, IPv6 o CIDR. Al guardar la regla, el
+                            firewall se recarga de inmediato (sin cortar la
+                            sesión SSH en curso). No se permite 0.0.0.0/0.
+                        </div>
+                    </div>
+                    {% endif %}
+
                     {% if 'APT' in selected_task.actions %}
                     <!-- Umbral mínimo de espacio libre para la actualización -->
                     <div class="col-md-6 d-none" id="aptField">
@@ -324,8 +362,7 @@
                     {% endif %}
 
                     {% if 'WALLPAPER' in selected_task.actions %}
-                    <!-- Vista previa del tapiz (mitad derecha del selector de acción) -->
-                    <div class="col-md-6 d-none" id="wallpaperPreviewField">
+                    <!-- Vista previa del tapiz (mitad derecha del selector de acción) -->                    <div class="col-md-6 d-none" id="wallpaperPreviewField">
                         <span class="form-label d-block">
                             <i class="bi bi-eye me-2"></i> Vista previa del tapiz
                         </span>
@@ -655,8 +692,21 @@ function actionDisplayValue() {
         const userText = (user && user.value.trim()) || '—';
         return 'Cambio de contraseña de ' + userText;
     }
+    if (action && action.value === 'FIREWALL') {
+        return firewallSummaryText();
+    }
     const valueInput = document.getElementById('actionValue');
     return (valueInput && valueInput.value) || '—';
+}
+
+function firewallSummaryText() {
+    const op = document.getElementById('firewallOp');
+    const ip = document.getElementById('firewallIp');
+    if (!op) return '—';
+    if (op.value === 'enable') return 'Activar el firewall';
+    if (op.value === 'disable') return 'Desactivar el firewall';
+    const source = (ip && ip.value.trim()) || '—';
+    return 'Permitir ' + source + ' (recarga el firewall)';
 }
 
 function validateWallpaperFile(event) {
@@ -1093,6 +1143,8 @@ function updateSummary() {
     } else if (action && action.value === 'PASSWORD') {
         const user = document.getElementById('targetUser');
         value = 'Cambio de contraseña de ' + ((user && user.value.trim()) || '—');
+    } else if (action && action.value === 'FIREWALL') {
+        value = firewallSummaryText();
     }
     const timeMode = document.getElementById('timeMode');
     const timeZone = document.getElementById('timeZone');
@@ -1190,8 +1242,12 @@ function updateValueField(action, currentValue) {
     if (passwordUserField) passwordUserField.classList.toggle('d-none', action !== 'PASSWORD');
     if (passwordSecretField) passwordSecretField.classList.toggle('d-none', action !== 'PASSWORD');
     if (valueField) {
-        valueField.classList.toggle('d-none', action === 'APT' || action === 'PASSWORD');
+        valueField.classList.toggle(
+            'd-none',
+            action === 'APT' || action === 'PASSWORD' || action === 'FIREWALL'
+        );
     }
+    updateFirewallFields();
     // Las tareas con valor fijo (p. ej. America/Caracas) no cambian el campo.
     if (existing && existing.dataset.fixed) {
         updateSummary();
@@ -1214,6 +1270,21 @@ function updateValueField(action, currentValue) {
             document.getElementById('actionValue').value = currentValue;
         }
     }
+    updateSummary();
+}
+
+function updateFirewallFields() {
+    const action = document.getElementById('action');
+    const op = document.getElementById('firewallOp');
+    const opField = document.getElementById('firewallOpField');
+    const ipField = document.getElementById('firewallIpField');
+    const ip = document.getElementById('firewallIp');
+    if (!op || !opField || !ipField) return;
+    const show = !!(action && action.value === 'FIREWALL');
+    const allow = show && op.value === 'allow';
+    opField.classList.toggle('d-none', !show);
+    if (ipField) ipField.classList.toggle('d-none', !allow);
+    if (ip) ip.required = allow;
     updateSummary();
 }
 
@@ -1335,6 +1406,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateTimeModeField(actionSelect.value);
     updateTargetModeFields();
     updateWallpaperPreview();
+    updateFirewallFields();
 
     originSelect.addEventListener('change', (event) => {
         updatePasswordFields(event.target.value);
@@ -1349,6 +1421,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const wallpaperInput = document.getElementById('wallpaperFile');
     if (wallpaperInput) {
         wallpaperInput.addEventListener('change', updateWallpaperPreview);
+    }
+
+    const firewallOpSelect = document.getElementById('firewallOp');
+    if (firewallOpSelect) {
+        firewallOpSelect.addEventListener('change', updateFirewallFields);
+    }
+    const firewallIpInput = document.getElementById('firewallIp');
+    if (firewallIpInput) {
+        firewallIpInput.addEventListener('input', updateSummary);
     }
 
     if (ntpSelect) {

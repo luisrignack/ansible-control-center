@@ -48,7 +48,7 @@
             <div>
                 <div class="detail-label">Acción / valor</div>
                 <div class="detail-value">
-                    {% if batch.action == 'TZ' %}Zona horaria{% elif batch.action == 'TIME' %}Hora exacta{% elif batch.action == 'WALLPAPER' %}Tapiz{% elif batch.action == 'APT' %}Actualización segura del sistema{% elif batch.action == 'PASSWORD' %}Cambio de contraseña{% else %}{{ batch.action }}{% endif %}
+                    {% if batch.action == 'TZ' %}Zona horaria{% elif batch.action == 'TIME' %}Hora exacta{% elif batch.action == 'WALLPAPER' %}Tapiz{% elif batch.action == 'APT' %}Actualización segura del sistema{% elif batch.action == 'PASSWORD' %}Cambio de contraseña{% elif batch.action == 'FIREWALL' %}Configuración del firewall{% else %}{{ batch.action }}{% endif %}
                     · <code>{{ batch.value }}</code>
                     {% if batch.action == 'APT' and batch.min_free_gb is not none %}
                     <span class="text-secondary small">· umbral {{ batch.min_free_gb }} GB</span>

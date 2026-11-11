@@ -5,6 +5,46 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Tarjeta Firewall] — 2026-11-10
+
+### Añadido
+
+- **Tarjeta «Firewall»** (solo `admin`, Linux): activa o desactiva el
+  firewall de la estación y permite añadir una IP o red de confianza (IPv4,
+  IPv6 o CIDR). Detecta **ufw** (Debian/Ubuntu) o **firewalld**; al añadir una
+  regla ejecuta `ufw reload` o `firewall-cmd --reload`, que aplica el cambio
+  sin cortar la sesión SSH en curso. Se rechazan `0.0.0.0/0` y `::/0`.
+- **Vista previa**: `firewall_estado.yml` publica gestor detectado, estado
+  activo y reglas de origen actuales; la tarjeta resume si la operación
+  cambiará algo.
+- **Playbooks** `ansible/firewall.yml` y `ansible/firewall_estado.yml`, con
+  comandos por `argv` (sin shell), verificación posterior y marcadores
+  `FIREWALL_BEFORE_B64`, `FIREWALL_STATE_B64`, `FIREWALL_CHANGED`,
+  `FIREWALL_VERIFIED` y `FIREWALL_ERRORS`.
+- **Pruebas** en `tests/test_firewall.py` (25 casos): catálogo, validación de
+  operaciones, rechazo de redes abiertas, `_would_change`, decodificación del
+  runner, verificación fallida, seguridad de los playbooks y campos del
+  formulario. Suite: **399 passed, 1 skipped** (400 recopiladas).
+
+### Cambiado
+
+- `config.py` añade las rutas de los playbooks de firewall.
+- `services/task_catalog.py` incorpora `firewall` al catálogo y a la lista de
+  tareas activas; las pruebas que fijaban esa lista se actualizan.
+- `templates/index.html` añade la operación, el campo de IP y el resumen; el
+  valor viaja al motor como `enable`, `disable` o `allow:<ip|red>`.
+- `services/pdf_report.py`, `templates/batch.html` y `templates/history.html`
+  muestran la etiqueta «Firewall».
+
+### Notas
+
+- «Recargar» es la forma segura de reiniciar el firewall: aplica las reglas
+  nuevas sin cortar conexiones establecidas. Si se prefiere un reinicio del
+  servicio, basta cambiar `ufw reload` por `systemctl restart ufw` en el
+  playbook.
+- La tarjeta no es programable: combina operación e IP y reutiliza el secreto
+  del vault en la ejecución manual.
+
 ## [Despliegue Docker y paquete portátil] — 2026-11-10
 
 ### Cambiado

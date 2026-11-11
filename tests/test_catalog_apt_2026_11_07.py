@@ -47,6 +47,7 @@ def test_apt_card_is_active_alongside_the_other_operational_tasks():
         "contrasena",
         "tapiz",
         "apt-upgrade",
+        "firewall",
     ]
 
 

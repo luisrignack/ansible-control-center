@@ -154,6 +154,7 @@ def test_zona_task_single_active_and_fixed_value():
         "contrasena",
         "tapiz",
         "apt-upgrade",
+        "firewall",
     ]
     assert active[0]["fixed_value"] == "America/Caracas"
     assert set(active[0]["platforms"]) == {"linux", "windows"}

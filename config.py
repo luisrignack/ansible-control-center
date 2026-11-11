@@ -211,6 +211,11 @@ APT_INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "apt_estado.yml"
 # un fichero temporal 0600 y nunca se guarda en SQLite ni en el vault.
 PASSWORD_APPLY_PLAYBOOK_FILE = ANSIBLE_DIR / "contrasena.yml"
 PASSWORD_INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "contrasena_estado.yml"
+# Firewall de la estación (ufw en Debian/Ubuntu, firewalld como alternativa).
+# La inspección es de solo lectura; aplicar permite activar, desactivar o
+# añadir una regla de origen y recargar el firewall para que surta efecto.
+FIREWALL_APPLY_PLAYBOOK_FILE = ANSIBLE_DIR / "firewall.yml"
+FIREWALL_INSPECT_PLAYBOOK_FILE = ANSIBLE_DIR / "firewall_estado.yml"
 ANSIBLE_CFG = ANSIBLE_DIR / "ansible.cfg"
 
 # Usuario del sistema que la tarjeta propone por defecto y longitud mínima de

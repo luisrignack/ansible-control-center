@@ -1,0 +1,93 @@
+---
+# Inspección de solo lectura para la tarjeta "Firewall".
+#
+# Detecta el gestor instalado (ufw en Debian/Ubuntu, firewalld como
+# alternativa) y publica FIREWALL_STATE_B64 con:
+#   manager         : ufw | firewalld | none
+#   active          : el firewall está habilitado
+#   allowed_sources : IP/redes de origen permitidas
+#
+# No cambia nada: activar, desactivar o añadir reglas se hace en firewall.yml.
+- name: Inspeccionar el firewall (Linux)
+  hosts: all
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Localizar el binario de ufw
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /usr/sbin/ufw
+        - /usr/bin/ufw
+        - /sbin/ufw
+      register: _fw_ufw_bin
+
+    - name: Localizar el binario de firewalld
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /usr/bin/firewall-cmd
+        - /usr/sbin/firewall-cmd
+        - /bin/firewall-cmd
+      register: _fw_firewalld_bin
+
+    - name: Elegir el gestor de firewall disponible
+      ansible.builtin.set_fact:
+        fw_manager: >-
+          {{ 'ufw'
+             if (_fw_ufw_bin.results | selectattr('stat.exists') | list | length > 0)
+             else ('firewalld'
+                   if (_fw_firewalld_bin.results | selectattr('stat.exists') | list | length > 0)
+                   else 'none') }}
+
+    - name: Leer el estado de ufw
+      ansible.builtin.command:
+        argv: [ufw, status]
+      register: _fw_ufw_status
+      changed_when: false
+      failed_when: false
+      when: fw_manager == 'ufw'
+
+    - name: Leer las reglas de origen de ufw
+      ansible.builtin.command:
+        argv: [ufw, show, added]
+      register: _fw_ufw_added
+      changed_when: false
+      failed_when: false
+      when: fw_manager == 'ufw'
+
+    - name: Leer el estado de firewalld
+      ansible.builtin.command:
+        argv: [firewall-cmd, --state]
+      register: _fw_firewalld_state
+      changed_when: false
+      failed_when: false
+      when: fw_manager == 'firewalld'
+
+    - name: Leer las fuentes permitidas en firewalld
+      ansible.builtin.command:
+        argv: [firewall-cmd, --list-sources]
+      register: _fw_firewalld_sources
+      changed_when: false
+      failed_when: false
+      when: fw_manager == 'firewalld'
+
+    - name: Publicar el estado del firewall
+      ansible.builtin.debug:
+        msg: >-
+          FIREWALL_STATE_B64={{ {
+            'manager': fw_manager,
+            'active': (
+              (fw_manager == 'ufw'
+               and 'Status: active' in (_fw_ufw_status.stdout | default('')))
+              or (fw_manager == 'firewalld'
+                  and 'running' in (_fw_firewalld_state.stdout | default('')))
+            ),
+            'allowed_sources': (
+              (_fw_ufw_added.stdout | default('')
+               | regex_findall('(?m)^ufw allow from ([^ ]+)'))
+              if fw_manager == 'ufw'
+              else ((_fw_firewalld_sources.stdout | default('')).split())
+            )
+          } | to_json | b64encode }}

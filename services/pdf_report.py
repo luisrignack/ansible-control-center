@@ -323,6 +323,7 @@ ACTION_LABELS = {
     "WALLPAPER": "Tapiz de escritorio",
     "APT": "Actualización segura del sistema",
     "PASSWORD": "Cambio de contraseña",
+    "FIREWALL": "Configuración del firewall",
 }
 
 

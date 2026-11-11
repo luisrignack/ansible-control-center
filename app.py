@@ -158,6 +158,7 @@ import services.password_tester as password_tester_module
 from services.ansible_runner import (
     apply_host,
     inspect_apt,
+    inspect_firewall,
     inspect_host,
     inspect_password,
     inspect_wallpaper,
@@ -498,8 +499,9 @@ _HOSTNAME_RE = re.compile(
 
 # Acciones que el motor de ejecución sabe aplicar. ``WALLPAPER`` usa su
 # propio playbook y transporte de imagen; ``APT`` usa el de actualización
-# segura; ``PASSWORD`` cambia la contraseña de un usuario del sistema.
-VALID_ACTIONS = {"TZ", "TIME", "WALLPAPER", "APT", "PASSWORD"}
+# segura; ``PASSWORD`` cambia la contraseña de un usuario del sistema;
+# ``FIREWALL`` activa, desactiva o permite un origen en el firewall.
+VALID_ACTIONS = {"TZ", "TIME", "WALLPAPER", "APT", "PASSWORD", "FIREWALL"}
 
 
 def _form_bool(name: str) -> bool:
@@ -577,6 +579,44 @@ def _parse_target_user(raw: str) -> tuple[str, Optional[str]]:
             "guion, punto o guion bajo (máximo 32 caracteres)."
         )
     return user, None
+
+
+_FIREWALL_STATES = {"enable", "disable"}
+
+
+def _parse_firewall_value(raw: str) -> tuple[str, Optional[str]]:
+    """Normaliza la operación de firewall a ``enable``, ``disable`` o
+    ``allow:<ip>``.
+
+    Se acepta una IP suelta o una red CIDR (IPv4 o IPv6). Se rechaza la red
+    universal (``0.0.0.0/0`` y ``::/0``): abrir el firewall a cualquier origen
+    no es una regla de confianza y anularía el propósito de la tarjeta.
+    """
+    text = (raw or "").strip()
+    lowered = text.lower()
+    if lowered in _FIREWALL_STATES:
+        return lowered, None
+    if lowered.startswith("allow:"):
+        candidate = text.split(":", 1)[1].strip()
+        if not candidate:
+            return "", "Indica la IP o red que se quiere permitir."
+        try:
+            network = ipaddress.ip_network(candidate, strict=False)
+        except ValueError:
+            return "", f"IP o red no válida: {candidate}."
+        if network.prefixlen == 0:
+            return "", (
+                "No se permite abrir el firewall a cualquier origen "
+                "(0.0.0.0/0 o ::/0). Indica una IP o red concreta."
+            )
+        if network.prefixlen == network.max_prefixlen:
+            source = str(network.network_address)
+        else:
+            source = str(network)
+        return f"allow:{source}", None
+    if not text:
+        return "", "Selecciona una operación de firewall."
+    return "", "Operación de firewall no válida."
 
 
 def _validate_new_password(
@@ -725,6 +765,14 @@ def _validate_operation_core(
         if password_error:
             errors.append(password_error)
 
+    if action == "FIREWALL":
+        # ``value`` transporta la operación completa para que la validación,
+        # la aprobación y el historial compartan un único campo:
+        # ``enable``, ``disable`` o ``allow:<ip|red>``.
+        value, firewall_error = _parse_firewall_value(value)
+        if firewall_error:
+            errors.append(firewall_error)
+
     if action == "TZ":
         if not value:
             errors.append("La zona horaria es obligatoria.")
@@ -865,6 +913,14 @@ def _parse_operation_form(
         )
     elif not action:
         action = "TZ"
+
+    # Firewall: el formulario separa «operación» e «IP» por claridad, pero el
+    # motor, el historial y la validación comparten un único campo ``value``
+    # (``enable``, ``disable`` o ``allow:<ip|red>``).
+    if action == "FIREWALL":
+        firewall_op = request.form.get("firewall_op", "").strip().lower()
+        firewall_ip = request.form.get("firewall_ip", "").strip()
+        value = f"allow:{firewall_ip}" if firewall_op == "allow" else firewall_op
 
     # Imagen del tapiz: se valida por firma binaria y se guarda fuera de la
     # raíz web. El archivo se borra al terminar el lote (o si el envío falla).
@@ -1164,6 +1220,20 @@ def _would_change(
         # El cambio de contraseña siempre se aplica si el usuario existe; la
         # inspección ya falla cuando no existe.
         return bool(state.get("exists"))
+
+    if action == "FIREWALL":
+        mode, _, source = str(value or "").partition(":")
+        active = _state_bool(state.get("active"))
+        if mode == "enable":
+            return not active
+        if mode == "disable":
+            return active
+        if mode == "allow":
+            sources = state.get("allowed_sources") or []
+            if not isinstance(sources, list):
+                return None
+            return source not in {str(item) for item in sources}
+        return None
 
     changed = False
     if action == "TZ":
@@ -3634,6 +3704,15 @@ def _run_preview_batch(
                         user=admin_user,
                         password=candidate,
                         target_user=value or OS_PASSWORD_DEFAULT_USER,
+                        line_callback=line_callback,
+                        cancel_event=cancel_event,
+                        private_key=private_key or None,
+                    )
+                elif action == "FIREWALL":
+                    result = inspect_firewall(
+                        host=host,
+                        user=admin_user,
+                        password=candidate,
                         line_callback=line_callback,
                         cancel_event=cancel_event,
                         private_key=private_key or None,

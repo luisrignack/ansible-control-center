@@ -16,6 +16,7 @@ TASK_ID_KASPERSKY = "kaspersky"
 TASK_ID_CONTRASENA = "contrasena"
 TASK_ID_TAPIZ = "tapiz"
 TASK_ID_APT_UPGRADE = "apt-upgrade"
+TASK_ID_FIREWALL = "firewall"
 
 # Tarea por defecto cuando el formulario no envía el campo ``task``.
 DEFAULT_TASK_ID = TASK_ID_ZONA_ALL
@@ -172,6 +173,40 @@ TASK_CATALOG: List[Dict[str, Any]] = [
             "Verificar el espacio libre mínimo configurado y la estimación de APT antes de ejecutar.",
             "Actualizar el índice y aplicar apt-get upgrade sin eliminar paquetes ni abrir preguntas interactivas.",
             "Verificar que no quedan paquetes pendientes y avisar si el host requiere reinicio.",
+        ],
+    },
+    {
+        "id": TASK_ID_FIREWALL,
+        "name": "Firewall",
+        "icon": "bi-shield-lock",
+        "tone": "amber",
+        "summary": (
+            "Activa o desactiva el firewall de la estación (ufw en Ubuntu y "
+            "derivadas de Debian; firewalld si es el gestor instalado). "
+            "También permite añadir una IP o red de confianza: al aplicarla, "
+            "el firewall se recarga para que la regla surta efecto de "
+            "inmediato."
+        ),
+        "playbook": "firewall.yml",
+        "status": STATUS_ACTIVE,
+        "min_role": "admin",
+        "destructive": False,
+        "platforms": ["linux"],
+        # El formulario combina operación y IP, y el secreto del vault no se
+        # persiste en una programación: se ejecuta desde su tarjeta.
+        "schedulable": False,
+        "actions": ["FIREWALL"],
+        "chips": [
+            "Operativa",
+            "Activar / desactivar",
+            "Permitir IP o red",
+            "Linux (ufw / firewalld)",
+        ],
+        "steps": [
+            "Detectar el gestor de firewall instalado (ufw o firewalld).",
+            "Leer el estado actual y las reglas de origen permitidas.",
+            "Activar, desactivar o añadir la regla de origen solicitada.",
+            "Recargar el firewall y verificar el estado final.",
         ],
     },
 ]

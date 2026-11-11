@@ -1,0 +1,280 @@
+---
+# Playbook de mantenimiento: firewall de la estación.
+#
+# Variables esperadas (--extra-vars desde la aplicación):
+#   valor: "enable" | "disable" | "allow:<ip|red>"
+#
+# Comportamiento:
+#   - ufw (Debian/Ubuntu): ``ufw --force enable``, ``ufw disable`` o
+#     ``ufw allow from <origen>``. Tras añadir una regla se ejecuta
+#     ``ufw reload`` para aplicarla sin reiniciar el servicio.
+#   - firewalld: ``systemctl enable --now`` / ``disable --now`` o
+#     ``firewall-cmd --permanent --add-source`` + ``firewall-cmd --reload``.
+#   - La recarga es la forma segura de "reiniciar" el firewall: aplica las
+#     reglas nuevas sin cortar las conexiones establecidas (por ejemplo, la
+#     sesión SSH con la que se está gestionando la estación).
+#
+# Marcadores de salida: FIREWALL_BEFORE_B64, FIREWALL_STATE_B64,
+# FIREWALL_CHANGED, FIREWALL_VERIFIED, FIREWALL_ERRORS.
+- name: Configurar el firewall (Linux)
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    valor: ""
+
+  tasks:
+    - name: Validar la operación solicitada
+      ansible.builtin.assert:
+        that:
+          - valor is string
+          - >-
+            valor in ['enable', 'disable']
+            or valor is match('^allow:([0-9A-Fa-f:.]+)(/[0-9]{1,3})?$')
+        fail_msg: "Operación de firewall no válida: {{ valor }}."
+        success_msg: "Operación de firewall válida."
+
+    - name: Determinar el modo y el origen a permitir
+      ansible.builtin.set_fact:
+        fw_mode: >-
+          {{ 'allow' if valor.startswith('allow:') else valor }}
+        fw_source: >-
+          {{ valor.split(':', 1)[1] if valor.startswith('allow:') else '' }}
+
+    - name: Localizar el binario de ufw
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /usr/sbin/ufw
+        - /usr/bin/ufw
+        - /sbin/ufw
+      register: _fw_ufw_bin
+
+    - name: Localizar el binario de firewalld
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /usr/bin/firewall-cmd
+        - /usr/sbin/firewall-cmd
+        - /bin/firewall-cmd
+      register: _fw_firewalld_bin
+
+    - name: Elegir el gestor de firewall disponible
+      ansible.builtin.set_fact:
+        fw_manager: >-
+          {{ 'ufw'
+             if (_fw_ufw_bin.results | selectattr('stat.exists') | list | length > 0)
+             else ('firewalld'
+                   if (_fw_firewalld_bin.results | selectattr('stat.exists') | list | length > 0)
+                   else 'none') }}
+
+    - name: Rechazar estaciones sin un gestor de firewall conocido
+      ansible.builtin.fail:
+        msg: >-
+          No se encontró ufw ni firewalld en la estación. Instala o habilita
+          un gestor de firewall antes de usar esta tarjeta.
+      when: fw_manager == 'none'
+
+    - name: Leer el estado anterior de ufw
+      ansible.builtin.command:
+        argv: [ufw, status]
+      register: _fw_ufw_status
+      changed_when: false
+      failed_when: false
+      when: fw_manager == 'ufw'
+
+    - name: Leer las reglas anteriores de ufw
+      ansible.builtin.command:
+        argv: [ufw, show, added]
+      register: _fw_ufw_added
+      changed_when: false
+      failed_when: false
+      when: fw_manager == 'ufw'
+
+    - name: Leer el estado anterior de firewalld
+      ansible.builtin.command:
+        argv: [firewall-cmd, --state]
+      register: _fw_firewalld_state
+      changed_when: false
+      failed_when: false
+      when: fw_manager == 'firewalld'
+
+    - name: Leer las fuentes anteriores de firewalld
+      ansible.builtin.command:
+        argv: [firewall-cmd, --list-sources]
+      register: _fw_firewalld_sources
+      changed_when: false
+      failed_when: false
+      when: fw_manager == 'firewalld'
+
+    - name: Consolidar el estado anterior
+      ansible.builtin.set_fact:
+        fw_active_before: >-
+          {{ ((fw_manager == 'ufw')
+              and ('Status: active' in (_fw_ufw_status.stdout | default(''))))
+             or ((fw_manager == 'firewalld')
+              and ('running' in (_fw_firewalld_state.stdout | default('')))) }}
+        fw_sources_before: >-
+          {{ (_fw_ufw_added.stdout | default('')) if fw_manager == 'ufw'
+             else (_fw_firewalld_sources.stdout | default('')) }}
+
+    - name: Publicar el estado anterior
+      ansible.builtin.debug:
+        msg: >-
+          FIREWALL_BEFORE_B64={{ {
+            'manager': fw_manager,
+            'active': fw_active_before | bool,
+            'allowed_sources': (
+              (fw_sources_before | regex_findall('(?m)^ufw allow from ([^ ]+)'))
+              if fw_manager == 'ufw'
+              else (fw_sources_before | replace('\n', ' ')).split()
+            )
+          } | to_json | b64encode }}
+
+    # ------------------------------------------------------------------
+    # ufw
+    # ------------------------------------------------------------------
+    - name: Activar ufw
+      ansible.builtin.command:
+        argv: [ufw, --force, enable]
+      when: fw_manager == 'ufw' and fw_mode == 'enable'
+      changed_when: true
+
+    - name: Desactivar ufw
+      ansible.builtin.command:
+        argv: [ufw, disable]
+      when: fw_manager == 'ufw' and fw_mode == 'disable'
+      changed_when: true
+
+    - name: Permitir el origen en ufw
+      ansible.builtin.command:
+        argv: [ufw, allow, from, "{{ fw_source }}"]
+      register: _fw_ufw_allow
+      when: fw_manager == 'ufw' and fw_mode == 'allow'
+      changed_when: "'Skipping' not in (_fw_ufw_allow.stdout | default(''))"
+
+    - name: Recargar ufw para aplicar la regla
+      ansible.builtin.command:
+        argv: [ufw, reload]
+      register: _fw_ufw_reload
+      when: fw_manager == 'ufw' and fw_mode == 'allow'
+      changed_when: false
+      failed_when: false
+
+    # ------------------------------------------------------------------
+    # firewalld
+    # ------------------------------------------------------------------
+    - name: Activar firewalld
+      ansible.builtin.command:
+        argv: [systemctl, enable, --now, firewalld]
+      when: fw_manager == 'firewalld' and fw_mode == 'enable'
+      changed_when: true
+
+    - name: Desactivar firewalld
+      ansible.builtin.command:
+        argv: [systemctl, disable, --now, firewalld]
+      when: fw_manager == 'firewalld' and fw_mode == 'disable'
+      changed_when: true
+
+    - name: Permitir el origen en firewalld (permanente)
+      ansible.builtin.command:
+        argv: [firewall-cmd, --permanent, "--add-source={{ fw_source }}"]
+      register: _fw_firewalld_allow
+      when: fw_manager == 'firewalld' and fw_mode == 'allow'
+      changed_when: >-
+        {{ 'ALREADY_ENABLED' not in (_fw_firewalld_allow.stderr | default('')) }}
+
+    - name: Recargar firewalld para aplicar la regla
+      ansible.builtin.command:
+        argv: [firewall-cmd, --reload]
+      when: fw_manager == 'firewalld' and fw_mode == 'allow'
+      changed_when: false
+
+    # ------------------------------------------------------------------
+    # Verificación
+    # ------------------------------------------------------------------
+    - name: Leer el estado posterior de ufw
+      ansible.builtin.command:
+        argv: [ufw, status]
+      register: _fw_after_status
+      changed_when: false
+      failed_when: false
+      when: fw_manager == 'ufw'
+
+    - name: Leer las reglas posteriores de ufw
+      ansible.builtin.command:
+        argv: [ufw, show, added]
+      register: _fw_after_added
+      changed_when: false
+      failed_when: false
+      when: fw_manager == 'ufw'
+
+    - name: Leer el estado posterior de firewalld
+      ansible.builtin.command:
+        argv: [firewall-cmd, --state]
+      register: _fw_after_state
+      changed_when: false
+      failed_when: false
+      when: fw_manager == 'firewalld'
+
+    - name: Leer las fuentes posteriores de firewalld
+      ansible.builtin.command:
+        argv: [firewall-cmd, --list-sources]
+      register: _fw_after_sources
+      changed_when: false
+      failed_when: false
+      when: fw_manager == 'firewalld'
+
+    - name: Consolidar el estado posterior
+      ansible.builtin.set_fact:
+        fw_active_after: >-
+          {{ ((fw_manager == 'ufw')
+              and ('Status: active' in (_fw_after_status.stdout | default(''))))
+             or ((fw_manager == 'firewalld')
+              and ('running' in (_fw_after_state.stdout | default('')))) }}
+        fw_sources_after: >-
+          {{ (_fw_after_added.stdout | default('')) if fw_manager == 'ufw'
+             else (_fw_after_sources.stdout | default('')) }}
+
+    - name: Calcular el cambio y la verificación
+      ansible.builtin.set_fact:
+        fw_changed: >-
+          {{ (fw_mode == 'enable' and not (fw_active_before | bool))
+             or (fw_mode == 'disable' and (fw_active_before | bool))
+             or (fw_mode == 'allow'
+                 and (' ' ~ fw_source ~ ' ')
+                     not in (' ' ~ (fw_sources_before | replace('\n', ' ') | trim) ~ ' ')) }}
+        fw_verified: >-
+          {{ (fw_mode == 'enable' and (fw_active_after | bool))
+             or (fw_mode == 'disable' and not (fw_active_after | bool))
+             or (fw_mode == 'allow'
+                 and (' ' ~ fw_source ~ ' ')
+                     in (' ' ~ (fw_sources_after | replace('\n', ' ') | trim) ~ ' ')) }}
+
+    - name: Publicar el estado final
+      ansible.builtin.debug:
+        msg: >-
+          FIREWALL_STATE_B64={{ {
+            'manager': fw_manager,
+            'active': fw_active_after | bool,
+            'allowed_sources': (
+              (fw_sources_after | regex_findall('(?m)^ufw allow from ([^ ]+)'))
+              if fw_manager == 'ufw'
+              else (fw_sources_after | replace('\n', ' ')).split()
+            )
+          } | to_json | b64encode }}
+
+    - name: Publicar el cambio
+      ansible.builtin.debug:
+        msg: "FIREWALL_CHANGED={{ fw_changed | bool }}"
+
+    - name: Publicar la verificación
+      ansible.builtin.debug:
+        msg: "FIREWALL_VERIFIED={{ fw_verified | bool }}"
+
+    - name: Publicar los errores de verificación
+      ansible.builtin.debug:
+        msg: >-
+          FIREWALL_ERRORS={{ '' if (fw_verified | bool) else
+          'La verificación posterior no coincide con la operación solicitada.' }}

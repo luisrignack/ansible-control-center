@@ -84,6 +84,8 @@
                                         <span class="text-warning"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Actualización APT</span>
                                     {% elif batch.action == 'PASSWORD' %}
                                         <span class="text-warning"><i class="bi bi-key" aria-hidden="true"></i> Cambio de contraseña</span>
+                                    {% elif batch.action == 'FIREWALL' %}
+                                        <span class="text-warning"><i class="bi bi-shield-lock" aria-hidden="true"></i> Firewall</span>
                                     {% else %}
                                         <span class="text-warning"><i class="bi bi-clock" aria-hidden="true"></i> Hora exacta</span>
                                     {% endif %}
