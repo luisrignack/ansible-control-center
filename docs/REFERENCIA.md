@@ -452,6 +452,10 @@ rtc: str
 | `HORA_WARNINGS_B64` | Texto base64 |
 | `HORA_DEVIATION` | Entero (segundos) |
 
+> Las operaciones sobre equipos de red (`network_cli`, `netconf`, `httpapi`) no
+> están integradas todavía. Su referencia técnica, catálogo de operaciones y
+> diseño propuesto están en [ANSIBLE_REDES](ANSIBLE_REDES.md).
+
 ---
 
 ## 8. Tareas SSE

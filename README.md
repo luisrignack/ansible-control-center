@@ -926,6 +926,7 @@ Módulos:
 - [Arquitectura y flujos](docs/ARQUITECTURA.md)
 - [Referencia técnica](docs/REFERENCIA.md)
 - [Operación y runbook](docs/OPERACION.md)
+- [Ansible sobre equipos de red](docs/ANSIBLE_REDES.md)
 - [Rendimiento y SLO](docs/RENDIMIENTO.md)
 - [Análisis profundo y recomendaciones](docs/ANALISIS_Y_RECOMENDACIONES.md)
 - [Auditoría técnica 2026-11-08](docs/AUDITORIA_TECNICA_2026-11-08.md)

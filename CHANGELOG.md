@@ -5,6 +5,26 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Documentación de Ansible para redes] — 2026-11-10
+
+### Añadido
+
+- **`docs/ANSIBLE_REDES.md`**: referencia de las operaciones que Ansible puede
+  ejecutar sobre switches, routers, firewalls, controladoras Wi-Fi y
+  balanceadores. Incluye conexiones (`network_cli`, `netconf`, `httpapi`,
+  RESTCONF), requisitos e inventario de ejemplo, colecciones por
+  fabricante, catálogo de operaciones clasificado por riesgo, módulos y
+  ejemplos de playbook, backup y verificación, rollback por fabricante,
+  límites de `check mode`, controles de seguridad y el diseño por fases que
+  necesitaría Ansible Control Center para soportar red.
+- Enlaces al documento desde `README.md` y `docs/README.md`.
+
+### Notas
+
+- No cambia el comportamiento de la aplicación: hoy ACC solo opera Linux/SSH y
+  Windows/WinRM. El documento es la base de diseño para las futuras tarjetas de
+  red, empezando por inventario y backup de configuración (solo lectura).
+
 ## [Tarjeta Firewall] — 2026-11-10
 
 ### Añadido
