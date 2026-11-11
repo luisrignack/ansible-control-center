@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Ejecutar solicitud #{{ req.id }}{% endblock %}
+
+{% block breadcrumb %}Mis solicitudes / Ejecutar #{{ req.id }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div>
+        <div class="eyebrow">Seguridad</div>
+        <h1>Ejecutar solicitud #{{ req.id }}</h1>
+        <p class="sub">Aprobada por <strong>{{ req.approver }}</strong>. Los parámetros se
+            recuperan de la solicitud original; solo faltan los secretos que no se
+            guardan nunca. La aprobación es de un solo uso.</p>
+    </div>
+</div>
+
+<div class="card fade-in mb-4">
+    <div class="card-header">
+        <h2 class="card-title"><i class="bi bi-info-circle" aria-hidden="true"></i> Resumen</h2>
+        <span class="badge bg-success">aprobada</span>
+    </div>
+    <div class="card-body">
+        <dl class="row mb-0">
+            <dt class="col-sm-3">Tarea</dt>
+            <dd class="col-sm-9"><strong>{{ task.name if task else req.task_id }}</strong>
+                <small class="text-secondary">({{ req.task_id }})</small></dd>
+            <dt class="col-sm-3">Operación</dt>
+            <dd class="col-sm-9"><code>{{ req.detail or '—' }}</code></dd>
+            <dt class="col-sm-3">Solicitada</dt>
+            <dd class="col-sm-9">{{ req.requested_at[:16] }} UTC</dd>
+            <dt class="col-sm-3">Aprobador</dt>
+            <dd class="col-sm-9">{{ req.approver }}{% if req.note %} — {{ req.note }}{% endif %}</dd>
+            <dt class="col-sm-3">Válida hasta</dt>
+            <dd class="col-sm-9">{{ (req.deadline or '—')[:16] }} UTC</dd>
+        </dl>
+    </div>
+</div>
+
+<div class="card fade-in">
+    <div class="card-header">
+        <h2 class="card-title"><i class="bi bi-play-circle" aria-hidden="true"></i> Confirmar ejecución</h2>
+    </div>
+    <div class="card-body">
+        <form method="post" action="{{ url_for('ejecutar_aprobacion', request_id=req.id) }}" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            {% if uses_vault %}
+            <div class="mb-3">
+                <label class="form-label" for="master_password">Contraseña maestra del Vault</label>
+                <input class="form-control" type="password" id="master_password" name="master_password"
+                       autocomplete="current-password" required>
+                <div class="form-text">Se usa para leer las credenciales del vault; no se guarda.</div>
+            </div>
+            {% endif %}
+
+            {% if uses_file %}
+            <div class="mb-3">
+                <label class="form-label" for="password_file">Archivo de contraseñas temporales</label>
+                <input class="form-control" type="file" id="password_file" name="password_file" required>
+                <div class="form-text">La solicitud usaba contraseñas temporales; vuelve a adjuntar el archivo.</div>
+            </div>
+            {% endif %}
+
+            {% if needs_password %}
+            <div class="mb-3">
+                <label class="form-label" for="new_password">Contraseña nueva</label>
+                <input class="form-control" type="password" id="new_password" name="new_password"
+                       autocomplete="new-password" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="new_password_confirm">Confirmar contraseña nueva</label>
+                <input class="form-control" type="password" id="new_password_confirm" name="new_password_confirm"
+                       autocomplete="new-password" required>
+            </div>
+            {% endif %}
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-success">
+                    <i class="bi bi-play-fill" aria-hidden="true"></i> Ejecutar ahora
+                </button>
+                <a class="btn btn-outline-secondary" href="{{ url_for('mis_solicitudes') }}">Cancelar</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

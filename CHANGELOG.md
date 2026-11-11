@@ -5,6 +5,34 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Doble aprobación con 24 h y ejecución desde la solicitud] — 2026-11-11
+
+### Añadido
+
+- **Estado «pendiente de aprobación» con plazo de 24 h**: al enviar una
+  tarea destructiva sin aprobación vigente se registra la solicitud y se
+  informa de su número, del plazo de decisión (`ACC_APPROVAL_REQUEST_TTL_HOURS`,
+  24 h) y de la ventana posterior para ejecutarla. Las solicitudes que nadie
+  decide caducan solas al listarlas (`expired`) y dejan de poder aprobarse.
+- **Mis solicitudes** (`/mis-solicitudes`): cada operador ve el estado de sus
+  propias solicitudes (pendiente, aprobada, rechazada, ejecutada o caducada),
+  quién la aprobó, la nota y la fecha límite. Antes la bandeja era solo de
+  administradores y el solicitante no tenía forma de saber nada.
+- **Ejecución sin rellenar el formulario** (`/mis-solicitudes/<id>/ejecutar`):
+  una solicitud aprobada se lanza desde su propio resumen; solo se piden los
+  secretos que nunca se guardan (contraseña maestra del vault y, en el cambio
+  de contraseña, la nueva). Reutiliza la validación y el hash de parámetros
+  originales, así que la aprobación coincide y se consume una sola vez.
+- `approvals.payload` guarda el formulario original **sin contraseñas**, el
+  token CSRF ni el `operation_id`, para poder reproducir la ejecución.
+
+### Cambiado
+
+- `ACC_APPROVAL_TTL_MINUTES` pasa de 30 a 1440 minutos (24 h) por defecto, de
+  modo que una aprobación no se pierde por esperar unas horas.
+- Esquema de base de datos v16 (columna `approvals.payload`, migración no
+  destructiva).
+
 ## [Corrección de LDAPS] — 2026-11-11
 
 ### Corregido

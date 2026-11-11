@@ -471,9 +471,16 @@ NOTIFY_TO = [
 # ---------------------------------------------------------------------------
 # Doble aprobación (two-person rule) de tareas destructivas
 # ---------------------------------------------------------------------------
-# Una solicitud aprobada por un admin distinto del ejecutor habilita una
-# ejecución de tarea destructiva durante esta ventana, y es de un solo uso.
-APPROVAL_TTL_MINUTES = _env_int("ACC_APPROVAL_TTL_MINUTES", 30, minimum=1, maximum=1440)
+# Una solicitud pendiente espera la decisión de un admin durante este plazo;
+# pasado el plazo caduca y hay que crear otra.
+APPROVAL_REQUEST_TTL_HOURS = _env_int(
+    "ACC_APPROVAL_REQUEST_TTL_HOURS", 24, minimum=1, maximum=168
+)
+# Una vez aprobada, la solicitud habilita una ejecución de tarea destructiva
+# durante esta ventana (24 h por defecto), y es de un solo uso.
+APPROVAL_TTL_MINUTES = _env_int(
+    "ACC_APPROVAL_TTL_MINUTES", 1440, minimum=1, maximum=10080
+)
 
 # ---------------------------------------------------------------------------
 # Parámetros de ejecución

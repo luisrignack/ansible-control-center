@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Mis solicitudes{% endblock %}
+
+{% block breadcrumb %}Mis solicitudes{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div>
+        <div class="eyebrow">Seguridad</div>
+        <h1>Mis solicitudes</h1>
+        <p class="sub">Solicitudes de doble aprobación que has creado. Una solicitud
+            espera la decisión de un administrador durante {{ request_ttl_hours }} h;
+            una vez aprobada puedes ejecutarla desde aquí durante
+            {{ (approval_ttl_minutes / 60) | round(0, 'floor') | int }} h, sin volver
+            a rellenar el formulario.</p>
+    </div>
+</div>
+
+<div class="card fade-in">
+    <div class="card-header">
+        <h2 class="card-title"><i class="bi bi-clipboard-check" aria-hidden="true"></i> Solicitudes</h2>
+        <span class="badge bg-secondary">{{ requests | length }}</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive p-3">
+            <table class="table table-borderless mb-0 table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th scope="col">#</th>
+                        <th scope="col">Tarea</th>
+                        <th scope="col">Operación</th>
+                        <th scope="col">Estado</th>
+                        <th scope="col">Solicitada</th>
+                        <th scope="col">Límite</th>
+                        <th scope="col">Aprobador / nota</th>
+                        <th scope="col" class="text-end">Acción</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for req in requests %}
+                    <tr>
+                        <td><code>{{ req.id }}</code></td>
+                        <td><strong>{{ req.task_id }}</strong></td>
+                        <td><small><code>{{ req.detail or '—' }}</code></small></td>
+                        <td>
+                            <span class="badge {% if req.status == 'pending' %}bg-warning text-dark{% elif req.status == 'approved' %}bg-success{% elif req.status == 'consumed' %}bg-secondary{% elif req.status == 'rejected' %}bg-danger{% else %}bg-secondary{% endif %}">
+                                {% if req.status == 'pending' %}pendiente de aprobación
+                                {% elif req.status == 'approved' %}aprobada
+                                {% elif req.status == 'consumed' %}ejecutada
+                                {% elif req.status == 'rejected' %}rechazada
+                                {% elif req.status == 'expired' %}caducada
+                                {% else %}{{ req.status }}{% endif %}
+                            </span>
+                        </td>
+                        <td><small>{{ req.requested_at[:16] }} UTC</small></td>
+                        <td><small>{{ (req.deadline or '—')[:16] }} UTC</small></td>
+                        <td><small>
+                            {% if req.approver %}{{ req.approver }}{% else %}—{% endif %}
+                            {% if req.note %}<br><span class="text-secondary">{{ req.note }}</span>{% endif %}
+                        </small></td>
+                        <td class="text-end">
+                            {% if req.executable %}
+                            <a class="btn btn-sm btn-success"
+                               href="{{ url_for('ejecutar_aprobacion', request_id=req.id) }}">
+                                <i class="bi bi-play-fill" aria-hidden="true"></i> Ejecutar
+                            </a>
+                            {% else %}
+                            <small class="text-secondary">—</small>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="8" class="text-center py-4">
+                            <small class="text-secondary">Todavía no has creado solicitudes de aprobación.</small>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

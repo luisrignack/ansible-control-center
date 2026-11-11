@@ -122,8 +122,11 @@ por defecto** (400 recopilados). Incluye empaquetado Docker con Nginx y TLS.
   excepción explícita con motivo (mínimo 10 caracteres), auditada como
   `safety_override`; las programaciones no admiten excepciones.
 - **Doble aprobación**: las tareas marcadas como destructivas requieren la
-  aprobación de un administrador distinto del ejecutor, con caducidad
-  (`ACC_APPROVAL_TTL_MINUTES`) y un solo uso.
+  aprobación de un administrador distinto del ejecutor y son de un solo uso.
+  La solicitud queda **pendiente de aprobación** durante
+  `ACC_APPROVAL_REQUEST_TTL_HOURS` (24 h por defecto) y, una vez aprobada, el
+  solicitante dispone de `ACC_APPROVAL_TTL_MINUTES` (24 h por defecto) para
+  lanzarla desde **Mis solicitudes**, sin volver a rellenar el formulario.
 - **Notificaciones SMTP** opcionales de resultados (`failures` o `all`) y
   **re-ejecución** de un lote desde su detalle cuando el estado lo permite.
 - **Informe PDF** por ejecución, generado sin dependencias externas. Incluye
@@ -496,7 +499,8 @@ lote, en lugar de enviar la contraseña en claro.
 
 | Variable | Por defecto | Descripción |
 |---|---|---|
-| `ACC_APPROVAL_TTL_MINUTES` | `30` | Validez de una aprobación de tarea destructiva |
+| `ACC_APPROVAL_REQUEST_TTL_HOURS` | `24` | Plazo de una solicitud pendiente de decisión |
+| `ACC_APPROVAL_TTL_MINUTES` | `1440` | Validez de una aprobación ya concedida (24 h) |
 
 ### Logging
 
@@ -594,7 +598,9 @@ administrador desactiva el interruptor **Simulación** de la barra superior
   La vista previa solo comprueba que el usuario exista y su estado; la
   ejecución real exige el secreto y, por ser una tarea destructiva, la
   aprobación de otro administrador. El secreto queda excluido de los
-  parámetros de aprobación, del historial, de la consola y de los informes.
+  parámetros y del payload de aprobación: al ejecutar desde **Mis
+  solicitudes** hay que volver a escribirlo. También queda excluido del
+  historial, de la consola y de los informes.
   La tarjeta **no admite programación**: el secreto no se persiste.
 
 ### Políticas NTP
@@ -623,7 +629,9 @@ administrador desactiva el interruptor **Simulación** de la barra superior
 | POST | `/execute` | Sí | Alias explícito de ejecución |
 | GET/POST | `/inventario` | Sí | Grupos, hosts y clave SSH (admin para cambios) |
 | GET/POST | `/programaciones` | Sí | Programaciones (admin para cambios) |
-| GET/POST | `/aprobaciones` | Admin | Doble aprobación de tareas destructivas |
+| GET/POST | `/aprobaciones` | Admin | Bandeja de solicitudes pendientes: aprobar o rechazar |
+| GET | `/mis-solicitudes` | Operador | Estado de las solicitudes propias y ejecución de las aprobadas |
+| GET/POST | `/mis-solicitudes/<id>/ejecutar` | Operador | Ejecuta una solicitud propia aprobada y vigente |
 | GET | `/progress/<task_id>` | Sí | Página de progreso |
 | GET | `/progress/<task_id>/events` | Sí | Stream SSE de progreso |
 | GET | `/api/task-status/<task_id>` | Sí | Estado JSON de la tarea |
@@ -682,8 +690,9 @@ actualización por política (migración o espacio) y guarda en `after_state`
   contraseña maestra cifrada, último resultado y error, y reserva
   `claimed_at`/`claimed_by` para que solo un proceso lance cada vencimiento).
 - `approvals`: solicitudes de doble aprobación con caducidad, aprobador,
-  estado (`pending`/`approved`/`reserved`/`rejected`/`consumed`) y consumo
-  único.
+  estado (`pending`/`approved`/`reserved`/`rejected`/`consumed`/`expired`),
+  consumo único y `payload` con el formulario original sin secretos para
+  poder ejecutar la solicitud aprobada desde **Mis solicitudes**.
 - `operation_ids`: reservas de idempotencia de envíos, compartidas entre
   workers y persistentes.
 - `app_settings`: preferencias persistentes (p. ej. el interruptor DRY RUN o

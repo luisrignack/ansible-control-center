@@ -46,6 +46,13 @@
                {% if endpoint in ['history', 'batch_detail'] %}aria-current="page"{% endif %}>
                 <i class="bi bi-clock-history icon" aria-hidden="true"></i> Historial
             </a>
+            {% if current_user.has_role('admin', 'operator') %}
+            <a class="nav-item {% if endpoint in ['mis_solicitudes', 'ejecutar_aprobacion'] %}is-active{% endif %}"
+               href="{{ url_for('mis_solicitudes') }}"
+               {% if endpoint in ['mis_solicitudes', 'ejecutar_aprobacion'] %}aria-current="page"{% endif %}>
+                <i class="bi bi-clipboard-check icon" aria-hidden="true"></i> Mis solicitudes
+            </a>
+            {% endif %}
             {% if ui_config_panel %}
             {% set config_endpoints = ['inventario', 'programaciones', 'aprobaciones',
                                        'passwords', 'usuarios', 'modulos', 'configuracion'] %}

@@ -262,9 +262,12 @@ desatendida.
    y muestra su estado. Si el usuario no existe, la estación se reporta como
    fallo.
 5. **Ejecutar** exige la contraseña. La tarea es destructiva, así que otro
-   administrador debe aprobarla antes de que se aplique. Tras la aprobación,
-   vuelve a enviar el formulario con el usuario y la contraseña: el secreto no
-   forma parte de los parámetros de la aprobación y debe reescribirse.
+   administrador debe aprobarla antes de que se aplique. La solicitud queda
+   **pendiente de aprobación** durante `ACC_APPROVAL_REQUEST_TTL_HOURS` (24 h).
+   Cuando se apruebe, entra en **Mis solicitudes**, donde el solicitante la
+   ejecuta durante `ACC_APPROVAL_TTL_MINUTES` (24 h) sin repetir el formulario:
+   solo vuelve a escribir la contraseña nueva, porque el secreto no se guarda
+   ni en los parámetros ni en el payload de la aprobación.
 
 **Seguridad del secreto.** La contraseña se envía al playbook dentro del
 fichero temporal de variables (`0600`) y se entrega a `chpasswd` por `stdin`

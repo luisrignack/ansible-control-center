@@ -53,6 +53,7 @@ from config import (
     ADMIN_PASSWORD_MIN_LENGTH,
     ADMIN_USERNAME,
     ALLOWED_PASSWORD_EXTENSIONS,
+    APPROVAL_REQUEST_TTL_HOURS,
     APPROVAL_TTL_MINUTES,
     APT_MIN_FREE_GB,
     APT_MIN_FREE_GB_CEILING,
@@ -141,8 +142,11 @@ from models.batch import (
 from models.db import get_connection, get_setting, init_schema, set_setting
 from models.execution import ExecutionRecord
 from models.ops import (
-    ApprovalRequest,
+    APPROVAL_APPROVED,
+    APPROVAL_EXPIRED,
     APPROVAL_PENDING,
+    APPROVAL_REJECTED,
+    ApprovalRequest,
     HostGroup,
     InventoryHost,
     Schedule,
@@ -504,9 +508,10 @@ _HOSTNAME_RE = re.compile(
 VALID_ACTIONS = {"TZ", "TIME", "WALLPAPER", "APT", "PASSWORD", "FIREWALL"}
 
 
-def _form_bool(name: str) -> bool:
+def _form_bool(name: str, form_data=None) -> bool:
     """Interpreta un checkbox/valor booleano del formulario."""
-    return request.form.get(name, "").strip().lower() in {
+    source = request.form if form_data is None else form_data
+    return source.get(name, "").strip().lower() in {
         "1",
         "true",
         "yes",
@@ -852,41 +857,47 @@ def _validate_scheduled_params(
 
 def _parse_operation_form(
     default_mode: str = "execute",
+    form_data=None,
+    files=None,
 ) -> tuple[Optional[Dict[str, Any]], List[str]]:
     """Valida el formulario completo de vista previa/ejecución (P4).
 
     Devuelve un diccionario normalizado o una lista de errores. La vista previa
     y la ejecución comparten exactamente la misma validación para que lo que se
-    previsualiza sea lo que después se ejecuta.
+    previsualiza sea lo que después se ejecuta. ``form_data``/``files``
+    permiten validar un envío reconstruido (ejecución de una aprobación ya
+    concedida) sin pasar por el formulario.
     """
+    submitted = request.form if form_data is None else form_data
+    uploads = request.files if files is None else files
     target_mode = (
-        request.form.get("target_mode", "manual").strip().lower() or "manual"
+        submitted.get("target_mode", "manual").strip().lower() or "manual"
     )
-    target_group_raw = request.form.get("target_group", "").strip()
+    target_group_raw = submitted.get("target_group", "").strip()
     # Tarea del catálogo: determina permisos y si es destructiva. Para no
     # romper envíos anteriores (que no enviaban el campo oculto), si falta se
     # asume la tarea operativa por defecto del catálogo.
-    task_id = request.form.get("task", "").strip()
-    target = request.form.get("target_ip", "").strip()
-    admin_user = request.form.get("admin_user", "").strip()
-    origin = request.form.get("password_origin", "stored").strip()
-    master_password = request.form.get("master_password", "").strip()
-    action = request.form.get("action", "").strip().upper()
-    value = request.form.get("value", "").strip()
+    task_id = submitted.get("task", "").strip()
+    target = submitted.get("target_ip", "").strip()
+    admin_user = submitted.get("admin_user", "").strip()
+    origin = submitted.get("password_origin", "stored").strip()
+    master_password = submitted.get("master_password", "").strip()
+    action = submitted.get("action", "").strip().upper()
+    value = submitted.get("value", "").strip()
     mode = (
-        request.form.get("mode", default_mode).strip().lower() or default_mode
+        submitted.get("mode", default_mode).strip().lower() or default_mode
     )
-    time_mode = request.form.get("time_mode", "utc").strip().lower() or "utc"
-    time_zone = request.form.get("time_zone", "").strip()
-    time_fold_raw = request.form.get("time_fold", "auto").strip().lower()
-    ntp_policy = request.form.get("ntp_policy", "keep").strip().lower() or "keep"
-    ntp_servers_raw = request.form.get("ntp_servers", "")
-    min_free_gb_raw = request.form.get("min_free_gb", "")
-    target_user_raw = request.form.get("target_user", "")
-    new_password = request.form.get("new_password", "")
-    new_password_confirm = request.form.get("new_password_confirm", "")
-    sync_rtc = _form_bool("sync_rtc")
-    force = _form_bool("force")
+    time_mode = submitted.get("time_mode", "utc").strip().lower() or "utc"
+    time_zone = submitted.get("time_zone", "").strip()
+    time_fold_raw = submitted.get("time_fold", "auto").strip().lower()
+    ntp_policy = submitted.get("ntp_policy", "keep").strip().lower() or "keep"
+    ntp_servers_raw = submitted.get("ntp_servers", "")
+    min_free_gb_raw = submitted.get("min_free_gb", "")
+    target_user_raw = submitted.get("target_user", "")
+    new_password = submitted.get("new_password", "")
+    new_password_confirm = submitted.get("new_password_confirm", "")
+    sync_rtc = _form_bool("sync_rtc", submitted)
+    force = _form_bool("force", submitted)
 
     errors: List[str] = []
 
@@ -918,8 +929,8 @@ def _parse_operation_form(
     # motor, el historial y la validación comparten un único campo ``value``
     # (``enable``, ``disable`` o ``allow:<ip|red>``).
     if action == "FIREWALL":
-        firewall_op = request.form.get("firewall_op", "").strip().lower()
-        firewall_ip = request.form.get("firewall_ip", "").strip()
+        firewall_op = submitted.get("firewall_op", "").strip().lower()
+        firewall_ip = submitted.get("firewall_ip", "").strip()
         value = f"allow:{firewall_ip}" if firewall_op == "allow" else firewall_op
 
     # Imagen del tapiz: se valida por firma binaria y se guarda fuera de la
@@ -934,7 +945,7 @@ def _parse_operation_form(
     ):
         try:
             saved_wallpaper = save_wallpaper(
-                request.files.get("wallpaper_file")
+                uploads.get("wallpaper_file")
             )
         except ValueError as exc:
             errors.append(str(exc))
@@ -1117,7 +1128,7 @@ def _parse_operation_form(
                 errors.append(message or "Contraseña maestra incorrecta.")
     else:
         temporal_passwords, file_error = read_temporal_passwords(
-            request.files.get("password_file")
+            uploads.get("password_file")
         )
         if file_error:
             errors.append(file_error)
@@ -2838,6 +2849,123 @@ def programaciones():
     )
 
 
+def _approval_detail(req: ApprovalRequest) -> str:
+    """Resumen legible de los parámetros de una solicitud."""
+    return ", ".join(
+        f"{key}={str(value)[:60]}"
+        for key, value in req.params.items()
+        if key
+        in {
+            "target",
+            "group_name",
+            "admin_user",
+            "action",
+            "value",
+            "mode",
+        }
+    )
+
+
+def _approval_row(req: ApprovalRequest) -> Dict[str, Any]:
+    """Solicitud lista para plantilla, con su fecha límite y si es ejecutable."""
+    data = req.to_dict()
+    data.pop("payload", None)
+    data["detail"] = _approval_detail(req)
+    data["deadline"] = (
+        req.approved_deadline(APPROVAL_TTL_MINUTES)
+        if req.status == APPROVAL_APPROVED
+        else req.requested_deadline(APPROVAL_REQUEST_TTL_HOURS)
+    )
+    # Las solicitudes anteriores a la v16 no guardan payload: se pueden
+    # aprobar, pero la ejecución exige reenviar el formulario.
+    data["executable"] = req.status == APPROVAL_APPROVED and bool(req.payload)
+    return data
+
+
+@app.route("/mis-solicitudes", methods=["GET"])
+@roles_required("operator")
+def mis_solicitudes():
+    """Estado de las solicitudes de doble aprobación del propio usuario."""
+    db_path = get_db_path()
+    ApprovalRequest.expire_stale(
+        APPROVAL_REQUEST_TTL_HOURS, APPROVAL_TTL_MINUTES, db_path=db_path
+    )
+    username = getattr(current_user, "username", "") or ""
+    return render_template(
+        "mis_solicitudes.html",
+        requests=[
+            _approval_row(req)
+            for req in ApprovalRequest.list_for_requester(
+                username, db_path=db_path
+            )
+        ],
+        request_ttl_hours=APPROVAL_REQUEST_TTL_HOURS,
+        approval_ttl_minutes=APPROVAL_TTL_MINUTES,
+    )
+
+
+@app.route(
+    "/mis-solicitudes/<int:request_id>/ejecutar", methods=["GET", "POST"]
+)
+@roles_required("operator")
+def ejecutar_aprobacion(request_id):
+    """Ejecuta una solicitud propia ya aprobada sin repetir el formulario.
+
+    Los parámetros se recuperan del payload guardado al crear la solicitud
+    (sin secretos); solo se piden la contraseña maestra del vault y, en el
+    cambio de contraseña, la contraseña nueva.
+    """
+    db_path = get_db_path()
+    ApprovalRequest.expire_stale(
+        APPROVAL_REQUEST_TTL_HOURS, APPROVAL_TTL_MINUTES, db_path=db_path
+    )
+    req = ApprovalRequest.get(request_id, db_path=db_path)
+    username = getattr(current_user, "username", "") or ""
+    if req is None or req.requested_by != username:
+        flash("La solicitud no existe o no pertenece a tu usuario.", "warning")
+        return redirect(url_for("mis_solicitudes"))
+    if req.status != APPROVAL_APPROVED:
+        flash(
+            "Solo se puede ejecutar una solicitud aprobada y vigente "
+            f"(estado actual: {req.status}).",
+            "warning",
+        )
+        return redirect(url_for("mis_solicitudes"))
+    if not req.payload:
+        flash(
+            "Esta solicitud se creó antes de habilitar la ejecución directa y "
+            "no guarda sus parámetros. Vuelve a enviar el formulario: la "
+            "aprobación vigente se aplicará al reenviarlo.",
+            "warning",
+        )
+        return redirect(url_for("mis_solicitudes"))
+    if request.method == "GET":
+        return render_template(
+            "ejecutar_aprobacion.html",
+            req=_approval_row(req),
+            task=get_task(req.task_id),
+            detail=_approval_detail(req),
+            needs_password=req.params.get("action") == "PASSWORD",
+            uses_vault=req.params.get("origin", "stored") == "stored",
+            uses_file=req.params.get("origin") == "temporal",
+            approval_ttl_minutes=APPROVAL_TTL_MINUTES,
+        )
+    # Reenvío: mismos parámetros de la solicitud aprobada (el hash coincide),
+    # secretos aportados ahora y nuevos tokens de idempotencia/CSRF.
+    submitted = dict(req.payload or {})
+    submitted["mode"] = "execute"
+    submitted["operation_id"] = uuid.uuid4().hex
+    if not submitted.get("task"):
+        submitted["task"] = req.task_id
+    submitted.setdefault("password_origin", req.params.get("origin", "stored"))
+    for name in ("master_password", "new_password", "new_password_confirm"):
+        if name in request.form:
+            submitted[name] = request.form.get(name, "")
+    return handle_execution(
+        default_mode="execute", form_data=submitted, files=request.files
+    )
+
+
 @app.route("/aprobaciones", methods=["GET", "POST"])
 @roles_required("admin")
 def aprobaciones():
@@ -2855,14 +2983,16 @@ def aprobaciones():
                 approver=getattr(current_user, "username", ""),
                 approve=True,
                 note=request.form.get("note", ""),
+                ttl_hours=APPROVAL_REQUEST_TTL_HOURS,
                 db_path=db_path,
             )
             if decide_error or decided is None:
                 flash(decide_error or "No se pudo aprobar.", "danger")
             else:
                 flash(
-                    f"Solicitud #{decided.id} aprobada: el ejecutor dispone "
-                    f"de {APPROVAL_TTL_MINUTES} minutos para lanzar la tarea.",
+                    f"Solicitud #{decided.id} aprobada: el solicitante puede "
+                    "ejecutarla desde Mis solicitudes durante "
+                    f"{APPROVAL_TTL_MINUTES // 60} h.",
                     "success",
                 )
         elif action == "reject":
@@ -2871,6 +3001,7 @@ def aprobaciones():
                 approver=getattr(current_user, "username", ""),
                 approve=False,
                 note=request.form.get("note", ""),
+                ttl_hours=APPROVAL_REQUEST_TTL_HOURS,
                 db_path=db_path,
             )
             if decide_error or decided is None:
@@ -2881,37 +3012,30 @@ def aprobaciones():
             flash("Acción de aprobación no válida.", "warning")
         return redirect(url_for("aprobaciones"))
 
-    def _pretty(req: ApprovalRequest) -> Dict[str, Any]:
-        data = req.to_dict()
-        stored = req.params
-        data["detail"] = ", ".join(
-            f"{key}={str(value)[:60]}"
-            for key, value in stored.items()
-            if key
-            in {
-                "target",
-                "group_name",
-                "admin_user",
-                "action",
-                "value",
-                "mode",
-            }
-        )
-        return data
-
+    ApprovalRequest.expire_stale(
+        APPROVAL_REQUEST_TTL_HOURS, APPROVAL_TTL_MINUTES, db_path=db_path
+    )
     return render_template(
         "approvals.html",
         approval_ttl_minutes=APPROVAL_TTL_MINUTES,
+        request_ttl_hours=APPROVAL_REQUEST_TTL_HOURS,
         pending=[
-            _pretty(req)
+            _approval_row(req)
             for req in ApprovalRequest.list_status(
                 APPROVAL_PENDING, db_path=db_path
             )
         ],
         decided=[
-            _pretty(req)
-            for req in ApprovalRequest.list_status("approved", db_path=db_path)
-            + ApprovalRequest.list_status("rejected", db_path=db_path)
+            _approval_row(req)
+            for req in ApprovalRequest.list_status(
+                APPROVAL_APPROVED, db_path=db_path
+            )
+            + ApprovalRequest.list_status(
+                APPROVAL_REJECTED, db_path=db_path
+            )
+            + ApprovalRequest.list_status(
+                APPROVAL_EXPIRED, db_path=db_path
+            )
         ],
     )
 
@@ -3262,7 +3386,39 @@ def _approval_params(form: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def handle_execution(default_mode: str = "execute"):
+def _approval_payload(form) -> Dict[str, Any]:
+    """Formulario original de la solicitud, apto para reejecutarla.
+
+    Se guardan los campos tal cual llegaron (para reproducir el mismo hash de
+    parámetros) excluyendo secretos, el token CSRF y el ``operation_id`` de la
+    idempotencia, que se regenera en cada envío.
+    """
+    skip = {
+        "csrf_token",
+        "operation_id",
+        "master_password",
+        "new_password",
+        "new_password_confirm",
+        "password_file",
+    }
+    payload: Dict[str, Any] = {}
+    for key, value in form.items():
+        if key in skip or not isinstance(value, str):
+            continue
+        payload[key] = value
+    return payload
+
+
+def handle_execution(
+    default_mode: str = "execute", form_data=None, files=None
+):
+    """Valida y lanza una ejecución desde el formulario o desde una aprobación.
+
+    ``form_data`` permite reenviar los parámetros guardados en una solicitud de
+    doble aprobación ya concedida, de modo que el solicitante no tenga que
+    volver a rellenar el formulario.
+    """
+    submitted = request.form if form_data is None else form_data
     # Incluso un envío desde el panel exige rol de operador: el rol viewer es
     # de solo lectura y nunca debe poder lanzar Ansible.
     if not current_user.has_role("admin", "operator"):
@@ -3282,7 +3438,9 @@ def handle_execution(default_mode: str = "execute"):
             "Demasiadas ejecuciones seguidas. Espera antes de reintentar.",
         )
 
-    form, errors = _parse_operation_form(default_mode=default_mode)
+    form, errors = _parse_operation_form(
+        default_mode=default_mode, form_data=form_data, files=files
+    )
     if errors:
         for error in errors:
             flash(error, "danger")
@@ -3318,7 +3476,7 @@ def handle_execution(default_mode: str = "execute"):
         return blocked_response
     # La idempotencia se comprueba antes de consumir una aprobación: un doble
     # clic o un reintento no debe gastar una autorización de un solo uso.
-    operation_id = request.form.get("operation_id", "").strip()
+    operation_id = submitted.get("operation_id", "").strip()
     duplicate = _claim_operation_id(operation_id)
     if duplicate is not None:
         discard_wallpaper()
@@ -3351,6 +3509,7 @@ def handle_execution(default_mode: str = "execute"):
             executor=operator,
             approves_by_differs=True,
             ttl_minutes=APPROVAL_TTL_MINUTES,
+            ttl_hours=APPROVAL_REQUEST_TTL_HOURS,
             db_path=get_db_path(),
         )
         if approval_request_id is None:
@@ -3369,17 +3528,21 @@ def handle_execution(default_mode: str = "execute"):
                     and req.requested_by == operator
                 ]
                 if not pending:
-                    ApprovalRequest.create(
+                    created = ApprovalRequest.create(
                         form["task_id"],
                         approval_params,
                         requested_by=operator,
+                        payload=_approval_payload(submitted),
                         db_path=get_db_path(),
                     )
                     message = (
-                        "Tarea destructiva: se registró una solicitud de "
+                        "Tarea destructiva: solicitud #"
+                        f"{created.id} registrada como pendiente de "
                         "aprobación. Un administrador distinto de ti debe "
-                        "aprobarla antes de ejecutar (tienes "
-                        f"{APPROVAL_TTL_MINUTES} minutos una vez aprobada)."
+                        "aprobarla en las próximas "
+                        f"{APPROVAL_REQUEST_TTL_HOURS} h; una vez aprobada "
+                        "podrás ejecutarla desde Mis solicitudes en los "
+                        f"{APPROVAL_TTL_MINUTES // 60} h siguientes."
                     )
             flash(message, "warning")
             if _wants_json():

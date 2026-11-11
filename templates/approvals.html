@@ -10,7 +10,7 @@
     <div>
         <div class="eyebrow">Seguridad</div>
         <h1>Doble aprobación</h1>
-        <p class="sub">Regla de dos personas para tareas destructivas: un administrador distinto del ejecutor debe autorizar cada lanzamiento. Las aprobaciones caducan al cabo del TTL configurado y son de un solo uso.</p>
+        <p class="sub">Regla de dos personas para tareas destructivas: un administrador distinto del ejecutor debe autorizar cada lanzamiento. Las solicitudes esperan decisión {{ request_ttl_hours }} h y, una vez aprobadas, el solicitante dispone de {{ (approval_ttl_minutes / 60) | round(0, 'floor') | int }} h para ejecutarlas desde Mis solicitudes. Son de un solo uso.</p>
     </div>
 </div>
 
@@ -29,6 +29,7 @@
                         <th scope="col">Solicitante</th>
                         <th scope="col">Operación</th>
                         <th scope="col">Fecha</th>
+                        <th scope="col">Caduca</th>
                         <th scope="col">Decisión</th>
                     </tr>
                 </thead>
@@ -40,6 +41,7 @@
                         <td><small>{{ req.requested_by }}</small></td>
                         <td><small><code>{{ req.detail or '—' }}</code></small></td>
                         <td><small>{{ req.requested_at[:16] }} UTC</small></td>
+                        <td><small>{{ (req.deadline or '—')[:16] }} UTC</small></td>
                         <td>
                             <form method="post" action="{{ url_for('aprobaciones') }}" class="d-flex gap-2 align-items-center">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -60,7 +62,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="6" class="text-center py-4">
+                        <td colspan="7" class="text-center py-4">
                             <small class="text-secondary">No hay solicitudes pendientes.</small>
                         </td>
                     </tr>

@@ -788,6 +788,11 @@ APPROVAL_APPROVED = "approved"
 APPROVAL_RESERVED = "reserved"
 APPROVAL_REJECTED = "rejected"
 APPROVAL_CONSUMED = "consumed"
+APPROVAL_EXPIRED = "expired"
+
+# Plazo por defecto de una solicitud pendiente (el mismo que
+# ``config.APPROVAL_REQUEST_TTL_HOURS``); pasado el plazo caduca.
+APPROVAL_REQUEST_TTL_HOURS = 24
 
 # Una reserva abandonada (proceso caído entre reservar y confirmar) vuelve a
 # ``approved`` pasado este tiempo.
@@ -809,6 +814,8 @@ class ApprovalRequest:
         self.decided_at = row["decided_at"]
         self.note = row["note"]
         self.consumed_at = row["consumed_at"]
+        keys = row.keys() if hasattr(row, "keys") else ()
+        self.payload = json.loads((row["payload"] if "payload" in keys else "") or "{}")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -820,7 +827,20 @@ class ApprovalRequest:
             "approver": self.approver,
             "decided_at": self.decided_at,
             "note": self.note,
+            "payload": self.payload,
         }
+
+    def requested_deadline(self, ttl_hours: float) -> str:
+        """Momento en que caduca una solicitud aún pendiente."""
+        start = _parse_utc(self.requested_at)
+        return (start + timedelta(hours=ttl_hours)).isoformat(timespec="seconds")
+
+    def approved_deadline(self, ttl_minutes: float) -> Optional[str]:
+        """Momento hasta el que una aprobación se puede ejecutar."""
+        if not self.decided_at:
+            return None
+        start = _parse_utc(self.decided_at)
+        return (start + timedelta(minutes=ttl_minutes)).isoformat(timespec="seconds")
 
     @classmethod
     def _by_row(cls, row) -> Optional["ApprovalRequest"]:
@@ -858,9 +878,10 @@ class ApprovalRequest:
         task_id: str,
         params: Dict[str, Any],
         requested_by: str,
+        payload: Optional[Dict[str, Any]] = None,
         db_path: str = None,
     ) -> "ApprovalRequest":
-        """Creamos la solicitud sin secretos (params sin contraseñas)."""
+        """Creamos la solicitud sin secretos (params y payload sin contraseñas)."""
         if db_path is None:
             db_path = _default_db_path()
         with get_connection(db_path) as conn:
@@ -868,8 +889,8 @@ class ApprovalRequest:
                 """
                 INSERT INTO approvals
                     (task_id, params_hash, params, requested_by, requested_at,
-                     status)
-                VALUES (?, ?, ?, ?, ?, ?)
+                     status, payload)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task_id,
@@ -878,6 +899,7 @@ class ApprovalRequest:
                     requested_by,
                     _now(),
                     APPROVAL_PENDING,
+                    json.dumps(payload or {}, ensure_ascii=False),
                 ),
             )
         got = cls.get(cursor.lastrowid, db_path=db_path)
@@ -888,12 +910,85 @@ class ApprovalRequest:
         return got
 
     @classmethod
+    def list_for_requester(
+        cls, username: str, limit: int = 100, db_path: str = None
+    ) -> List["ApprovalRequest"]:
+        """Solicitudes creadas por ``username``, de la más reciente a la más antigua."""
+        if db_path is None:
+            db_path = _default_db_path()
+        with get_connection(db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM approvals WHERE requested_by = ?
+                ORDER BY id DESC LIMIT ?
+                """,
+                (username or "", int(limit)),
+            ).fetchall()
+        return [cls(row) for row in rows]
+
+    @classmethod
+    def expire_stale(
+        cls,
+        ttl_hours: float = APPROVAL_REQUEST_TTL_HOURS,
+        ttl_minutes: Optional[float] = None,
+        db_path: str = None,
+    ) -> int:
+        """Caduca solicitudes pendientes antiguas y aprobaciones no usadas.
+
+        Se aplica de forma perezosa (al listar o decidir) para no depender de
+        un proceso en segundo plano. Devuelve cuántas filas cambiaron.
+        """
+        if db_path is None:
+            db_path = _default_db_path()
+        now = datetime.now(timezone.utc)
+        changed = 0
+        pending_cutoff = (
+            now - timedelta(hours=ttl_hours)
+        ).isoformat(timespec="seconds")
+        with get_connection(db_path) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE approvals
+                SET status = ?, note = ?
+                WHERE status = ? AND requested_at < ?
+                """,
+                (
+                    APPROVAL_EXPIRED,
+                    f"Caducada sin decisión ({int(ttl_hours)} h).",
+                    APPROVAL_PENDING,
+                    pending_cutoff,
+                ),
+            )
+            changed += int(cursor.rowcount or 0)
+            if ttl_minutes is not None:
+                approved_cutoff = (
+                    now - timedelta(minutes=ttl_minutes)
+                ).isoformat(timespec="seconds")
+                cursor = conn.execute(
+                    """
+                    UPDATE approvals
+                    SET status = ?, note = ?
+                    WHERE status = ? AND decided_at IS NOT NULL
+                      AND decided_at < ?
+                    """,
+                    (
+                        APPROVAL_EXPIRED,
+                        "Aprobación caducada sin ejecutarse.",
+                        APPROVAL_APPROVED,
+                        approved_cutoff,
+                    ),
+                )
+                changed += int(cursor.rowcount or 0)
+        return changed
+
+    @classmethod
     def decide(
         cls,
         request_id: int,
         approver: str,
         approve: bool,
         note: str = "",
+        ttl_hours: float = APPROVAL_REQUEST_TTL_HOURS,
         db_path: str = None,
     ) -> Tuple[Optional["ApprovalRequest"], Optional[str]]:
         """Aprueba o rechaza una solicitud pendiente.
@@ -915,12 +1010,16 @@ class ApprovalRequest:
                 "El aprobador debe ser distinto del solicitante "
                 "(two-person rule)."
             )
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(hours=ttl_hours)
+        ).isoformat(timespec="seconds")
         with get_connection(db_path) as conn:
             cursor = conn.execute(
                 """
                 UPDATE approvals
                 SET status = ?, approver = ?, decided_at = ?, note = ?
                 WHERE id = ? AND status = ? AND consumed_at IS NULL
+                  AND requested_at >= ?
                 """,
                 (
                     APPROVAL_APPROVED if approve else APPROVAL_REJECTED,
@@ -929,9 +1028,16 @@ class ApprovalRequest:
                     (note or "").strip()[:300],
                     int(request_id),
                     APPROVAL_PENDING,
+                    cutoff,
                 ),
             )
             if cursor.rowcount != 1:
+                if req.requested_at < cutoff:
+                    cls.expire_stale(ttl_hours, db_path=db_path)
+                    return None, (
+                        f"La solicitud ha caducado ({int(ttl_hours)} h sin "
+                        "decisión); el solicitante debe crear otra."
+                    )
                 return None, "La solicitud ya fue decidida."
         return cls.get(request_id, db_path=db_path), None
 
@@ -943,6 +1049,7 @@ class ApprovalRequest:
         executor: str,
         approves_by_differs: bool,
         ttl_minutes: int,
+        ttl_hours: float = APPROVAL_REQUEST_TTL_HOURS,
         db_path: str = None,
     ) -> Tuple[Optional[int], Optional[str]]:
         """Reserva una aprobación válida sin consumirla todavía.
@@ -983,17 +1090,30 @@ class ApprovalRequest:
             ).fetchall()
 
         best_error = "Se requiere aprobación de un administrador para ejecutar esta tarea."
+        pending_cutoff = (
+            now - timedelta(hours=ttl_hours)
+        ).isoformat(timespec="seconds")
         for row in rows:
             req = cls(row)
             if req.status != APPROVAL_APPROVED:
                 if req.status == APPROVAL_PENDING:
-                    best_error = (
-                        "Esta tarea requiere doble aprobación: hay una "
-                        "solicitud pendiente, espera la decisión de un admin."
-                    )
+                    if req.requested_at < pending_cutoff:
+                        best_error = (
+                            f"La solicitud caducó sin decisión ({int(ttl_hours)} h); "
+                            "crea una nueva para reintentar."
+                        )
+                    else:
+                        best_error = (
+                            "Esta tarea requiere doble aprobación: hay una "
+                            "solicitud pendiente, espera la decisión de un admin."
+                        )
                 elif req.status == APPROVAL_CONSUMED:
                     best_error = (
                         "La aprobación ya se usó; solicita otra."
+                    )
+                elif req.status == APPROVAL_EXPIRED:
+                    best_error = (
+                        "La aprobación ha caducado; solicita una nueva."
                     )
                 continue
             if req.requested_by and req.approver == req.requested_by:

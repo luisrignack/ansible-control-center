@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 import app as app_module
-from models.db import get_connection, init_schema
+from models.db import SCHEMA_VERSION, get_connection, init_schema
 from models.ops import HostGroup, InventoryHost, Schedule
 from models.user import AuthEvent, User
 from services.safety import (
@@ -278,7 +278,9 @@ def test_migration_v14_adds_safety_columns(db_path):
             row["name"]
             for row in conn.execute("PRAGMA table_info(inventory_hosts)")
         }
-        assert version == 15
+        # El número de esquema vigente puede crecer con migraciones
+        # posteriores; lo que se comprueba aquí son los campos de la v14.
+        assert version == SCHEMA_VERSION
         assert {
             "criticality",
             "window_days",
@@ -310,7 +312,9 @@ def test_migration_v14_adds_safety_columns(db_path):
             row["name"]
             for row in conn.execute("PRAGMA table_info(inventory_hosts)")
         }
-        assert version == 15
+        # El número de esquema vigente puede crecer con migraciones
+        # posteriores; lo que se comprueba aquí son los campos de la v14.
+        assert version == SCHEMA_VERSION
         assert {
             "criticality",
             "window_days",

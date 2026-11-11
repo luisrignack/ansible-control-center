@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 
 def _secure_sqlite_files(path: str) -> None:
@@ -398,7 +398,8 @@ def _migrate_v8(conn: sqlite3.Connection) -> None:
             approver TEXT,
             decided_at TEXT,
             note TEXT NOT NULL DEFAULT '',
-            consumed_at TEXT
+            consumed_at TEXT,
+            payload TEXT NOT NULL DEFAULT '{}'
         );
 
         CREATE INDEX IF NOT EXISTS idx_approvals_status
@@ -542,6 +543,20 @@ def _migrate_v15(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v16(conn: sqlite3.Connection) -> None:
+    """Payload de ejecución de las solicitudes de doble aprobación.
+
+    Guarda el formulario original **sin secretos** para que, una vez aprobada
+    la solicitud, el solicitante pueda ejecutarla sin volver a rellenarlo.
+    """
+    _ensure_column(
+        conn,
+        "approvals",
+        "payload",
+        "payload TEXT NOT NULL DEFAULT '{}'",
+    )
+
+
 def init_schema(db_path: str) -> None:
     """Crea o migra el esquema de forma idempotente y no destructiva.
 
@@ -576,6 +591,7 @@ def init_schema(db_path: str) -> None:
         _migrate_v13(conn)
         _migrate_v14(conn)
         _migrate_v15(conn)
+        _migrate_v16(conn)
         # No se rebaja la versión de una base creada por una versión más nueva.
         if version < SCHEMA_VERSION:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
