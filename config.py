@@ -490,6 +490,11 @@ SSH_HOST_KEYS_AUTO = _env_bool("ACC_SSH_HOST_KEYS_AUTO", False)
 # ``$HOME/.ssh/known_hosts``, que es el mismo fichero que ve Ansible.
 KNOWN_HOSTS_FILE = os.environ.get("ACC_KNOWN_HOSTS_FILE", "").strip()
 
+# Panel de módulos y menú de configuración (interfaz). Con 0 se recupera el
+# menú anterior, se desactiva la vista «Módulos» y las tarjetas vuelven a
+# mostrarse siempre: es la vía de reversión sin tocar la base de datos.
+UI_CONFIG_PANEL = _env_bool("ACC_UI_CONFIG_PANEL", True)
+
 # Límites de seguridad
 MAX_HOSTS = _env_int("ACC_MAX_HOSTS", 256, minimum=1, maximum=4096)
 MAX_PASSWORDS = _env_int("ACC_MAX_PASSWORDS", 200, minimum=1, maximum=1000)

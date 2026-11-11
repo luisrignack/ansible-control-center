@@ -1238,3 +1238,90 @@ html[data-theme="light"] .app-footer { border-top-color: var(--border-soft); }
     .main-scroll { padding: 18px 13px 48px; }
     .auth-card { padding: 26px 20px; }
 }
+
+/* ============================================================
+   Configuración con pestañas y panel de Módulos
+   ============================================================ */
+.config-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 0 0 18px;
+    padding: 5px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-2);
+}
+.config-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 14px;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: color .14s var(--ease), background .14s var(--ease);
+}
+.config-tab:hover { color: var(--text); background: var(--surface); }
+.config-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.config-tab.is-active {
+    color: var(--text);
+    background: var(--surface);
+    border-color: var(--border);
+    box-shadow: var(--shadow-sm);
+}
+
+/* La tarjeta ya no es un enlace completo: el enlace vive dentro y la
+   esquina superior derecha queda para el botón de ocultar/mostrar. */
+.task-card { padding: 0; }
+.task-card-link {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 9px;
+    padding: 16px 17px;
+    border-radius: inherit;
+    color: inherit;
+    text-decoration: none;
+}
+.task-card-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.task-card .task-top { padding-right: 30px; }
+.task-hide-form { position: absolute; top: 9px; right: 9px; z-index: 2; margin: 0; }
+.task-hide {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1;
+    transition:
+        color .14s var(--ease),
+        border-color .14s var(--ease),
+        background .14s var(--ease);
+}
+.task-hide:hover,
+.task-hide:focus-visible {
+    color: var(--danger);
+    border-color: var(--danger);
+    background: var(--danger-soft);
+}
+.task-hide.is-add:hover,
+.task-hide.is-add:focus-visible {
+    color: var(--ok);
+    border-color: var(--ok);
+    background: var(--ok-soft);
+}
+.task-hide:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (max-width: 640px) {
+    .config-tabs { flex-wrap: nowrap; overflow-x: auto; }
+    .config-tab { white-space: nowrap; }
+}

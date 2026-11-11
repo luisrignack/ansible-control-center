@@ -16,6 +16,13 @@
            title="Abrir el cliente de correo con la solicitud de una tarea nueva">
             <i class="bi bi-envelope-plus" aria-hidden="true"></i> Solicitar nueva tarea
         </a>
+        {% if ui_config_panel %}
+        <a class="btn btn-secondary" href="{{ url_for('modulos') }}"
+           title="Tareas que has quitado del panel">
+            <i class="bi bi-box-seam" aria-hidden="true"></i> Módulos
+            {% if parked_count %}<span class="badge bg-secondary ms-1">{{ parked_count }}</span>{% endif %}
+        </a>
+        {% endif %}
         <a class="btn btn-secondary" href="{{ url_for('history') }}">
             <i class="bi bi-clock-history" aria-hidden="true"></i> Ver historial
         </a>
@@ -29,22 +36,45 @@
 <section class="task-catalog" aria-label="Tareas disponibles">
     <div class="task-grid">
         {% for task in task_catalog %}
-        <a class="task-card tone-{{ task.tone }}{% if task.status != 'active' %} is-planned-card{% endif %}"
-           href="{{ url_for('task_view', task_id=task.id) }}">
-            <span class="task-top">
-                <span class="task-icon" aria-hidden="true"><i class="bi {{ task.icon }}"></i></span>
-                {% if task.status != 'active' %}<span class="task-status is-planned">En preparación</span>{% endif %}
-            </span>
-            <span class="task-name">{{ task.name }}</span>
-            <span class="task-desc">{{ task.summary }}</span>
-            <span class="task-chips">
-                {% for chip in task.chips %}<span class="task-chip">{{ chip }}</span>{% endfor %}
-            </span>
-            <span class="task-foot">
-                <span>{{ task.playbook }}</span>
-                <span class="task-open">{% if task.status == 'active' %}Abrir tarea <i class="bi bi-arrow-right" aria-hidden="true"></i>{% else %}Ver detalle <i class="bi bi-arrow-right" aria-hidden="true"></i>{% endif %}</span>
-            </span>
-        </a>
+        <article class="task-card tone-{{ task.tone }}{% if task.status != 'active' %} is-planned-card{% endif %}">
+            {% if ui_config_panel %}
+            <form class="task-hide-form" method="post"
+                  action="{{ url_for('modulo_ocultar', task_id=task.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="task-hide"
+                        title="Quitar del panel y mover a Módulos"
+                        aria-label="Quitar «{{ task.name }}» del panel y moverla a Módulos">
+                    <i class="bi bi-x-lg" aria-hidden="true"></i>
+                </button>
+            </form>
+            {% endif %}
+            <a class="task-card-link" href="{{ url_for('task_view', task_id=task.id) }}">
+                <span class="task-top">
+                    <span class="task-icon" aria-hidden="true"><i class="bi {{ task.icon }}"></i></span>
+                    {% if task.status != 'active' %}<span class="task-status is-planned">En preparación</span>{% endif %}
+                </span>
+                <span class="task-name">{{ task.name }}</span>
+                <span class="task-desc">{{ task.summary }}</span>
+                <span class="task-chips">
+                    {% for chip in task.chips %}<span class="task-chip">{{ chip }}</span>{% endfor %}
+                </span>
+                <span class="task-foot">
+                    <span>{{ task.playbook }}</span>
+                    <span class="task-open">{% if task.status == 'active' %}Abrir tarea <i class="bi bi-arrow-right" aria-hidden="true"></i>{% else %}Ver detalle <i class="bi bi-arrow-right" aria-hidden="true"></i>{% endif %}</span>
+                </span>
+            </a>
+        </article>
+        {% else %}
+        <div class="card p-4">
+            <h2 class="card-title"><i class="bi bi-box-seam" aria-hidden="true"></i> No hay tareas en el panel</h2>
+            <p class="text-muted mb-3">
+                Has quitado todas las tarjetas. Puedes recuperarlas desde
+                <a href="{{ url_for('modulos') }}">Módulos</a>.
+            </p>
+            <a class="btn btn-secondary" href="{{ url_for('modulos') }}">
+                <i class="bi bi-box-seam" aria-hidden="true"></i> Ir a Módulos
+            </a>
+        </div>
         {% endfor %}
     </div>
 </section>

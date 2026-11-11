@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Módulos{% endblock %}
+
+{% block breadcrumb %}Configuración / Módulos{% endblock %}
+
+{% block content %}
+{% include "_config_tabs.html" %}
+<div class="page-head">
+    <div>
+        <div class="eyebrow">Configuración</div>
+        <h1>Módulos</h1>
+        <p class="sub">Tareas que has quitado del panel principal. Pulsa <strong>+</strong> para devolver una tarjeta a la portada. Es solo tu vista: no cambia permisos ni el catálogo del resto de usuarios.</p>
+    </div>
+    <div class="head-actions">
+        <span class="badge bg-secondary">
+            {{ hidden_tasks | length }} de {{ total_tasks }} en Módulos
+        </span>
+        {% if hidden_tasks %}
+        <form method="post" action="{{ url_for('modulos_restaurar') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-secondary"
+                    title="Devolver todas las tarjetas al panel principal">
+                <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Restaurar todas
+            </button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+<section class="task-catalog" aria-label="Módulos ocultos">
+    {% if hidden_tasks %}
+    <div class="task-grid">
+        {% for task in hidden_tasks %}
+        <article class="task-card tone-{{ task.tone }}{% if task.status != 'active' %} is-planned-card{% endif %}">
+            <form class="task-hide-form" method="post"
+                  action="{{ url_for('modulo_mostrar', task_id=task.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="task-hide is-add"
+                        title="Añadir al panel principal"
+                        aria-label="Añadir «{{ task.name }}» al panel principal">
+                    <i class="bi bi-plus-lg" aria-hidden="true"></i>
+                </button>
+            </form>
+            <a class="task-card-link" href="{{ url_for('task_view', task_id=task.id) }}">
+                <span class="task-top">
+                    <span class="task-icon" aria-hidden="true"><i class="bi {{ task.icon }}"></i></span>
+                    {% if task.status != 'active' %}<span class="task-status is-planned">En preparación</span>{% endif %}
+                </span>
+                <span class="task-name">{{ task.name }}</span>
+                <span class="task-desc">{{ task.summary }}</span>
+                <span class="task-chips">
+                    {% for chip in task.chips %}<span class="task-chip">{{ chip }}</span>{% endfor %}
+                </span>
+                <span class="task-foot">
+                    <span>{{ task.playbook }}</span>
+                    <span class="task-open">Ver detalle <i class="bi bi-arrow-right" aria-hidden="true"></i></span>
+                </span>
+            </a>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="card p-4">
+        <h2 class="card-title"><i class="bi bi-check2-circle" aria-hidden="true"></i> No hay módulos ocultos</h2>
+        <p class="text-muted mb-3">
+            Todas las tareas están en el panel principal. Para mover una aquí,
+            usa la <strong>×</strong> de su tarjeta en <a href="{{ url_for('index') }}">Tareas</a>.
+        </p>
+        <a class="btn btn-secondary" href="{{ url_for('index') }}">
+            <i class="bi bi-grid" aria-hidden="true"></i> Volver a Tareas
+        </a>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

@@ -18,6 +18,11 @@ contrato de los playbooks.
 | GET | `/progress/<task_id>` | Sí (dueño/admin) | Página de progreso |
 | GET | `/progress/<task_id>/events` | Sí (dueño/admin) | Stream SSE |
 | GET | `/api/task-status/<task_id>` | Sí (dueño/admin) | Estado JSON de la tarea |
+| GET | `/configuracion` | Sí | Redirige a la primera pestaña de configuración (Inventario) |
+| GET | `/modulos` | Sí | Tareas que el usuario quitó de su panel |
+| POST | `/modulos/<task_id>/ocultar` | Sí | Mueve una tarjeta del panel a Módulos |
+| POST | `/modulos/<task_id>/mostrar` | Sí | Devuelve una tarjeta al panel |
+| POST | `/modulos/restaurar` | Sí | Devuelve todas las tarjetas al panel |
 | GET | `/batches/<batch_id>` | Sí | Detalle del lote |
 | GET | `/preview/<batch_id>` | Sí | Redirección a `/batches/<batch_id>` |
 | GET, POST | `/passwords` | Sí | Gestión del vault |

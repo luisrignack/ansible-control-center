@@ -123,6 +123,7 @@ from config import (
     TIME_REQUIRE_NTP_OFF,
     TIME_VERIFY_TOLERANCE,
     TRUST_PROXY,
+    UI_CONFIG_PANEL,
     VAULT_RATE_LIMIT,
     VAULT_RATE_WINDOW,
     ensure_directories,
@@ -179,6 +180,7 @@ from services.safety import (
 )
 import services.notifier as notifier
 import services.scheduler as scheduler
+from services import modules_panel
 from services.secure_temp import secure_temp_file
 from services.ssh_host_keys import ensure_host_keys
 from services.task_catalog import (
@@ -1772,6 +1774,7 @@ def _security_context():
         "max_hosts": MAX_HOSTS,
         "status_labels": STATUS_LABELS,
         "host_result_labels": HOST_RESULT_LABELS,
+        "ui_config_panel": UI_CONFIG_PANEL,
     }
 
 
@@ -2108,11 +2111,88 @@ def index():
         TASK_REQUEST_EMAIL,
         quote(TASK_REQUEST_SUBJECT, safe=""),
     )
+    hidden_ids = (
+        modules_panel.hidden_task_ids(
+            current_user.get_id(), db_path=get_db_path()
+        )
+        if UI_CONFIG_PANEL
+        else set()
+    )
+    task_catalog, parked_catalog = modules_panel.split_catalog(
+        TASK_CATALOG, hidden_ids
+    )
     return render_template(
         "tasks.html",
-        task_catalog=TASK_CATALOG,
+        task_catalog=task_catalog,
+        parked_count=len(parked_catalog),
         contact_task_mailto=contact_task_mailto,
     )
+
+
+@app.route("/configuracion")
+@login_required
+def configuracion():
+    """Entrada del grupo Configuración: abre la primera pestaña disponible."""
+    if not UI_CONFIG_PANEL:
+        abort(404)
+    return redirect(url_for("inventario"))
+
+
+@app.route("/modulos")
+@login_required
+def modulos():
+    """Vista de módulos: tarjetas que el usuario quitó del panel principal."""
+    if not UI_CONFIG_PANEL:
+        abort(404)
+    hidden_ids = modules_panel.hidden_task_ids(
+        current_user.get_id(), db_path=get_db_path()
+    )
+    _, parked_catalog = modules_panel.split_catalog(TASK_CATALOG, hidden_ids)
+    return render_template(
+        "modules.html",
+        hidden_tasks=parked_catalog,
+        total_tasks=len(TASK_CATALOG),
+    )
+
+
+@app.route("/modulos/<task_id>/ocultar", methods=["POST"])
+@login_required
+def modulo_ocultar(task_id: str):
+    if not UI_CONFIG_PANEL:
+        abort(404)
+    task = get_task(task_id)
+    if task is None:
+        abort(404)
+    modules_panel.set_task_hidden(
+        current_user.get_id(), task_id, True, db_path=get_db_path()
+    )
+    flash(f"«{task['name']}» se movió a Módulos.", "info")
+    return redirect(url_for("index"))
+
+
+@app.route("/modulos/<task_id>/mostrar", methods=["POST"])
+@login_required
+def modulo_mostrar(task_id: str):
+    if not UI_CONFIG_PANEL:
+        abort(404)
+    task = get_task(task_id)
+    if task is None:
+        abort(404)
+    modules_panel.set_task_hidden(
+        current_user.get_id(), task_id, False, db_path=get_db_path()
+    )
+    flash(f"«{task['name']}» vuelve al panel principal.", "success")
+    return redirect(url_for("modulos"))
+
+
+@app.route("/modulos/restaurar", methods=["POST"])
+@login_required
+def modulos_restaurar():
+    if not UI_CONFIG_PANEL:
+        abort(404)
+    modules_panel.restore_all(current_user.get_id(), db_path=get_db_path())
+    flash("Todas las tareas vuelven al panel principal.", "success")
+    return redirect(url_for("modulos"))
 
 
 @app.route("/tarea/<task_id>", methods=["GET"])

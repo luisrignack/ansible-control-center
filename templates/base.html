@@ -46,6 +46,37 @@
                {% if endpoint in ['history', 'batch_detail'] %}aria-current="page"{% endif %}>
                 <i class="bi bi-clock-history icon" aria-hidden="true"></i> Historial
             </a>
+            {% if ui_config_panel %}
+            {% set config_endpoints = ['inventario', 'programaciones', 'aprobaciones',
+                                       'passwords', 'usuarios', 'modulos', 'configuracion'] %}
+            <div class="nav-label">Configuración</div>
+            <a class="nav-item {% if endpoint in config_endpoints %}is-active{% endif %}"
+               href="{{ url_for('configuracion') }}"
+               {% if endpoint in config_endpoints %}aria-current="page"{% endif %}>
+                <i class="bi bi-sliders icon" aria-hidden="true"></i> Configuración
+            </a>
+            <div class="nav-label">Seguridad</div>
+            {% if current_user.has_role('admin') %}
+            <a class="nav-item {% if endpoint == 'audit' %}is-active{% endif %}"
+               href="{{ url_for('audit') }}"
+               {% if endpoint == 'audit' %}aria-current="page"{% endif %}>
+                <i class="bi bi-shield-check icon" aria-hidden="true"></i> Auditoría
+            </a>
+            {% endif %}
+            <div class="nav-label">Sistema</div>
+            {% if current_user.has_role('admin') %}
+            <a class="nav-item {% if endpoint == 'metricas' %}is-active{% endif %}"
+               href="{{ url_for('metricas') }}"
+               {% if endpoint == 'metricas' %}aria-current="page"{% endif %}>
+                <i class="bi bi-speedometer2 icon" aria-hidden="true"></i> Rendimiento
+            </a>
+            {% endif %}
+            <a class="nav-item {% if endpoint == 'acerca_de' %}is-active{% endif %}"
+               href="{{ url_for('acerca_de') }}"
+               {% if endpoint == 'acerca_de' %}aria-current="page"{% endif %}>
+                <i class="bi bi-info-circle icon" aria-hidden="true"></i> Acerca de
+            </a>
+            {% else %}
             <a class="nav-item {% if endpoint == 'passwords' %}is-active{% endif %}"
                href="{{ url_for('passwords') }}"
                {% if endpoint == 'passwords' %}aria-current="page"{% endif %}>
@@ -94,6 +125,7 @@
                {% if endpoint == 'acerca_de' %}aria-current="page"{% endif %}>
                 <i class="bi bi-info-circle icon" aria-hidden="true"></i> Acerca de
             </a>
+            {% endif %}
         </nav>
 
         <div class="sidebar-footer">

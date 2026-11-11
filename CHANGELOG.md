@@ -5,6 +5,45 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Configuración con pestañas y panel de Módulos] — 2026-11-10
+
+### Añadido
+
+- **Menú «Configuración» con pestañas**: Inventario, Programaciones,
+  Aprobaciones (admin), Credenciales, Usuarios (admin) y Módulos. Sustituye
+  los enlaces sueltos que antes colgaban de «Operación»; `/configuracion`
+  abre la primera pestaña disponible. Las pestañas se renderizan en servidor
+  (cada una es su página) y respetan el rol del usuario.
+- **Vista «Módulos»**: cada tarjeta del catálogo incorpora una **×** que la
+  quita del panel y la mueve a Módulos; allí un **+** la devuelve. Incluye
+  «Restaurar todas» y estados vacíos en ambas vistas.
+- **Preferencia por usuario** en `services/modules_panel.py`, almacenada en
+  `app_settings` con la clave `ui.modules.hidden.<user_id>`. No se crea tabla
+  nueva ni se cambia el esquema (sigue en v15), así que una versión anterior
+  del código puede arrancar sobre la misma base de datos ignorando esas filas.
+- **Pruebas** en `tests/test_modules_panel.py`: ocultar/restaurar, aislamiento
+  entre usuarios, acceso por URL, tarea inexistente, CSRF, «Restaurar todas»,
+  pestañas por rol y bandera de reversión.
+- Suite: **374 passed, 1 skipped** (375 recopiladas).
+
+### Cambiado
+
+- `templates/base.html`: grupo «Configuración» en el menú; «Seguridad» queda
+  con Auditoría y «Sistema» con Rendimiento y Acerca de.
+- `templates/tasks.html`: la tarjeta pasa de ser un enlace completo a un
+  `article` con enlace interno y botón de ocultar, porque un `<button>` dentro
+  de un `<a>` es HTML inválido. Misma apariencia, con la × en la esquina.
+- `README.md`, `docs/REFERENCIA.md`, `.env.docker.example` y
+  `docker-compose.yml` documentan la función y la variable.
+
+### Reversión
+
+- `ACC_UI_CONFIG_PANEL=0` devuelve el menú anterior, muestra todas las
+  tarjetas y desactiva `/modulos` y `/configuracion`, sin tocar la base de
+  datos. También se puede revertir el commit completo; los datos de
+  preferencias quedan inertes.
+- Punto de restauración etiquetado como `pre-modulos` (commit `de13015`).
+
 ## [Bloque 0 de seguridad: autorización, TOFU y SMTP] — 2026-11-08
 
 ### Seguridad

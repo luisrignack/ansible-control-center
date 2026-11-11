@@ -34,8 +34,8 @@ El procedimiento completo está en [AGENTS.md](AGENTS.md).
 Fases **P0–P4, P4.1, P4.2 y bloque de operación continua** completadas,
 junto con las correcciones de alta prioridad del
 [análisis profundo 2026-11-06](docs/ANALISIS_PROFUNDO_2026-11-06.md).
-Suite de pruebas: **364 tests en verde y 1 integración SSH opcional omitida
-por defecto** (366 recopilados). Incluye empaquetado Docker con Nginx y TLS.
+Suite de pruebas: **374 tests en verde y 1 integración SSH opcional omitida
+por defecto** (375 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 | Fase | Contenido |
 |---|---|
@@ -195,6 +195,11 @@ por defecto** (366 recopilados). Incluye empaquetado Docker con Nginx y TLS.
   la misma regla; el resto recibe el mismo 404 que una tarea inexistente.
 - Con credenciales SMTP, el envío exige STARTTLS o TLS implícito: el
   notificador rechaza el correo sin cifrar.
+- Panel personalizable: cada usuario puede quitar tarjetas del catálogo con la
+  **×** y recuperarlas desde **Configuración → Módulos**. La preferencia es
+  por usuario y solo afecta a su vista; no cambia permisos ni el catálogo de
+  los demás. Reversión: `ACC_UI_CONFIG_PANEL=0` devuelve el menú anterior y
+  desactiva Módulos sin tocar la base de datos.
 - Modo temporal `.txt`: el archivo se procesa en memoria y no se guarda.
 
 ### Registro y auditoría
@@ -410,6 +415,7 @@ una `ACC_SECRET_KEY` aleatoria.
 | `ACC_REQUEST_METRICS` | `1` | Activa la instrumentación de latencia por ruta |
 | `ACC_REQUEST_METRICS_WINDOW` | `500` | Muestras por endpoint para p50/p95 (50–10.000) |
 | `ACC_SLOW_REQUEST_MS` | `1000` | Umbral para registrar una petición lenta en el log |
+| `ACC_UI_CONFIG_PANEL` | `1` | Menú «Configuración» con pestañas y vista «Módulos». Con `0` se recupera el menú anterior, las tarjetas se muestran siempre y `/modulos` desaparece |
 | `ACC_HISTORY_DAYS` | `180` | Retención del historial de lotes (días) |
 | `ACC_AUTH_EVENT_DAYS` | `365` | Retención de eventos de autenticación (días) |
 | `ACC_RETENTION_INTERVAL_HOURS` | `24` | Cada cuántas horas el scheduler reaplica la retención (1–720) |

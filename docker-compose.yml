@@ -58,6 +58,9 @@ services:
       ACC_REQUEST_METRICS: "${ACC_REQUEST_METRICS:-1}"
       ACC_REQUEST_METRICS_WINDOW: "${ACC_REQUEST_METRICS_WINDOW:-500}"
       ACC_SLOW_REQUEST_MS: "${ACC_SLOW_REQUEST_MS:-1000}"
+      # Menú Configuración con pestañas y panel de Módulos. Con 0 se recupera
+      # el menú anterior sin tocar la base de datos (reversión de interfaz).
+      ACC_UI_CONFIG_PANEL: "${ACC_UI_CONFIG_PANEL:-1}"
       # Autenticación corporativa LDAPS (los valores reales, incluida la
       # contraseña del bind, viven en .env.docker o en un secret).
       ACC_LDAP_ENABLED: "${ACC_LDAP_ENABLED:-0}"
