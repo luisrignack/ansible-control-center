@@ -5,6 +5,27 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Corrección de LDAPS] — 2026-11-11
+
+### Corregido
+
+- **Activación de LDAPS devolvía 500**: cuando el certificado del directorio lo
+  emite una CA que no está en el almacén del sistema, `ldap3` lanza
+  `LDAPSocketOpenError` (`CERTIFICATE_VERIFY_FAILED`) al abrir la conexión.
+  La excepción escapaba de `services/ldap_auth.py` y la vista `/usuarios/ldaps`
+  respondía 500. Ahora `_bind_or_fail` y `test_search_bind` convierten los
+  fallos de conexión (socket, TLS, timeout) en `LdapError`, y la vista muestra
+  el aviso con la acción sugerida: instalar la CA que emite el certificado en
+  `ACC_LDAP_TLS_CA_FILE` (o valorar `ACC_LDAP_TLS_VERIFY=0`).
+- Las pruebas nuevas de `tests/test_ldap.py` cubren la conversión del error de
+  socket y la activación con CA no confiada (200 con aviso, nunca 500).
+
+### Notas
+
+- Despliegue con CA corporativa: montar el PEM de la CA en el contenedor
+  (p. ej. `./certs:/certs:ro`) y apuntar `ACC_LDAP_TLS_CA_FILE` a
+  `/certs/ca-etecsa.pem`. El bundle debe incluir la CA intermedia y su raíz.
+
 ## [Documentación de Ansible para redes] — 2026-11-10
 
 ### Añadido

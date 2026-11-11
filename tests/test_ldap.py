@@ -212,6 +212,27 @@ def test_service_bind_failure_raises_clear_hint(fake_ldap):
     assert "ACC_LDAP_BIND_DN" in str(excinfo.value)
 
 
+def test_bind_socket_error_becomes_ldap_error():
+    """Un fallo de TLS/red al conectar se reporta como LdapError, no en crudo."""
+
+    class Broken:
+        bound = False
+        result = {}
+
+        def bind(self):
+            raise RuntimeError(
+                "('socket ssl wrapping error: [SSL: CERTIFICATE_VERIFY_FAILED] "
+                "certificate verify failed: self-signed certificate in "
+                "certificate chain',)"
+            )
+
+    with pytest.raises(ldap_auth.LdapError) as excinfo:
+        ldap_auth._bind_or_fail(Broken(), "servicio de búsqueda")
+    message = str(excinfo.value)
+    assert "servicio de búsqueda" in message
+    assert "ACC_LDAP_TLS_CA_FILE" in message
+
+
 def test_invalid_password_returns_none_not_created(fake_ldap):
     fake_ldap["settings"]["rebind_ok"] = False
     result = ldap_auth.authenticate("jose.cu", "contraseña-mala")
@@ -566,6 +587,27 @@ def test_ldap_activation_checks_search_bind(client, fake_ldap):
     fake_ldap["settings"]["bind_ok"] = False
     response = _post(client, "/usuarios/ldaps", {}, follow_redirects=True)
     assert "desactivado" in response.get_data(as_text=True).lower()
+    assert app_module.load_ldap_access_setting() is False
+
+
+def test_ldap_activation_tls_failure_renders_page_not_500(client, fake_ldap,
+                                                         monkeypatch):
+    """Una CA no confiada avisa en /usuarios en vez de romper con 500."""
+    _login_admin(client)
+    # Deja el interruptor en OFF para probar la ruta de activación.
+    _post(client, "/usuarios/ldaps", {}, follow_redirects=True)
+
+    def _tls_failure(*args, **kwargs):
+        raise RuntimeError(
+            "('socket ssl wrapping error: [SSL: CERTIFICATE_VERIFY_FAILED] "
+            "certificate verify failed: self-signed certificate in "
+            "certificate chain',)"
+        )
+
+    monkeypatch.setattr(ldap_auth, "_connect", _tls_failure)
+    response = _post(client, "/usuarios/ldaps", {}, follow_redirects=True)
+    assert response.status_code == 200
+    assert "No se pudo activar" in response.get_data(as_text=True)
     assert app_module.load_ldap_access_setting() is False
 
 

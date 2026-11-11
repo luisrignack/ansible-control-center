@@ -187,9 +187,41 @@ def _connect(bind_as: str = "", bind_password: str = ""):
     return connection
 
 
+def _connection_error_hint(exc: Exception) -> str:
+    """Traduce los fallos de conexión habituales a una indicación útil."""
+    detail = str(exc)
+    lowered = detail.lower()
+    if "certificate_verify_failed" in lowered or "certificate verify failed" in lowered:
+        return (
+            " El certificado del directorio no se pudo validar: instala la CA "
+            "que lo emite en ACC_LDAP_TLS_CA_FILE (o define "
+            "ACC_LDAP_TLS_VERIFY=0 de forma consciente)."
+        )
+    if "timed out" in lowered or "timeout" in lowered:
+        return (
+            " El servidor LDAP no respondió a tiempo: revisa la URL, el "
+            "puerto y la conectividad de red."
+        )
+    return ""
+
+
 def _bind_or_fail(connection, context: str) -> None:
-    """Hace ``bind()`` y convierte el fallo en ``LdapError`` claro."""
-    if not connection.bind():
+    """Hace ``bind()`` y convierte el fallo en ``LdapError`` claro.
+
+    ``ldap3`` lanza ``LDAPSocketOpenError``/``LDAPException`` cuando la
+    conexión TCP/TLS no se puede abrir (CA no confiada, DNS, puerto
+    cerrado). Sin esta conversión el fallo escaparía como excepción no
+    controlada y la vista respondería 500.
+    """
+    try:
+        bound = connection.bind()
+    except Exception as exc:  # ldap3: LDAPSocketOpenError, LDAPException…
+        detail = str(exc)[:300]
+        raise LdapError(
+            f"{context}: no se pudo conectar con el directorio ({detail})."
+            f"{_connection_error_hint(exc)}"
+        ) from exc
+    if not bound:
         result = getattr(connection, "result", {}) or {}
         description = result.get("description", "desconocido")
         hint = LDAP_BIND_RESULT_HINT.get(description, "")
@@ -203,7 +235,15 @@ def test_search_bind() -> None:
     evita dejar ON un directorio al que no se puede conectar (URL, bind o
     certificado mal configurados). Lanza ``LdapError`` si el bind falla.
     """
-    connection = _connect()
+    try:
+        connection = _connect()
+    except LdapError:
+        raise
+    except Exception as exc:  # TLS/DNS: se informa, nunca se propaga en crudo
+        raise LdapError(
+            "servicio de búsqueda: no se pudo abrir la conexión LDAP "
+            f"({str(exc)[:300]}).{_connection_error_hint(exc)}"
+        ) from exc
     try:
         _bind_or_fail(connection, "servicio de búsqueda")
     finally:
