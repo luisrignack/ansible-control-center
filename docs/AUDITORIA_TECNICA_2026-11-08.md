@@ -325,9 +325,9 @@ opcional; después permitir varios workers.
   cota superior en `requirements.txt`.
 - **D4:** `.mypy_cache/` y `.ruff_cache/` existen en el árbol y no figuran en
   `.gitignore`; se auto-ignoran de forma frágil.
-- **D5:** `dist/hora-admin-despliegue/` se regeneró el 2026-11-08 y apunta al
-  commit `0a96da7b115e`, pero sigue siendo un artefacto local ignorado. Debe
-  regenerarse tras cada release.
+- **D5:** `dist/hora-admin-despliegue/` se regeneró el 2026-11-10 y apunta al
+  commit `010c7475ed04` (antes `0a96da7b115e`), pero sigue siendo un artefacto
+  local ignorado. Debe regenerarse tras cada release.
 - **D6:** el `01-INICIO-RAPIDO.txt` generado por
   `docker/export-images.sh` todavía describe la tarjeta APT como “en
   preparación” y no menciona la tarjeta de contraseña. Es una incoherencia
@@ -359,7 +359,7 @@ La lectura de lotes e historial por parte de un `viewer` es intencionada
 | “`execute_with_progress` 27–28 parámetros” | Son **26** argumentos por AST; `_run_apply_batch` sí tiene 28 |
 | “8 de 24 tests con fecha” | Ahora son **9 de 24** tras añadir `test_contrasena_2026_11_07.py` |
 | “344 tests en verde” | Antes del endurecimiento: **359 passed, 1 skipped** (360 recopilados) |
-| “`dist/` obsoleto” | Se regeneró y apunta a `0a96da7b115e`; sigue siendo un artefacto a regenerar |
+| “`dist/` obsoleto” | Se regeneró de nuevo el 2026-11-10 y apunta a `010c7475ed04`; sigue siendo un artefacto a regenerar |
 | “Build no reproducible” | Correcto para la imagen; el CI sí tiene un job `lock` que instala el lockfile |
 | “Seguridad 8,5/10” | Bajó a **8/10** con el análisis; vuelve a **8,5/10** tras cerrar S1, S3 y S4 |
 

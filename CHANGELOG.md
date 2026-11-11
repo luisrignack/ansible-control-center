@@ -5,6 +5,34 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Despliegue Docker y paquete portátil] — 2026-11-10
+
+### Cambiado
+
+- Imagen `ansible-control-center:latest` reconstruida y contenedores `app` y
+  `nginx` recreados desde el código de `010c747`. Verificados `/healthz` por
+  HTTPS, `ACC_UI_CONFIG_PANEL=1` dentro del contenedor y las pestañas de
+  Configuración en el HTML servido.
+- `dist/hora-admin-despliegue/` regenerado con `docker/export-images.sh`:
+  apunta a `010c7475ed04`, imágenes `linux/amd64`, tar de 93 MB y
+  `sha256sums.txt` verificado. Sigue siendo un artefacto local ignorado por
+  Git, por lo que no forma parte de este commit.
+
+### Notas operativas
+
+- `docker-compose.yml` no declara `env_file`: el stack debe arrancar con
+  `docker compose --env-file .env.docker up -d`. Sin ese argumento toma los
+  valores por defecto de producción (clave y allowlist vacías) y el
+  contenedor no supera la validación de seguridad.
+- Con el nuevo valor por defecto `ACC_SSH_HOST_KEYS_AUTO=0`, los hosts que no
+  estén en `known_hosts` fallan hasta poblarlo (fail-closed esperado). Para
+  laboratorio, `docker-compose.lab.yml` o `ACC_SSH_HOST_KEYS_AUTO=1`.
+
+### Reversión
+
+- Interfaz: `ACC_UI_CONFIG_PANEL=0`. Código: `git revert 010c747` o etiqueta
+  `pre-modulos`.
+
 ## [Configuración con pestañas y panel de Módulos] — 2026-11-10
 
 ### Añadido
