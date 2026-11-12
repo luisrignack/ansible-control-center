@@ -899,6 +899,24 @@ source .venv/bin/activate
 python -m pytest -q
 ```
 
+### Auditoría de dependencias (SCA)
+
+`tools/audit_dependencies.py` envuelve `pip-audit` y resuelve el problema de
+las redes corporativas que solo permiten Nexus:
+
+```bash
+# Audita el entorno instalado (rápido, incluye dependencias transitivas).
+python tools/audit_dependencies.py
+
+# Resuelve requirements.txt probando primero el índice configurado en pip
+# (Nexus) y, si no responde, PyPI directo (https://pypi.org/simple).
+python tools/audit_dependencies.py --resolve
+```
+
+El fallback se aplica también al pip interno que `pip-audit` usa en su venv
+temporal, y si el índice configurado falla por infraestructura se reintenta
+con PyPI. El CI ejecuta el modo rápido en cada push/PR.
+
 Módulos:
 
 - `test_app.py`: login, CSRF, cabeceras, validación, historial.
