@@ -263,6 +263,9 @@ def test_progress_solo_visible_para_dueno_o_admin(client):
 # ---------------------------------------------------------------------------
 def test_update_task_agrupa_escrituras_y_fuerza_cambios_de_estado(db_path, monkeypatch):
     monkeypatch.setattr(app_module, "TASK_PERSIST_INTERVAL_SECONDS", 3600)
+    # Reloj fijo y pequeño: la primera escritura no debe depender de que el
+    # host lleve más de una hora encendido.
+    monkeypatch.setattr(app_module.time, "monotonic", lambda: 10.0)
     writes = []
     monkeypatch.setattr(
         app_module, "_persist_task", lambda tid, task: writes.append(dict(task))

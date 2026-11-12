@@ -1739,9 +1739,15 @@ def update_task(tid: str, updates: dict[str, Any]) -> None:
     now = time.monotonic()
     should_persist = force_persist
     with _task_persist_lock:
-        last = _task_persist_times.get(tid, 0.0)
-        if TASK_PERSIST_INTERVAL_SECONDS <= 0 or now - last >= (
-            TASK_PERSIST_INTERVAL_SECONDS
+        # ``None`` significa "aún no persistido por update_task": la primera
+        # actualización se escribe siempre. Comparar contra 0.0 dependía de que
+        # time.monotonic() superase el intervalo, lo que fallaba en hosts con
+        # menos de una hora de uptime.
+        last = _task_persist_times.get(tid)
+        if (
+            last is None
+            or TASK_PERSIST_INTERVAL_SECONDS <= 0
+            or now - last >= TASK_PERSIST_INTERVAL_SECONDS
         ):
             should_persist = True
         if should_persist:
