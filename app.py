@@ -21,6 +21,7 @@ import sys
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from typing import Any, Dict, List, Optional
@@ -60,6 +61,7 @@ from config import (
     APT_MIN_FREE_GB_CEILING,
     APT_MIN_FREE_GB_FLOOR,
     AUTH_EVENT_RETENTION_DAYS,
+    BATCH_HOST_CONCURRENCY,
     BATCH_TIME_BUDGET_SECONDS,
     COMMON_TIMEZONES,
     CSP_ENABLED,
@@ -70,6 +72,7 @@ from config import (
     DRY_RUN,
     EXEC_RATE_LIMIT,
     EXEC_RATE_WINDOW,
+    GLOBAL_HOST_CONCURRENCY,
     HISTORY_RETENTION_DAYS,
     HOST_KEY_CHECKING,
     HSTS_ENABLED,
@@ -297,6 +300,24 @@ def get_job_queue() -> JobQueue:
             shutdown_grace=JOB_SHUTDOWN_GRACE_SECONDS,
         )
     return _job_queue
+
+
+# Semáforo global de hosts: acota los playbooks Ansible simultáneos de todos
+# los lotes del proceso. Se crea de forma perezosa para respetar la
+# configuración efectiva al arrancar.
+_host_semaphore: Optional[threading.BoundedSemaphore] = None
+_host_semaphore_lock = threading.Lock()
+
+
+def _get_host_semaphore() -> threading.BoundedSemaphore:
+    global _host_semaphore
+    if _host_semaphore is None:
+        with _host_semaphore_lock:
+            if _host_semaphore is None:
+                _host_semaphore = threading.BoundedSemaphore(
+                    GLOBAL_HOST_CONCURRENCY
+                )
+    return _host_semaphore
 
 
 def roles_required(*roles: str):
@@ -3780,11 +3801,18 @@ def handle_execution(
     return redirect(url_for("progress_page", task_id=tid))
 
 
+# Varios hosts pueden escribir a la vez en el mismo lote. El lock protege
+# los logs y la consola compartidos; ``update_task`` se llama fuera del lock
+# para no serializar las escrituras en SQLite con la salida de Ansible.
+_batch_console_lock = threading.RLock()
+
+
 def _append_log(lines: List[str], message: str, limit: int = 200) -> None:
     """Añade una línea al log de progreso manteniendo un tamaño acotado."""
-    lines.append(message)
-    if len(lines) > limit:
-        del lines[: len(lines) - limit]
+    with _batch_console_lock:
+        lines.append(message)
+        if len(lines) > limit:
+            del lines[: len(lines) - limit]
 
 
 # Límites de la consola en vivo. La salida de Ansible puede ser muy verbosa;
@@ -3824,9 +3852,11 @@ def _append_console(
 ) -> None:
     """Añade una línea de resumen a la consola y actualiza la tarea."""
     text = f"[{host}] {message}" if host else message
-    console.append(text)
-    _trim_console(console)
-    update_task(tid, {"console": list(console)})
+    with _batch_console_lock:
+        console.append(text)
+        _trim_console(console)
+        snapshot = list(console)
+    update_task(tid, {"console": snapshot})
 
 
 def _make_console_callback(
@@ -3839,13 +3869,15 @@ def _make_console_callback(
         text = _sanitize_console_line(raw_line, secrets)
         if not text:
             return
-        console.append(f"[{host}] {text}")
-        _trim_console(console)
+        with _batch_console_lock:
+            console.append(f"[{host}] {text}")
+            _trim_console(console)
+            snapshot = list(console)
         # No actualizar en cada línea: el SSE reenvía el estado completo.
         now = time.monotonic()
         if now - last_update[0] >= 0.25:
             last_update[0] = now
-            update_task(tid, {"console": list(console)})
+            update_task(tid, {"console": snapshot})
 
     return callback
 
@@ -4208,377 +4240,435 @@ def _run_apply_batch(
     total = len(hosts)
     console_lines: List[str] = []
     outcome = "completed"
-    for index, host in enumerate(hosts, start=1):
-        if cancel_event is not None and cancel_event.is_set():
-            outcome = "cancelled"
-            _skip_remaining_hosts(
-                tid=tid,
-                batch_id=batch_id,
-                hosts=hosts[index - 1 :],
-                db_path=db_path,
-                log_lines=log_lines,
-                console_lines=console_lines,
-                reason="Cancelado por el usuario.",
-            )
-            break
-        if time.monotonic() >= deadline:
-            outcome = "incomplete"
-            _skip_remaining_hosts(
-                tid=tid,
-                batch_id=batch_id,
-                hosts=hosts[index - 1 :],
-                db_path=db_path,
-                log_lines=log_lines,
-                console_lines=console_lines,
-            )
-            break
+    state_lock = threading.Lock()
+    completed_hosts = 0
+    cancelled = False
+    incomplete = False
+    semaphore = _get_host_semaphore()
+    budget_reason = "Presupuesto de tiempo del lote agotado."
 
-        # Reserva del host: dos lotes distintos pueden apuntar a la misma IP.
-        # El segundo se omite en vez de competir por el mismo estado final.
-        if not acquire_host_lock(host, batch_id, db_path=db_path):
-            reason = "Otra operación en curso sobre el host."
-            ExecutionBatch.add_host_result(
-                batch_id=batch_id,
-                host=host,
-                result="skipped",
-                error=reason,
-                db_path=db_path,
-            )
-            _append_log(log_lines, f"OMITIDO {host}: {reason}")
-            _append_console(
-                console_lines, tid, f"OMITIDO: {reason}", host=host
-            )
-            update_task(
-                tid,
-                {
-                    "progress": _progress_for(index, total),
-                    "message": f"Procesados {index}/{total} hosts",
-                    "log": list(log_lines),
-                    "console": list(console_lines),
-                },
-            )
-            continue
+    def _completed_snapshot() -> tuple[int, int]:
+        with state_lock:
+            done = completed_hosts
+        return done, _progress_for(done, total)
 
-        started = time.monotonic()
-        success = False
-        before_state: Any = None
-        after_state: Any = None
-        used_hash = ""
-        warnings = ""
-        last_auth_error = ""
-        last_apply_error = ""
-        attention = False
-        attention_kind = ""
-        attention_reason = ""
-        _append_console(
-            console_lines, tid, f"=== {host} ({index}/{total}) ==="
-        )
-        console_secrets = list(candidates)
-        if new_password:
-            console_secrets.append(new_password)
-        line_callback = _make_console_callback(
-            tid, host, console_lines, console_secrets
-        )
-
-        attempts = 0
-        for candidate in candidates:
-            if cancel_event is not None and cancel_event.is_set():
-                last_apply_error = "Cancelado por el usuario."
-                break
-            if attempts >= MAX_PASSWORD_ATTEMPTS:
-                _append_log(
-                    log_lines,
-                    f"Límite de {MAX_PASSWORD_ATTEMPTS} intento(s) alcanzado "
-                    f"en {host}",
-                )
-                _append_console(
-                    console_lines,
-                    tid,
-                    f"Límite de {MAX_PASSWORD_ATTEMPTS} intento(s) alcanzado",
-                    host=host,
-                )
-                break
-            attempts += 1
-            # Un host con varias candidatas puede tardar más que el TTL
-            # inicial; se renueva antes de cada intento.
-            refresh_host_lock(host, batch_id, db_path=db_path)
-            candidate_hash = PasswordRecord.hash_short(candidate)
-            try:
-                ping = test_ansible_ping(
-                    host=host,
-                    user=admin_user,
-                    password=candidate,
-                    cancel_event=cancel_event,
-                    private_key=private_key or None,
-                    connection=connection or "ssh",
-                )
-            except Exception as exc:  # pragma: no cover - salvaguarda
-                last_auth_error = str(exc)
-                _append_console(
-                    console_lines,
-                    tid,
-                    f"Error probando credencial {candidate_hash}: {str(exc)[:120]}",
-                    host=host,
-                )
-                continue
-
-            if not ping.get("success"):
-                last_auth_error = ping.get("error") or "sin conexión"
-                _append_log(
-                    log_lines,
-                    f"Sin acceso a {host}: {str(last_auth_error)[:120]}",
-                )
-                _append_console(
-                    console_lines,
-                    tid,
-                    f"Sin acceso (hash {candidate_hash}): "
-                    f"{str(last_auth_error)[:120]}",
-                    host=host,
-                )
-                continue
-
-            short_hash = candidate_hash
-            update_task(
-                tid,
-                {
-                    "progress": _progress_for(index - 1, total),
-                    "message": f"Credencial válida en {host}; aplicando cambio…",
-                    "log": list(log_lines),
-                },
-            )
-            _append_console(
-                console_lines,
-                tid,
-                f"Credencial válida (hash {short_hash}); ejecutando playbook…",
-                host=host,
-            )
-
-            try:
-                result = apply_host(
-                    host=host,
-                    user=admin_user,
-                    action=action,
-                    value=value,
-                    password=candidate,
-                    time_mode=time_mode,
-                    ntp_policy=ntp_policy,
-                    ntp_servers=ntp_servers,
-                    sync_rtc=sync_rtc,
-                    force=force,
-                    target_epoch=target_epoch,
-                    local_fold=local_fold,
-                    time_zone=time_zone,
-                    ntp_settle=ntp_settle,
-                    requiere_ntp_off=requiere_ntp_off,
-                    line_callback=line_callback,
-                    cancel_event=cancel_event,
-                    private_key=private_key or None,
-                    connection=connection or "ssh",
-                    backup_dir=str(TIMEZONE_BACKUP_DIR / str(batch_id)),
-                    wallpaper_path=wallpaper_path,
-                    wallpaper_uri=wallpaper_uri,
-                    min_free_gb=min_free_gb,
-                    new_password=new_password,
-                    dry_run=dry_run,
-                )
-            except Exception as exc:  # pragma: no cover - salvaguarda
-                last_apply_error = str(exc)
-                _append_log(
-                    log_lines,
-                    f"Error inesperado en {host} (hash {short_hash}): {str(exc)[:120]}",
-                )
-                _append_console(
-                    console_lines,
-                    tid,
-                    f"Error inesperado: {str(exc)[:160]}",
-                    host=host,
-                )
-                continue
-
-            # El estado previo debe ser el del primer intento que llegó a
-            # conectar; los reintentos con otras contraseñas no lo reemplazan.
-            if before_state is None and result.get("before_state") is not None:
-                before_state = result.get("before_state")
-            if result.get("after_state") is not None:
-                after_state = result.get("after_state")
-            if result.get("warnings"):
-                warnings = result.get("warnings")
-            if result.get("attention"):
-                attention = True
-                attention_kind = str(result.get("attention_kind") or "")
-                attention_reason = str(result.get("attention_reason") or "")
-
-            if result.get("success"):
-                success = True
-                used_hash = short_hash
-                last_apply_error = ""
-                if attention:
-                    label = (
-                        "migración de distribución"
-                        if attention_kind == "migration"
-                        else "espacio insuficiente"
-                    )
-                    _append_log(
-                        log_lines,
-                        f"Requiere atención en {host} ({label}): "
-                        f"{attention_reason}",
-                    )
-                    _append_console(
-                        console_lines,
-                        tid,
-                        f"REQUIERE ATENCIÓN ({label}): "
-                        f"{attention_reason[:180]}",
-                        host=host,
-                    )
-                elif result.get("dry_run") or result.get("simulated"):
-                    _append_log(
-                        log_lines,
-                        f"Simulación OK en {host} (hash {short_hash}): "
-                        "no se aplicó ningún cambio",
-                    )
-                    _append_console(
-                        console_lines,
-                        tid,
-                        "SIMULACIÓN: credencial válida; no se aplicó ningún cambio",
-                        host=host,
-                    )
-                else:
-                    _append_log(
-                        log_lines,
-                        f"Playbook OK en {host} (hash {short_hash})",
-                    )
-                    _append_console(
-                        console_lines,
-                        tid,
-                        "Playbook y verificación OK",
-                        host=host,
-                    )
-                    if action == "APT" and isinstance(after_state, dict):
-                        pending = after_state.get("pending")
-                        if pending:
-                            _append_console(
-                                console_lines,
-                                tid,
-                                f"Aviso: quedan {pending} paquete(s) "
-                                "pendientes en la estación",
-                                host=host,
-                            )
-                        if after_state.get("reboot_required"):
-                            _append_console(
-                                console_lines,
-                                tid,
-                                "Aviso: la estación requiere reinicio",
-                                host=host,
-                            )
-                break
-
-            # La contraseña es válida pero el cambio/verificación falló:
-            # se sigue probando el resto de candidatas para este host.
-            used_hash = short_hash
-            last_apply_error = result.get("error") or "El playbook falló"
-            _append_log(
-                log_lines,
-                f"Playbook falló en {host} con hash {short_hash}: "
-                f"{str(last_apply_error)[:140]}",
-            )
-            _append_console(
-                console_lines,
-                tid,
-                f"Playbook/verificación falló: {str(last_apply_error)[:160]}",
-                host=host,
-            )
-            if time.monotonic() >= deadline:
-                last_apply_error = "Presupuesto de tiempo del lote agotado."
-                _append_log(
-                    log_lines,
-                    f"Presupuesto de tiempo agotado durante {host}",
-                )
-                break
-
-        duration_ms = int((time.monotonic() - started) * 1000)
-        error = ""
-        if attention and success:
-            error = attention_reason or (
-                "La estación requiere migración o espacio antes de actualizar."
-            )
-        elif not success:
-            error = (
-                last_apply_error
-                or last_auth_error
-                or "No se pudo autenticar en el host."
-            )
-        result_type = (
-            "attention"
-            if (attention and success)
-            else ("success" if success else "failure")
-        )
-
-        ExecutionBatch.add_host_result(
-            batch_id=batch_id,
-            host=host,
-            result=result_type,
-            error=error,
-            duration_ms=duration_ms,
-            before_state=before_state,
-            after_state=after_state,
-            password_hash=used_hash,
-            password_origin=password_origin,
-            db_path=db_path,
-        )
-
-        # Se conserva el registro por host heredado para auditoría/consultas
-        # antiguas; el lote es la fuente principal del historial desde P4.
-        try:
-            ExecutionRecord.record_execution(
-                action=action,
-                value=value,
-                host=host,
-                result=result_type,
-                password_hash=used_hash,
-                password_origin=password_origin,
-                db_path=db_path,
-            )
-        except Exception:  # pragma: no cover - no debe tumbar el lote
-            logger.exception("No se pudo registrar el historial de %s", host)
-
-        if warnings:
-            _append_log(
-                log_lines, f"Advertencias en {host}: {str(warnings)[:160]}"
-            )
-            _append_console(
-                console_lines,
-                tid,
-                f"Advertencias: {str(warnings)[:160]}",
-                host=host,
-            )
-        status_word = (
-            "ATENCIÓN"
-            if result_type == "attention"
-            else ("OK" if success else "FALLO")
-        )
-        _append_log(
-            log_lines,
-            f"{status_word} {host} ({duration_ms} ms)"
-            + (f": {str(error)[:160]}" if error else ""),
-        )
-        _append_console(
-            console_lines,
-            tid,
-            f"{status_word} ({duration_ms} ms)"
-            + (f": {str(error)[:160]}" if error else ""),
-            host=host,
-        )
+    def _finish_host() -> None:
+        nonlocal completed_hosts
+        with state_lock:
+            completed_hosts += 1
+            done = completed_hosts
+        with _batch_console_lock:
+            log_snapshot = list(log_lines)
+            console_snapshot = list(console_lines)
         update_task(
             tid,
             {
-                "progress": _progress_for(index, total),
-                "message": f"Procesados {index}/{total} hosts",
-                "log": list(log_lines),
-                "console": list(console_lines),
+                "progress": _progress_for(done, total),
+                "message": f"Procesados {done}/{total} hosts",
+                "log": log_snapshot,
+                "console": console_snapshot,
             },
         )
-        release_host_lock(host, batch_id, db_path=db_path)
 
+    def _skip(host: str, reason: str, position: int) -> None:
+        ExecutionBatch.add_host_result(
+            batch_id=batch_id,
+            host=host,
+            result="skipped",
+            error=reason,
+            position=position,
+            db_path=db_path,
+        )
+        _append_log(log_lines, f"OMITIDO {host}: {reason}")
+        _append_console(console_lines, tid, f"OMITIDO: {reason}", host=host)
+
+    def process_host(index: int, host: str) -> None:
+        """Procesa un host; el lote nunca se detiene por un host con error."""
+        nonlocal cancelled, incomplete
+        if cancel_event is not None and cancel_event.is_set():
+            cancelled = True
+            _skip(host, "Cancelado por el usuario.", index)
+            _finish_host()
+            return
+        if time.monotonic() >= deadline:
+            incomplete = True
+            _skip(host, budget_reason, index)
+            _finish_host()
+            return
+
+        # Cupo global: espera acotada para atender cancelación y presupuesto
+        # mientras otros lotes ocupan los playbooks simultáneos.
+        while True:
+            if semaphore.acquire(timeout=0.2):
+                break
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                _skip(host, "Cancelado por el usuario.", index)
+                _finish_host()
+                return
+            if time.monotonic() >= deadline:
+                incomplete = True
+                _skip(host, budget_reason, index)
+                _finish_host()
+                return
+
+        try:
+            # Reserva del host: dos lotes distintos pueden apuntar a la misma
+            # IP. El segundo se omite en vez de competir por su estado final.
+            if not acquire_host_lock(host, batch_id, db_path=db_path):
+                _skip(host, "Otra operación en curso sobre el host.", index)
+                return
+            try:
+                started = time.monotonic()
+                success = False
+                before_state: Any = None
+                after_state: Any = None
+                used_hash = ""
+                warnings = ""
+                last_auth_error = ""
+                last_apply_error = ""
+                attention = False
+                attention_kind = ""
+                attention_reason = ""
+                _append_console(
+                    console_lines, tid, f"=== {host} ({index}/{total}) ==="
+                )
+                console_secrets = list(candidates)
+                if new_password:
+                    console_secrets.append(new_password)
+                line_callback = _make_console_callback(
+                    tid, host, console_lines, console_secrets
+                )
+
+                attempts = 0
+                for candidate in candidates:
+                    if cancel_event is not None and cancel_event.is_set():
+                        last_apply_error = "Cancelado por el usuario."
+                        break
+                    if attempts >= MAX_PASSWORD_ATTEMPTS:
+                        _append_log(
+                            log_lines,
+                            f"Límite de {MAX_PASSWORD_ATTEMPTS} intento(s) alcanzado "
+                            f"en {host}",
+                        )
+                        _append_console(
+                            console_lines,
+                            tid,
+                            f"Límite de {MAX_PASSWORD_ATTEMPTS} intento(s) alcanzado",
+                            host=host,
+                        )
+                        break
+                    attempts += 1
+                    # Un host con varias candidatas puede tardar más que el TTL
+                    # inicial; se renueva antes de cada intento.
+                    refresh_host_lock(host, batch_id, db_path=db_path)
+                    candidate_hash = PasswordRecord.hash_short(candidate)
+                    try:
+                        ping = test_ansible_ping(
+                            host=host,
+                            user=admin_user,
+                            password=candidate,
+                            cancel_event=cancel_event,
+                            private_key=private_key or None,
+                            connection=connection or "ssh",
+                        )
+                    except Exception as exc:  # pragma: no cover - salvaguarda
+                        last_auth_error = str(exc)
+                        _append_console(
+                            console_lines,
+                            tid,
+                            f"Error probando credencial {candidate_hash}: {str(exc)[:120]}",
+                            host=host,
+                        )
+                        continue
+
+                    if not ping.get("success"):
+                        last_auth_error = ping.get("error") or "sin conexión"
+                        _append_log(
+                            log_lines,
+                            f"Sin acceso a {host}: {str(last_auth_error)[:120]}",
+                        )
+                        _append_console(
+                            console_lines,
+                            tid,
+                            f"Sin acceso (hash {candidate_hash}): "
+                            f"{str(last_auth_error)[:120]}",
+                            host=host,
+                        )
+                        continue
+
+                    short_hash = candidate_hash
+                    update_task(
+                        tid,
+                        {
+                            "progress": _completed_snapshot()[1],
+                            "message": f"Credencial válida en {host}; aplicando cambio…",
+                            "log": list(log_lines),
+                        },
+                    )
+                    _append_console(
+                        console_lines,
+                        tid,
+                        f"Credencial válida (hash {short_hash}); ejecutando playbook…",
+                        host=host,
+                    )
+
+                    try:
+                        result = apply_host(
+                            host=host,
+                            user=admin_user,
+                            action=action,
+                            value=value,
+                            password=candidate,
+                            time_mode=time_mode,
+                            ntp_policy=ntp_policy,
+                            ntp_servers=ntp_servers,
+                            sync_rtc=sync_rtc,
+                            force=force,
+                            target_epoch=target_epoch,
+                            local_fold=local_fold,
+                            time_zone=time_zone,
+                            ntp_settle=ntp_settle,
+                            requiere_ntp_off=requiere_ntp_off,
+                            line_callback=line_callback,
+                            cancel_event=cancel_event,
+                            private_key=private_key or None,
+                            connection=connection or "ssh",
+                            backup_dir=str(TIMEZONE_BACKUP_DIR / str(batch_id)),
+                            wallpaper_path=wallpaper_path,
+                            wallpaper_uri=wallpaper_uri,
+                            min_free_gb=min_free_gb,
+                            new_password=new_password,
+                            dry_run=dry_run,
+                        )
+                    except Exception as exc:  # pragma: no cover - salvaguarda
+                        last_apply_error = str(exc)
+                        _append_log(
+                            log_lines,
+                            f"Error inesperado en {host} (hash {short_hash}): {str(exc)[:120]}",
+                        )
+                        _append_console(
+                            console_lines,
+                            tid,
+                            f"Error inesperado: {str(exc)[:160]}",
+                            host=host,
+                        )
+                        continue
+
+                    # El estado previo debe ser el del primer intento que llegó a
+                    # conectar; los reintentos con otras contraseñas no lo reemplazan.
+                    if before_state is None and result.get("before_state") is not None:
+                        before_state = result.get("before_state")
+                    if result.get("after_state") is not None:
+                        after_state = result.get("after_state")
+                    if result.get("warnings"):
+                        warnings = result.get("warnings")
+                    if result.get("attention"):
+                        attention = True
+                        attention_kind = str(result.get("attention_kind") or "")
+                        attention_reason = str(result.get("attention_reason") or "")
+
+                    if result.get("success"):
+                        success = True
+                        used_hash = short_hash
+                        last_apply_error = ""
+                        if attention:
+                            label = (
+                                "migración de distribución"
+                                if attention_kind == "migration"
+                                else "espacio insuficiente"
+                            )
+                            _append_log(
+                                log_lines,
+                                f"Requiere atención en {host} ({label}): "
+                                f"{attention_reason}",
+                            )
+                            _append_console(
+                                console_lines,
+                                tid,
+                                f"REQUIERE ATENCIÓN ({label}): "
+                                f"{attention_reason[:180]}",
+                                host=host,
+                            )
+                        elif result.get("dry_run") or result.get("simulated"):
+                            _append_log(
+                                log_lines,
+                                f"Simulación OK en {host} (hash {short_hash}): "
+                                "no se aplicó ningún cambio",
+                            )
+                            _append_console(
+                                console_lines,
+                                tid,
+                                "SIMULACIÓN: credencial válida; no se aplicó ningún cambio",
+                                host=host,
+                            )
+                        else:
+                            _append_log(
+                                log_lines,
+                                f"Playbook OK en {host} (hash {short_hash})",
+                            )
+                            _append_console(
+                                console_lines,
+                                tid,
+                                "Playbook y verificación OK",
+                                host=host,
+                            )
+                            if action == "APT" and isinstance(after_state, dict):
+                                pending = after_state.get("pending")
+                                if pending:
+                                    _append_console(
+                                        console_lines,
+                                        tid,
+                                        f"Aviso: quedan {pending} paquete(s) "
+                                        "pendientes en la estación",
+                                        host=host,
+                                    )
+                                if after_state.get("reboot_required"):
+                                    _append_console(
+                                        console_lines,
+                                        tid,
+                                        "Aviso: la estación requiere reinicio",
+                                        host=host,
+                                    )
+                        break
+
+                    # La contraseña es válida pero el cambio/verificación falló:
+                    # se sigue probando el resto de candidatas para este host.
+                    used_hash = short_hash
+                    last_apply_error = result.get("error") or "El playbook falló"
+                    _append_log(
+                        log_lines,
+                        f"Playbook falló en {host} con hash {short_hash}: "
+                        f"{str(last_apply_error)[:140]}",
+                    )
+                    _append_console(
+                        console_lines,
+                        tid,
+                        f"Playbook/verificación falló: {str(last_apply_error)[:160]}",
+                        host=host,
+                    )
+                    if time.monotonic() >= deadline:
+                        last_apply_error = "Presupuesto de tiempo del lote agotado."
+                        _append_log(
+                            log_lines,
+                            f"Presupuesto de tiempo agotado durante {host}",
+                        )
+                        break
+
+                duration_ms = int((time.monotonic() - started) * 1000)
+                error = ""
+                if attention and success:
+                    error = attention_reason or (
+                        "La estación requiere migración o espacio antes de actualizar."
+                    )
+                elif not success:
+                    error = (
+                        last_apply_error
+                        or last_auth_error
+                        or "No se pudo autenticar en el host."
+                    )
+                result_type = (
+                    "attention"
+                    if (attention and success)
+                    else ("success" if success else "failure")
+                )
+
+                ExecutionBatch.add_host_result(
+                    batch_id=batch_id,
+                    host=host,
+                    result=result_type,
+                    error=error,
+                    duration_ms=duration_ms,
+                    position=index,
+                    before_state=before_state,
+                    after_state=after_state,
+                    password_hash=used_hash,
+                    password_origin=password_origin,
+                    db_path=db_path,
+                )
+
+                # Se conserva el registro por host heredado para auditoría/consultas
+                # antiguas; el lote es la fuente principal del historial desde P4.
+                try:
+                    ExecutionRecord.record_execution(
+                        action=action,
+                        value=value,
+                        host=host,
+                        result=result_type,
+                        password_hash=used_hash,
+                        password_origin=password_origin,
+                        db_path=db_path,
+                    )
+                except Exception:  # pragma: no cover - no debe tumbar el lote
+                    logger.exception("No se pudo registrar el historial de %s", host)
+
+                if warnings:
+                    _append_log(
+                        log_lines, f"Advertencias en {host}: {str(warnings)[:160]}"
+                    )
+                    _append_console(
+                        console_lines,
+                        tid,
+                        f"Advertencias: {str(warnings)[:160]}",
+                        host=host,
+                    )
+                status_word = (
+                    "ATENCIÓN"
+                    if result_type == "attention"
+                    else ("OK" if success else "FALLO")
+                )
+                _append_log(
+                    log_lines,
+                    f"{status_word} {host} ({duration_ms} ms)"
+                    + (f": {str(error)[:160]}" if error else ""),
+                )
+                _append_console(
+                    console_lines,
+                    tid,
+                    f"{status_word} ({duration_ms} ms)"
+                    + (f": {str(error)[:160]}" if error else ""),
+                    host=host,
+                )
+            except Exception as exc:  # pragma: no cover - salvaguarda
+                logger.exception("Error inesperado procesando %s", host)
+                ExecutionBatch.add_host_result(
+                    batch_id=batch_id,
+                    host=host,
+                    result="failure",
+                    error=f"Error interno: {str(exc)[:160]}",
+                    position=index,
+                    db_path=db_path,
+                )
+                _append_log(log_lines, f"FALLO {host}: error interno")
+                _append_console(
+                    console_lines, tid, "FALLO: error interno", host=host
+                )
+            finally:
+                release_host_lock(host, batch_id, db_path=db_path)
+        finally:
+            semaphore.release()
+            _finish_host()
+
+    workers = max(1, min(BATCH_HOST_CONCURRENCY, total))
+    with ThreadPoolExecutor(
+        max_workers=workers, thread_name_prefix=f"acc-hosts-{batch_id}"
+    ) as pool:
+        futures = [
+            pool.submit(process_host, index, host)
+            for index, host in enumerate(hosts, start=1)
+        ]
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception:  # pragma: no cover - salvaguarda
+                logger.exception(
+                    "Fallo inesperado en un host del lote %s", batch_id
+                )
+
+    if cancelled:
+        outcome = "cancelled"
+    elif incomplete:
+        outcome = "incomplete"
     update_task(tid, {"console": list(console_lines)})
     return outcome
 

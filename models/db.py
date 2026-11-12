@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 
 
 def _secure_sqlite_files(path: str) -> None:
@@ -582,6 +582,25 @@ def _migrate_v17(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v18(conn: sqlite3.Connection) -> None:
+    """Posición del host dentro del lote para conservar el orden de entrada.
+
+    Con el procesamiento en paralelo, el orden de inserción depende de qué
+    host termina antes. La posición permite que el detalle del lote siga
+    mostrando los hosts en el orden en que el operador los envió.
+    """
+    _ensure_column(
+        conn,
+        "execution_hosts",
+        "position",
+        "position INTEGER NOT NULL DEFAULT 0",
+    )
+    # Los lotes anteriores conservan el orden histórico (id de inserción).
+    conn.execute(
+        "UPDATE execution_hosts SET position = id WHERE position = 0"
+    )
+
+
 def init_schema(db_path: str) -> None:
     """Crea o migra el esquema de forma idempotente y no destructiva.
 
@@ -618,6 +637,7 @@ def init_schema(db_path: str) -> None:
         _migrate_v15(conn)
         _migrate_v16(conn)
         _migrate_v17(conn)
+        _migrate_v18(conn)
         # No se rebaja la versión de una base creada por una versión más nueva.
         if version < SCHEMA_VERSION:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

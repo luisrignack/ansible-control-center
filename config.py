@@ -572,6 +572,15 @@ JOB_SHUTDOWN_GRACE_SECONDS = _env_int(
 HOST_LOCK_TTL_SECONDS = _env_int(
     "ACC_HOST_LOCK_TTL", 1800, minimum=60, maximum=86400
 )
+# Hosts procesados en paralelo dentro de un mismo lote. El límite global
+# acota cuántos playbooks corren a la vez en el proceso sumando todos los
+# lotes, para que dos operadores no saturen CPU, SSH ni la red.
+BATCH_HOST_CONCURRENCY = _env_int(
+    "ACC_BATCH_HOST_CONCURRENCY", 4, minimum=1, maximum=32
+)
+GLOBAL_HOST_CONCURRENCY = _env_int(
+    "ACC_GLOBAL_HOST_CONCURRENCY", 8, minimum=1, maximum=64
+)
 
 # Bloqueo progresivo de cuentas tras intentos fallidos de login.
 LOGIN_LOCKOUT_THRESHOLD = _env_int(

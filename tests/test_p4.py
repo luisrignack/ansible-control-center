@@ -233,13 +233,15 @@ def test_execution_processes_all_hosts_and_retries_passwords(
 
     # El host 2 autenticó con la primera contraseña pero el playbook falló:
     # se probó la segunda. El host 3 también agotó todas las candidatas.
-    assert calls == [
+    # Los hosts se procesan en paralelo: el orden de las llamadas ya no es
+    # determinista, pero cada host conserva sus reintentos.
+    assert sorted(calls) == sorted([
         ("10.0.0.1", "clave-uno"),
         ("10.0.0.2", "clave-uno"),
         ("10.0.0.2", "clave-dos"),
         ("10.0.0.3", "clave-uno"),
         ("10.0.0.3", "clave-dos"),
-    ]
+    ])
 
     history = client.get("/history")
     assert history.status_code == 200

@@ -43,6 +43,9 @@ services:
       ACC_ALLOWED_NETWORKS: "${ACC_ALLOWED_NETWORKS:-}"
       ACC_MAX_PASSWORD_ATTEMPTS: "${ACC_MAX_PASSWORD_ATTEMPTS:-3}"
       ACC_BATCH_TIME_BUDGET: "${ACC_BATCH_TIME_BUDGET:-3600}"
+      # Hosts en paralelo por lote y cupo global de playbooks simultáneos.
+      ACC_BATCH_HOST_CONCURRENCY: "${ACC_BATCH_HOST_CONCURRENCY:-4}"
+      ACC_GLOBAL_HOST_CONCURRENCY: "${ACC_GLOBAL_HOST_CONCURRENCY:-8}"
       ACC_MAX_HOSTS: "${ACC_MAX_HOSTS:-256}"
       ACC_PLAYBOOK_TIMEOUT: "${ACC_PLAYBOOK_TIMEOUT:-300}"
       ACC_APPROVAL_TTL_MINUTES: "${ACC_APPROVAL_TTL_MINUTES:-30}"
@@ -100,6 +103,23 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+
+  # Planificador dedicado opcional. Con este perfil, el servicio web debe
+  # correr con ACC_ROLE=web en .env para no duplicar el scheduler; el lock
+  # flock de todos modos impide que dos procesos programen a la vez.
+  scheduler:
+    extends:
+      service: app
+    profiles: ["scheduler"]
+    command: ["flask", "--app", "app", "scheduler"]
+    environment:
+      ACC_ROLE: worker
+      ACC_SCHEDULER_ENABLED: "1"
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      disable: true
 
   nginx:
     build:

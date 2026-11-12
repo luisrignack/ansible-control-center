@@ -113,7 +113,8 @@ por defecto** (400 recopilados). Incluye empaquetado Docker con Nginx y TLS.
   ejemplo, `tapiz`, que necesita una imagen subida) solo se ejecutan desde su
   tarjeta. El disparo usa un *claim* atómico y un lock de
   instancia, por lo que varios workers no duplican lotes; puede ejecutarse en
-  un proceso dedicado con `flask --app app scheduler` (`ACC_ROLE=worker`). Si
+  un proceso dedicado con `flask --app app scheduler` (`ACC_ROLE=worker`) o
+  con `docker compose --profile scheduler up -d`. Si
   al vencer la programación el grupo está fuera de su ventana, el disparo se
   pospone automáticamente hasta la próxima apertura.
 - **Protección por criticidad**: una ejecución real sobre hosts `critical`
@@ -410,6 +411,8 @@ una `ACC_SECRET_KEY` aleatoria.
 | `ACC_NTP_SETTLE_SECONDS` | `3` | Espera tras reactivar NTP antes de verificar (s) |
 | `ACC_MAX_PASSWORD_ATTEMPTS` | `3` | Candidatas máximas probadas por host |
 | `ACC_BATCH_TIME_BUDGET` | `3600` | Presupuesto de tiempo del lote (s) |
+| `ACC_BATCH_HOST_CONCURRENCY` | `4` | Hosts procesados en paralelo dentro de un lote |
+| `ACC_GLOBAL_HOST_CONCURRENCY` | `8` | Playbooks Ansible simultáneos en el proceso, sumando todos los lotes |
 | `ACC_APT_MIN_FREE_GB` | `2` | Umbral mínimo de espacio libre (GiB) para la actualización APT (0,5–100) |
 | `ACC_APT_MIN_FREE_GB_FLOOR` | `0,5` | Valor mínimo aceptado en el formulario |
 | `ACC_APT_MIN_FREE_GB_CEILING` | `100` | Valor máximo aceptado en el formulario |
@@ -852,9 +855,12 @@ nada y se ejecuta también en `DRY_RUN` y en la vista previa.
 - **Consola acotada**: se conservan las últimas 300 líneas y se recorta cada
   línea a 500 caracteres. El snapshot persistido puede perder la última fracción
   de segundo antes de un reinicio.
-- **Ejecución secuencial dentro de cada lote**: los hosts se procesan uno a
-  uno. La cola limita cuántos lotes corren a la vez (`ACC_JOB_WORKERS`)
-  y permite cancelar; no hay reintento selectivo de fallidos.
+- **Paralelismo acotado dentro del lote**: cada lote procesa hasta
+  `ACC_BATCH_HOST_CONCURRENCY` hosts a la vez y todos los lotes comparten un
+  cupo global de `ACC_GLOBAL_HOST_CONCURRENCY` playbooks. La cola limita
+  cuántos lotes corren a la vez (`ACC_JOB_WORKERS`) y permite cancelar; no hay
+  reintento selectivo de fallidos. Las vistas previas siguen siendo
+  secuenciales.
 - **Reserva por host**: antes de aplicar un cambio se toma una reserva en
   `host_locks` (vigencia `ACC_HOST_LOCK_TTL`). Si otro lote está trabajando en
   la misma IP, el host se registra como `skipped` en vez de competir por el

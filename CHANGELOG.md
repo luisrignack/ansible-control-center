@@ -5,6 +5,35 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Paralelismo acotado y prueba de carga] — 2026-11-12
+
+### Añadido
+
+- **Paralelismo acotado por lote**: cada lote procesa hasta
+  `ACC_BATCH_HOST_CONCURRENCY` hosts a la vez (4 por defecto) en lugar de uno a
+  uno. Un semáforo compartido limita a `ACC_GLOBAL_HOST_CONCURRENCY` (8 por
+  defecto) los playbooks simultáneos de todos los lotes. La reserva por host,
+  la cancelación cooperativa, el presupuesto de tiempo y el registro
+  individual se mantienen por host.
+- **Planificador dedicado en contenedores**: el entrypoint acepta un comando y
+  `docker compose --profile scheduler up -d` añade un servicio que reutiliza la
+  imagen y ejecuta `flask --app app scheduler` con `ACC_ROLE=worker`. El
+  servicio web debe usar `ACC_ROLE=web` para no duplicar el scheduler.
+- **Prueba de carga sintética** (`tools/load_test_concurrency.py`): simula 4
+  operadores y lotes concurrentes por la ruta real de cola y reservas, con
+  latencia de Ansible simulada. Referencia: 80 hosts bajan de 10,0 s a 3,3 s
+  (8,0 → 24,4 hosts/s) al pasar de 1 a 4 hosts por lote.
+
+### Cambiado
+
+- Consola, log y progreso del lote son seguros entre los hilos que procesan
+  hosts; SQLite sigue tolerando las escrituras concurrentes con WAL.
+- **Orden del detalle del lote**: `execution_hosts.position` (esquema v18)
+  conserva el orden de entrada aunque los hosts terminen en otro orden. Los
+  lotes antiguos se migran con `position = id`.
+- Las vistas previas siguen siendo secuenciales: solo leen estado y no
+  consumen el cupo de playbooks.
+
 ## [Cola y observabilidad de concurrencia] — 2026-11-12
 
 ### Añadido

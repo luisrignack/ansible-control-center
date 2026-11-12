@@ -345,7 +345,7 @@ class ExecutionBatch:
                 """
                 SELECT * FROM execution_hosts
                 WHERE batch_id = ?
-                ORDER BY id ASC
+                ORDER BY position ASC, id ASC
                 """,
                 (batch_id,),
             ).fetchall()
@@ -587,9 +587,15 @@ class ExecutionBatch:
         after_state: Any = None,
         password_hash: str = "",
         password_origin: str = "",
+        position: int = 0,
         db_path: str = None,
     ) -> HostResult:
-        """Inserta el resultado de un host y actualiza el contador del lote."""
+        """Inserta el resultado de un host y actualiza el contador del lote.
+
+        ``position`` es el orden del host dentro del lote. Si no se indica, se
+        asigna el siguiente número disponible; los lotes en paralelo lo pasan
+        explícitamente para no perder el orden de entrada.
+        """
         if db_path is None:
             db_path = _default_db_path()
         if result not in HOST_RESULTS:
@@ -599,13 +605,20 @@ class ExecutionBatch:
         counter = _RESULT_COUNTERS.get(result, "error_count")
 
         with get_connection(db_path) as conn:
+            if int(position or 0) <= 0:
+                row = conn.execute(
+                    "SELECT COALESCE(MAX(position), 0) + 1 "
+                    "FROM execution_hosts WHERE batch_id = ?",
+                    (batch_id,),
+                ).fetchone()
+                position = int(row[0])
             cursor = conn.execute(
                 """
                 INSERT INTO execution_hosts
                     (batch_id, host, result, error, duration_ms,
                      before_state, after_state, password_hash,
-                     password_origin, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     password_origin, position, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     batch_id,
@@ -617,6 +630,7 @@ class ExecutionBatch:
                     _dumps_state(after_state),
                     password_hash or "",
                     password_origin or "",
+                    int(position),
                     created_at,
                 ),
             )

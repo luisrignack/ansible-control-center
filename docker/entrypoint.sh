@@ -65,5 +65,12 @@ elif User.count(db_path=db_path) == 0:
     )
 PY
 
+# Permite reutilizar la imagen para el planificador dedicado:
+#   docker compose --profile scheduler up -d   (command: flask --app app scheduler)
+if [ "$#" -gt 0 ]; then
+    echo "[ansible-control-center] Ejecutando comando: $*"
+    exec "$@"
+fi
+
 echo "[ansible-control-center] Iniciando Gunicorn en ${ACC_BIND:-0.0.0.0:8000}…"
 exec gunicorn -c /app/gunicorn.conf.py app:app

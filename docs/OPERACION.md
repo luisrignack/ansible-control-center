@@ -54,6 +54,13 @@ presupuesto total de `ACC_BATCH_TIME_BUDGET` segundos (3600 por
 defecto); al agotarse, los hosts pendientes se registran como `skipped` y el
 lote cierra en vez de quedar abierto durante horas.
 
+Cada lote procesa hasta `ACC_BATCH_HOST_CONCURRENCY` hosts a la vez (4 por
+defecto) y todos los lotes comparten un cupo global de
+`ACC_GLOBAL_HOST_CONCURRENCY` playbooks (8 por defecto). La cola de trabajos
+sigue limitando cuántos lotes están activos (`ACC_JOB_WORKERS`). Si un host
+está reservado por otro lote, se omite sin ocupar un puesto de playbook. Las
+vistas previas se ejecutan en serie porque solo leen el estado.
+
 Antes de tocar un host, el lote toma una reserva en `host_locks`
 (`ACC_HOST_LOCK_TTL`, 30 min por defecto). Si otro lote ya está trabajando en
 la misma IP, este host se registra como `skipped` con el motivo «Otra

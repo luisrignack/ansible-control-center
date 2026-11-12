@@ -98,6 +98,30 @@ Secuencia mínima para una comparación reproducible:
 4. Consulta `/metricas` y anota p50/p95.
 5. Repite con la misma secuencia tras el cambio.
 
+### 3.1. Prueba sintética de 4 operadores
+
+`tools/load_test_concurrency.py` simula cuatro operadores enviando lotes por la
+ruta real (cola, `execution_batches`, `host_locks` y paralelismo acotado), con
+Ansible sustituido por una latencia fija. Sirve para comparar releases y
+ajustar los cupos; **no mide la red ni los hosts reales**.
+
+```bash
+.venv/bin/python tools/load_test_concurrency.py
+# 4 usuarios, 20 hosts por lote, 200 ms por playbook, 2 lotes activos
+.venv/bin/python tools/load_test_concurrency.py --batch-concurrency 1
+```
+
+Resultado de referencia (2026-11-12, 80 hosts, 200 ms sintéticos):
+
+| Configuración | Pared | Throughput | Playbooks máx. | Espera máx. en cola |
+|---|---:|---:|---:|---:|
+| 1 host por lote | 10,0 s | 8,0 hosts/s | 2 | 6,2 s |
+| 4 hosts por lote | 3,3 s | 24,4 hosts/s | 8 | 1,6 s |
+
+La mejora es de ~3× en esta carga; con hosts reales el límite suele ser la red
+o la CPU del controlador, no el pool. Ajusta `ACC_BATCH_HOST_CONCURRENCY` y
+`ACC_GLOBAL_HOST_CONCURRENCY` y repite la prueba antes de subirlos.
+
 ---
 
 ## 4. Decisiones de diseño
@@ -118,8 +142,9 @@ Secuencia mínima para una comparación reproducible:
 - La ejecución de trabajos y la cancelación siguen siendo **por proceso**. Las
   lecturas de estado y el SSE ya refrescan desde SQLite, pero para varios
   workers de ejecución hace falta la cola compartida (roadmap).
-- No hay prueba de carga automatizada todavía. El SLO de 256 hosts se valida
-  con una prueba manual o con el futuro `tools/load_test.py`.
+- La prueba de carga incluida (`tools/load_test_concurrency.py`) es sintética:
+  mide el planificador con latencia simulada, no Ansible ni la red real. El SLO
+  de 256 hosts sigue requiriendo una prueba contra un inventario de laboratorio.
 - La ventana en memoria no distingue por worker: si algún día se ejecutan
   varios workers web, cada uno mide su propio tráfico.
 - `duration_ms` incluye el tiempo de Ansible y de red; no separa conexión,
@@ -130,8 +155,8 @@ Secuencia mínima para una comparación reproducible:
 ## 6. Próximos pasos
 
 1. Cola de trabajos en SQLite para permitir varios workers de ejecución.
-2. Métrica de espera en cola (encolado → inicio) y de trabajos activos.
-3. Prueba de carga con inventario sintético de 256 hosts.
-4. Exportación de métricas a un formato estándar (OpenMetrics) si se integra
+2. Prueba de carga con inventario sintético de 256 hosts (la actual cubre el
+   planificador, no Ansible real).
+3. Exportación de métricas a un formato estándar (OpenMetrics) si se integra
    con un sistema de observabilidad corporativo.
-5. Alertas sobre p95 y tasa de errores en el sistema de monitorización externo.
+4. Alertas sobre p95 y tasa de errores en el sistema de monitorización externo.

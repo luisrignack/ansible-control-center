@@ -130,7 +130,10 @@ La contraseña nunca se pasa por `argv`: se escribe en un fichero temporal
   mediante un hilo lector por proceso; el resumen de hitos va en `log`.
 - Si el SSE falla de forma repetida o expira, la página cae a polling de
   `/api/task-status/<task_id>`.
-- Los hosts se procesan secuencialmente.
+- Cada lote usa un pool acotado de `ACC_BATCH_HOST_CONCURRENCY` hilos para
+  procesar hosts; un semáforo compartido limita a
+  `ACC_GLOBAL_HOST_CONCURRENCY` los playbooks simultáneos de todos los lotes.
+  La consola y el log del lote se serializan con un lock y SQLite usa WAL.
 - Antes de aplicar un cambio se reserva el host en `host_locks`; si otro lote
   lo tiene, el host queda `skipped`. La reserva se renueva antes de cada
   intento y caduca con `ACC_HOST_LOCK_TTL`.

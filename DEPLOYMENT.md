@@ -152,6 +152,8 @@ flask --app app init-admin
 | `ACC_NTP_SETTLE_SECONDS` | `3` | Espera tras reactivar NTP antes de verificar (s) |
 | `ACC_MAX_PASSWORD_ATTEMPTS` | `3` | Candidatas máximas probadas por host |
 | `ACC_BATCH_TIME_BUDGET` | `3600` | Presupuesto de tiempo del lote (s) |
+| `ACC_BATCH_HOST_CONCURRENCY` | `4` | Hosts en paralelo por lote |
+| `ACC_GLOBAL_HOST_CONCURRENCY` | `8` | Playbooks simultáneos en el proceso |
 | `ACC_JOB_WORKERS` | `2` | Lotes concurrentes |
 | `ACC_JOB_QUEUE_SIZE` | `10` | Tamaño máximo de la cola |
 | `ACC_HOST_LOCK_TTL` | `1800` | Vigencia de la reserva por host (s) |
@@ -385,6 +387,18 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
+En Docker Compose, el planificador dedicado es un servicio opcional:
+
+```bash
+# .env: ACC_ROLE=web  (el servicio web deja de programar)
+docker compose --profile scheduler up -d
+```
+
+El servicio `scheduler` reutiliza la misma imagen, volúmenes y variables que
+`app`, ejecuta `flask --app app scheduler` con `ACC_ROLE=worker` y espera a que
+la web esté sana. Aunque se olvide `ACC_ROLE=web`, el lock `flock` impide que
+dos procesos programen a la vez.
+
 > El estado del progreso SSE sigue viviendo en memoria del proceso web. Varios
 > workers de Gunicorn siguen requiriendo mover ese estado a un almacén
 > compartido; `ACC_ROLE` y el lock del scheduler resuelven la duplicación de
@@ -551,6 +565,13 @@ Prueba la restauración periódicamente. El procedimiento completo está en
   lote completo tiene un presupuesto de `ACC_BATCH_TIME_BUDGET` segundos
   (3600 por defecto); los hosts pendientes quedan como `skipped`. El estado
   global será `partial` si hubo éxitos y fallos.
+- **Paralelismo acotado:** cada lote procesa hasta
+  `ACC_BATCH_HOST_CONCURRENCY` hosts a la vez (4 por defecto) y todos los
+  lotes comparten un cupo de `ACC_GLOBAL_HOST_CONCURRENCY` playbooks
+  simultáneos (8 por defecto). Con `ACC_JOB_WORKERS=2` y 4 hosts por lote se
+  aprovecha el cupo completo; súbelo solo si la red y la CPU lo soportan.
+  Cada host conserva su reserva en `host_locks` y una cancelación detiene a
+  los que aún no han empezado.
 - **Verificación en dos fases:** el lote solo cuenta un host como éxito si el
   playbook confirma el estado final (`HORA_VERIFIED`) antes y después de
   reactivar NTP. La tolerancia por defecto es de 2 s
