@@ -5,13 +5,13 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator, Optional
 
 from config import TEMP_DIR
 
 
-def _base_dir() -> Optional[str]:
+def _base_dir() -> str | None:
     """Devuelve un directorio 0700 para secretos temporales.
 
     Se prefiere ``TEMP_DIR`` (dentro de ``SECRETS_DIR``). Si no existe o no se
@@ -31,7 +31,7 @@ def secure_temp_file(
     content: str,
     prefix: str = "ansible-control-center-",
     suffix: str = ".tmp",
-    directory: Optional[str] = None,
+    directory: str | None = None,
 ) -> Iterator[str]:
     """Crea un fichero temporal 0600, lo entrega y lo borra siempre.
 
@@ -59,7 +59,7 @@ def secure_temp_file(
 @contextmanager
 def temporary_directory(
     prefix: str = "ansible-control-center-",
-    directory: Optional[str] = None,
+    directory: str | None = None,
 ) -> Iterator[str]:
     """Crea un directorio temporal 0700 y lo elimina siempre."""
     path = tempfile.mkdtemp(

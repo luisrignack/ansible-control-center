@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import io
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -70,9 +70,7 @@ def _login(client, username="admin", password="admin-password-123"):
         logged = bool(sess.get("_user_id"))
     if logged:
         _post(client, "/logout")
-    return _post(
-        client, "/login", {"username": username, "password": password}
-    )
+    return _post(client, "/login", {"username": username, "password": password})
 
 
 def _backdate(db_path, request_id, *, requested_at=None, decided_at=None):
@@ -90,9 +88,7 @@ def _backdate(db_path, request_id, *, requested_at=None, decided_at=None):
 
 
 def _old(hours: float) -> str:
-    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(
-        timespec="seconds"
-    )
+    return (datetime.now(UTC) - timedelta(hours=hours)).isoformat(timespec="seconds")
 
 
 # ---------------------------------------------------------------------------
@@ -170,9 +166,7 @@ def test_aprobacion_vale_24_horas_y_luego_caduca(db_path):
     )
     assert reserved is None and "expirado" in error.lower()
     assert ApprovalRequest.expire_stale(24, 1440, db_path=db_path) == 1
-    assert (
-        ApprovalRequest.get(req.id, db_path=db_path).status == "expired"
-    )
+    assert ApprovalRequest.get(req.id, db_path=db_path).status == "expired"
 
 
 # ---------------------------------------------------------------------------
@@ -277,9 +271,7 @@ def test_flujo_completo_aprobacion_y_ejecucion(client, db_path, monkeypatch):
             captured["kwargs"] = kwargs
             # Sin cola real la tarea quedaría "en curso" para el resto de la
             # suite y bloquearía, por ejemplo, el cambio de modo simulación.
-            app_module.update_task(
-                task_id, {"status": "success", "completed": True}
-            )
+            app_module.update_task(task_id, {"status": "success", "completed": True})
 
     monkeypatch.setattr(app_module, "get_job_queue", lambda: FakeQueue())
     _login(client)
@@ -316,9 +308,7 @@ def test_solicitud_antigua_sin_payload_no_se_ejecuta_directo(client, db_path):
     req = ApprovalRequest.create(
         "contrasena", PARAMS, requested_by="admin", db_path=db_path
     )
-    ApprovalRequest.decide(
-        req.id, approver="admin2", approve=True, db_path=db_path
-    )
+    ApprovalRequest.decide(req.id, approver="admin2", approve=True, db_path=db_path)
     _login(client)
     assert client.get(f"/mis-solicitudes/{req.id}/ejecutar").status_code == 302
     assert ApprovalRequest.get(req.id, db_path=db_path).status == "approved"

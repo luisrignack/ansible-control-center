@@ -19,13 +19,14 @@ ejecución.
 Nunca lanza excepciones hacia el flujo del lote: un fallo de correo se
 registra en el log y no debe afectar el resultado de la operación.
 """
+
 from __future__ import annotations
 
 import logging
 import smtplib
 import ssl
 from email.message import EmailMessage
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("acc")
 
@@ -42,7 +43,7 @@ def notify_configured_level() -> str:
     return NOTIFY_LEVEL if NOTIFY_LEVEL in {"off", "failures", "all"} else "off"
 
 
-def _send(subject: str, body: str) -> Optional[str]:
+def _send(subject: str, body: str) -> str | None:
     """Envía el correo. Devuelve ``None`` o una cadena con el error."""
     from config import (
         NOTIFY_TO,
@@ -75,9 +76,7 @@ def _send(subject: str, body: str) -> Optional[str]:
         context = ssl.create_default_context()
         client: Any
         if SMTP_SSL:
-            client = smtplib.SMTP_SSL(
-                SMTP_HOST, SMTP_PORT, timeout=15, context=context
-            )
+            client = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15, context=context)
         else:
             client = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15)
         with client as smtp:
@@ -86,7 +85,7 @@ def _send(subject: str, body: str) -> Optional[str]:
             if SMTP_USER:
                 smtp.login(SMTP_USER, SMTP_PASSWORD or "")
             smtp.send_message(message)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.warning("No se pudo enviar la notificación por correo: %s", exc)
         return str(exc)
     return None
@@ -114,13 +113,11 @@ def _summary(batch: Any) -> str:
         "requieren atención": getattr(batch, "attention_count", 0),
         "previsualizados": getattr(batch, "preview_count", 0),
     }
-    summary = ", ".join(
-        f"{count} {label}" for label, count in parts.items() if count
-    )
+    summary = ", ".join(f"{count} {label}" for label, count in parts.items() if count)
     return summary or "sin host"
 
 
-def notify_batch_result(batch: Any, host_results: Any) -> Optional[str]:
+def notify_batch_result(batch: Any, host_results: Any) -> str | None:
     """Envía el resumen del lote si la configuración lo pide.
 
     ``batch`` es un ``ExecutionBatch`` y ``host_results`` la lista de
@@ -141,15 +138,14 @@ def notify_batch_result(batch: Any, host_results: Any) -> Optional[str]:
 
     label = "Vista previa" if is_preview else "Lote"
     subject = (
-        f"[ACC] {label} {getattr(batch, 'batch_id', '?')[:8]}"
-        f" — {_summary(batch)}"
+        f"[ACC] {label} {getattr(batch, 'batch_id', '?')[:8]}" f" — {_summary(batch)}"
     )
     lines = [
         f"{label}: {_summary(batch)}",
         f"Operador: {getattr(batch, 'operator', '—')}",
         f"Objetivo: {getattr(batch, 'target', '—')}",
         f"Acción: {getattr(batch, 'action', '—')}"
-        f" → {getattr(batch, 'value', '—') or '—'}",
+        + f" → {getattr(batch, 'value', '—') or '—'}",
         f"Simulación: {'sí' if getattr(batch, 'dry_run', False) else 'no'}",
     ]
     problem_lines = [

@@ -66,9 +66,9 @@ def ldap_configured() -> bool:
 
 
 def _search_scope():
-    from config import LDAP_USER_SCOPE
-
     from ldap3 import LEVEL, SUBTREE
+
+    from config import LDAP_USER_SCOPE
 
     return SUBTREE if LDAP_USER_SCOPE == "subtree" else LEVEL
 
@@ -87,9 +87,9 @@ def _search_attributes() -> list[str]:
 
 
 def _search_filter(username: str) -> str:
-    from config import LDAP_USER_FILTER, LDAP_USERNAME_ATTR
-
     from ldap3.utils.conv import escape_filter_chars
+
+    from config import LDAP_USER_FILTER, LDAP_USERNAME_ATTR
 
     base = LDAP_USER_FILTER.strip()
     if not base.startswith("("):
@@ -102,7 +102,7 @@ def _search_filter(username: str) -> str:
 # ---------------------------------------------------------------------------
 # Conexión
 # ---------------------------------------------------------------------------
-def parse_ldap_url(url: str, allow_insecure: Optional[bool] = None):
+def parse_ldap_url(url: str, allow_insecure: bool | None = None):
     """Extrae (host, puerto, use_ssl) desde ``ldaps://host:puerto``.
 
     ``ldap://`` envía la contraseña del usuario sin cifrar y se rechaza por
@@ -115,9 +115,7 @@ def parse_ldap_url(url: str, allow_insecure: Optional[bool] = None):
     if not host:
         raise LdapError(f"URL LDAP no válida: {url!r}")
     if scheme not in {"ldap", "ldaps"}:
-        raise LdapError(
-            f"URL LDAP no válida: {url!r} (esquema soportado: ldaps://)."
-        )
+        raise LdapError(f"URL LDAP no válida: {url!r} (esquema soportado: ldaps://).")
     if allow_insecure is None:
         from config import LDAP_ALLOW_INSECURE
 
@@ -250,7 +248,7 @@ def test_search_bind() -> None:
         if getattr(connection, "bound", False):
             try:
                 connection.unbind()
-            except Exception:  # pragma: no cover
+            except Exception:  # noqa: BLE001, S110  # pragma: no cover
                 pass
 
 
@@ -303,7 +301,7 @@ def search_user(username: str, connection=None):
         if connection is None and getattr(local_conn, "bound", False):
             try:
                 local_conn.unbind()
-            except Exception:  # pragma: no cover - cierre best-effort
+            except Exception:  # noqa: BLE001, S110  # cierre best-effort
                 pass
 
 
@@ -322,7 +320,7 @@ def authenticate(username: str, password: str):
             return _authenticate_once(username, password)
         except LdapError:
             raise
-        except Exception as exc:  # reintentos de red
+        except Exception as exc:  # noqa: BLE001  # reintentos de red
             last_error = exc
             logger.warning("Intento LDAPS fallido (%s): %s", username, exc)
     if last_error is not None:
@@ -354,5 +352,5 @@ def _authenticate_once(username: str, password: str):
         if getattr(connection, "bound", False):
             try:
                 connection.unbind()
-            except Exception:  # pragma: no cover
+            except Exception:  # noqa: BLE001, S110  # pragma: no cover
                 pass

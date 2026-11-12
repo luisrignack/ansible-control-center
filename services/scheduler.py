@@ -10,6 +10,7 @@ desatendidamente se recibe **cifrada** con Fernet; la clave vive en
 ``SECRETS_DIR/scheduler_password.key`` (0600). Nunca se guarda en claro en la
 base de datos y sin la clave del archivo el disparo falla de forma segura.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,8 +18,9 @@ import logging
 import os
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any
 
 try:  # POSIX (Linux/macOS); en otros sistemas el scheduler sigue sin lock.
     import fcntl
@@ -35,10 +37,10 @@ SCHEDULE_RETRY_DELAY_SECONDS = 300
 # reclamarla si este muere.
 SCHEDULE_CLAIM_LEASE_SECONDS = 300
 
-_thread: Optional[threading.Thread] = None
+_thread: threading.Thread | None = None
 _no_stop = threading.Event()
-_lock_fd: Optional[int] = None
-_lock_path: Optional[Path] = None
+_lock_fd: int | None = None
+_lock_path: Path | None = None
 
 
 def password_key_file() -> Path:
@@ -100,7 +102,7 @@ def decrypt_secret(token: str) -> str:
 
 def scan_once(
     db_path: str,
-    launch: Callable[[Any, Dict[str, Any]], bool],
+    launch: Callable[[Any, dict[str, Any]], bool],
     max_launch: int = 10,
 ) -> int:
     """Revisa programaciones vencidas y dispara las que correspondan.
@@ -111,7 +113,7 @@ def scan_once(
     Una programación cuya tarea no está activa en el catálogo se desactiva con
     un error registrado en lugar de quedarse reintentando para siempre.
     """
-    from models.ops import Schedule, _parse_utc
+    from models.ops import Schedule
     from services.task_catalog import get_task
 
     launched = 0
@@ -129,7 +131,7 @@ def scan_once(
             continue
         try:
             params = dict(json.loads(schedule["params"] or "{}"))
-        except Exception:
+        except Exception:  # noqa: BLE001
             params = {}
 
         task = get_task(schedule["task_id"])
@@ -200,9 +202,7 @@ def _acquire_instance_lock() -> bool:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         os.close(fd)
-        logger.info(
-            "Otro proceso ya ejecuta el scheduler; este proceso no lo inicia."
-        )
+        logger.info("Otro proceso ya ejecuta el scheduler; este proceso no lo inicia.")
         return False
     try:
         os.ftruncate(fd, 0)
@@ -233,12 +233,12 @@ def release_instance_lock() -> None:
 
 
 def start(
-    launch: Callable[[Any, Dict[str, Any]], bool],
+    launch: Callable[[Any, dict[str, Any]], bool],
     db_path_provider: Callable[[], str],
     interval: float = SCAN_INTERVAL,
-    maintenance: Optional[Callable[[], None]] = None,
+    maintenance: Callable[[], None] | None = None,
     maintenance_interval: float = 24 * 3600,
-) -> Optional[threading.Thread]:
+) -> threading.Thread | None:
     """Arranca el hilo de revisión si corresponde y no está ya corriendo.
 
     ``maintenance`` se ejecuta de forma periódica (cada

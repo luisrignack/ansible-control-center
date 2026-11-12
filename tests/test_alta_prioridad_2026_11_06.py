@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import io
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -114,9 +114,7 @@ def test_approval_reservation_can_be_released_and_reused(db_path):
 
 def test_stale_approval_reservation_returns_to_approved(db_path):
     req = _approved_request(db_path)
-    old = (
-        datetime.now(timezone.utc) - timedelta(hours=1)
-    ).isoformat(timespec="seconds")
+    old = (datetime.now(UTC) - timedelta(hours=1)).isoformat(timespec="seconds")
     with get_connection(db_path) as conn:
         conn.execute(
             "UPDATE approvals SET status = ?, consumed_at = ? WHERE id = ?",
@@ -155,9 +153,7 @@ def test_queue_full_releases_approval(monkeypatch, db_path):
         "force": False,
         "temporal_passwords": [],
     }
-    monkeypatch.setattr(
-        app_module, "_parse_operation_form", lambda **_kw: (form, [])
-    )
+    monkeypatch.setattr(app_module, "_parse_operation_form", lambda **_kw: (form, []))
     monkeypatch.setattr(
         app_module,
         "get_task",
@@ -184,14 +180,11 @@ def test_queue_full_releases_approval(monkeypatch, db_path):
         requested_by="operador",
         db_path=db_path,
     )
-    ApprovalRequest.decide(
-        req.id, approver="aprobador", approve=True, db_path=db_path
-    )
+    ApprovalRequest.decide(req.id, approver="aprobador", approve=True, db_path=db_path)
 
     app_module.app.config.update(TESTING=True)
     with app_module.app.test_client() as client:
-        _post(client, "/login", {"username": "admin",
-                                 "password": "admin-password-123"})
+        _post(client, "/login", {"username": "admin", "password": "admin-password-123"})
         response = _post(client, "/", {"operation_id": "op-cola-llena"})
         assert response.status_code == 302
 
@@ -221,8 +214,7 @@ def test_group_approval_snapshot_changes_with_membership(db_path):
         payload = dict(data)
         payload["password_file"] = (io.BytesIO(b"clave\n"), "p.txt")
         with app_module.app.test_request_context(
-            "/", method="POST", data=payload,
-            content_type="multipart/form-data"
+            "/", method="POST", data=payload, content_type="multipart/form-data"
         ):
             return app_module._parse_operation_form()
 
@@ -253,7 +245,7 @@ def test_schedule_claim_is_atomic(db_path):
     schedule = Schedule.create(
         "ventana",
         "zona-todas",
-        datetime.now(timezone.utc) - timedelta(seconds=60),
+        datetime.now(UTC) - timedelta(seconds=60),
         {},
         recurrence="daily",
         db_path=db_path,
@@ -263,7 +255,7 @@ def test_schedule_claim_is_atomic(db_path):
 
     Schedule.mark_run(
         schedule.id,
-        next_run=datetime.now(timezone.utc) + timedelta(days=1),
+        next_run=datetime.now(UTC) + timedelta(days=1),
         db_path=db_path,
     )
     # mark_run limpia la reserva; la fila ya no está vencida.
@@ -274,16 +266,19 @@ def test_scheduler_scan_skips_a_claimed_schedule(db_path):
     schedule = Schedule.create(
         "reclamada",
         "zona-todas",
-        datetime.now(timezone.utc) - timedelta(seconds=60),
+        datetime.now(UTC) - timedelta(seconds=60),
         {},
         recurrence="daily",
         db_path=db_path,
     )
     assert Schedule.claim(schedule.id, owner="otro-worker", db_path=db_path)
     launched = []
-    assert scheduler_module.scan_once(
-        db_path, lambda row, params: launched.append(row["id"]) or True
-    ) == 0
+    assert (
+        scheduler_module.scan_once(
+            db_path, lambda row, params: launched.append(row["id"]) or True
+        )
+        == 0
+    )
     assert launched == []
 
     # Al caducar/limpiar la reserva, el siguiente escaneo sí la lanza.
@@ -293,7 +288,7 @@ def test_scheduler_scan_skips_a_claimed_schedule(db_path):
         launched.append(row["id"])
         Schedule.mark_run(
             row["id"],
-            next_run=datetime.now(timezone.utc) + timedelta(days=1),
+            next_run=datetime.now(UTC) + timedelta(days=1),
             db_path=db_path,
         )
         return True
@@ -311,9 +306,7 @@ def test_recover_task_state_only_closes_stale_tasks(db_path):
     app_module._recover_task_state(stale_minutes=15)
     assert app_module._get_task(task_id)["completed"] is False
 
-    old = (
-        datetime.now(timezone.utc) - timedelta(hours=1)
-    ).isoformat(timespec="seconds")
+    old = (datetime.now(UTC) - timedelta(hours=1)).isoformat(timespec="seconds")
     with get_connection(db_path) as conn:
         conn.execute(
             "UPDATE task_state SET updated_at = ? WHERE task_id = ?",
@@ -339,21 +332,15 @@ def test_reconcile_orphans_ignores_recent_batches(db_path):
         status="running",
         db_path=db_path,
     )
-    assert ExecutionBatch.reconcile_orphans(
-        db_path=db_path, stale_minutes=15
-    ) == 0
+    assert ExecutionBatch.reconcile_orphans(db_path=db_path, stale_minutes=15) == 0
 
-    old = (
-        datetime.now(timezone.utc) - timedelta(hours=2)
-    ).isoformat()
+    old = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
     with get_connection(db_path) as conn:
         conn.execute(
             "UPDATE execution_batches SET created_at = ? WHERE batch_id = ?",
             (old, "reciente"),
         )
-    assert ExecutionBatch.reconcile_orphans(
-        db_path=db_path, stale_minutes=15
-    ) == 1
+    assert ExecutionBatch.reconcile_orphans(db_path=db_path, stale_minutes=15) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -411,11 +398,12 @@ def test_production_rejects_insecure_ldap(monkeypatch):
 def test_timezone_backup_is_always_refreshed():
     import yaml
 
-    playbook = yaml.safe_load(
-        open("ansible/cambiar_hora.yml", encoding="utf-8")
-    )
+    with open("ansible/cambiar_hora.yml", encoding="utf-8") as handle:
+        playbook = yaml.safe_load(handle)
     tasks = playbook[0]["tasks"]
     backup = next(
-        task for task in tasks if task["name"] == "Guardar copia de seguridad de /etc/timezone"
+        task
+        for task in tasks
+        if task["name"] == "Guardar copia de seguridad de /etc/timezone"
     )
     assert backup["ansible.builtin.copy"]["force"] is True

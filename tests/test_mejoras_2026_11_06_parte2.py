@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -22,12 +22,8 @@ def db_path(tmp_path, monkeypatch):
     monkeypatch.setattr(app_module, "get_db_path", lambda: path)
     app_module.init_db()
     User.create_or_update("admin", "admin-password-123", db_path=path)
-    User.create_or_update(
-        "alice", "alice-password-123", db_path=path, role="operator"
-    )
-    User.create_or_update(
-        "bob", "bob-password-123", db_path=path, role="operator"
-    )
+    User.create_or_update("alice", "alice-password-123", db_path=path, role="operator")
+    User.create_or_update("bob", "bob-password-123", db_path=path, role="operator")
     return path
 
 
@@ -111,15 +107,9 @@ def test_validator_core_acepta_plataforma_correcta():
     assert validated is not None
 
 
-def test_formulario_manual_rechaza_plataforma_del_grupo(
-    client, db_path, monkeypatch
-):
-    group = HostGroup.create(
-        "aulas-linux", os_flavor="linux", db_path=db_path
-    )
-    host, error = InventoryHost.add(
-        group.id, "10.30.0.10", db_path=db_path
-    )
+def test_formulario_manual_rechaza_plataforma_del_grupo(client, db_path, monkeypatch):
+    group = HostGroup.create("aulas-linux", os_flavor="linux", db_path=db_path)
+    host, error = InventoryHost.add(group.id, "10.30.0.10", db_path=db_path)
     assert host is not None and error is None
     monkeypatch.setattr(
         app_module, "get_task", lambda _task_id: _fake_task(["windows"])
@@ -148,16 +138,12 @@ def test_formulario_manual_rechaza_plataforma_del_grupo(
     assert any("aulas-linux" in message for _category, message in flashes)
 
 
-def test_launch_scheduled_rechaza_grupo_de_otra_plataforma(
-    db_path, monkeypatch
-):
-    group = HostGroup.create(
-        "aulas-linux", os_flavor="linux", db_path=db_path
-    )
+def test_launch_scheduled_rechaza_grupo_de_otra_plataforma(db_path, monkeypatch):
+    group = HostGroup.create("aulas-linux", os_flavor="linux", db_path=db_path)
     schedule = Schedule.create(
         "programada",
         "tarea-x",
-        datetime.now(timezone.utc) + timedelta(hours=1),
+        datetime.now(UTC) + timedelta(hours=1),
         {"target_mode": "manual", "target": "10.0.0.1"},
         db_path=db_path,
     )
@@ -212,8 +198,7 @@ def test_operador_solo_cancela_sus_tareas(client, monkeypatch):
     assert not task.get("cancellation_requested")
     with app_module.get_connection(app_module.get_db_path()) as conn:
         event = conn.execute(
-            "SELECT event FROM auth_events WHERE event = ? "
-            "ORDER BY id DESC LIMIT 1",
+            "SELECT event FROM auth_events WHERE event = ? " "ORDER BY id DESC LIMIT 1",
             ("task_cancel_denied",),
         ).fetchone()
     assert event is not None
@@ -276,9 +261,7 @@ def test_progress_solo_visible_para_dueno_o_admin(client):
 # ---------------------------------------------------------------------------
 # Persistencia agrupada
 # ---------------------------------------------------------------------------
-def test_update_task_agrupa_escrituras_y_fuerza_cambios_de_estado(
-    db_path, monkeypatch
-):
+def test_update_task_agrupa_escrituras_y_fuerza_cambios_de_estado(db_path, monkeypatch):
     monkeypatch.setattr(app_module, "TASK_PERSIST_INTERVAL_SECONDS", 3600)
     writes = []
     monkeypatch.setattr(
@@ -311,9 +294,7 @@ def test_scheduler_ejecuta_mantenimiento_periodico(monkeypatch):
     monkeypatch.setattr(config_module, "PROCESS_ROLE", "all")
     monkeypatch.setattr(scheduler_module, "_acquire_instance_lock", lambda: True)
     monkeypatch.setattr(scheduler_module, "release_instance_lock", lambda: None)
-    monkeypatch.setattr(
-        scheduler_module, "scan_once", lambda *_a, **_kw: 0
-    )
+    monkeypatch.setattr(scheduler_module, "scan_once", lambda *_a, **_kw: 0)
 
     def maintenance():
         ran.set()

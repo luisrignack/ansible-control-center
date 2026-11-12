@@ -32,13 +32,13 @@ import logging
 import os
 import subprocess
 import tempfile
+from collections.abc import Iterable
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-HostKey = Tuple[str, str, str]  # (host, type, key)
+HostKey = tuple[str, str, str]  # (host, type, key)
 
 _KEY_TYPES = frozenset(
     {
@@ -75,7 +75,7 @@ def known_hosts_path() -> Path:
     return path
 
 
-def _normalize_host_key(line: str) -> Optional[HostKey]:
+def _normalize_host_key(line: str) -> HostKey | None:
     """Convierte una línea de ``known_hosts`` en ``(host, tipo, clave)``.
 
     Ignora comentarios, líneas vacías y marcadores de certificado/negación.
@@ -94,9 +94,9 @@ def _normalize_host_key(line: str) -> Optional[HostKey]:
     return (host_or_marker, key_type, key)
 
 
-def parse_known_hosts(text: str) -> List[HostKey]:
+def parse_known_hosts(text: str) -> list[HostKey]:
     """Devuelve todas las claves válidas de un texto ``known_hosts``."""
-    keys: List[HostKey] = []
+    keys: list[HostKey] = []
     for line in (text or "").splitlines():
         parsed = _normalize_host_key(line)
         if parsed is not None:
@@ -122,12 +122,11 @@ def _known_hosts_lock(target: Path):
     lock_path = target.with_name(target.name + ".lock")
     handle = None
     try:
-        handle = open(lock_path, "a+", encoding="utf-8")
+        # El descriptor debe vivir todo el ``yield``; no cabe en un ``with``.
+        handle = open(lock_path, "a+", encoding="utf-8")  # noqa: SIM115
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
     except OSError as exc:  # pragma: no cover - FS sin soporte de bloqueo
-        logger.warning(
-            "update_known_hosts: no se pudo bloquear %s: %s", lock_path, exc
-        )
+        logger.warning("update_known_hosts: no se pudo bloquear %s: %s", lock_path, exc)
         if handle is not None:
             handle.close()
         yield
@@ -141,7 +140,7 @@ def _known_hosts_lock(target: Path):
             handle.close()
 
 
-def _normalize_scan_types(types: Optional[Iterable[str]]) -> Tuple[str, ...]:
+def _normalize_scan_types(types: Iterable[str] | None) -> tuple[str, ...]:
     """Filtra los tipos de clave para que no puedan inyectar opciones."""
     if not types:
         return _SCAN_TYPES
@@ -154,9 +153,9 @@ def scan_host_keys(
     host: str,
     port: int = 22,
     timeout: float = 5.0,
-    types: Optional[Iterable[str]] = None,
+    types: Iterable[str] | None = None,
     max_retries: int = 1,
-) -> List[HostKey]:
+) -> list[HostKey]:
     """Obtiene las huellas SSH de ``host`` con ``ssh-keyscan``.
 
     Devuelve todas las claves que se hayan podido leer (una por tipo) o una
@@ -184,10 +183,10 @@ def scan_host_keys(
         try:
             result = subprocess.run(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 text=True,
                 timeout=float(timeout) + 2.0,
+                check=False,
             )
         except FileNotFoundError:
             logger.warning("keyscan: ssh-keyscan no está instalado")
@@ -237,7 +236,7 @@ def scan_host_keys(
 
 def update_known_hosts(
     keys: Iterable[HostKey],
-    path: Optional[Path] = None,
+    path: Path | None = None,
 ) -> Path:
     """Añade ``keys`` al ``known_hosts`` de forma atómica y con permisos 0600.
 
@@ -262,7 +261,7 @@ def update_known_hosts(
             for host, key_type, key in parse_known_hosts(existing)
         }
 
-        lines_to_add: List[str] = []
+        lines_to_add: list[str] = []
         for host, key_type, key in keys:
             fingerprint = f"{host}|{key_type}|{key}"
             if fingerprint in existing_fingerprints:
@@ -271,9 +270,7 @@ def update_known_hosts(
             lines_to_add.append(f"{host} {key_type} {key}")
 
         if not lines_to_add:
-            logger.debug(
-                "update_known_hosts: sin líneas nuevas para %s", target
-            )
+            logger.debug("update_known_hosts: sin líneas nuevas para %s", target)
             return target
 
         new_text = existing.rstrip("\n")
@@ -312,10 +309,10 @@ def ensure_host_keys(
     hosts: Iterable[str],
     port: int = 22,
     timeout: float = 5.0,
-    types: Optional[Iterable[str]] = None,
+    types: Iterable[str] | None = None,
     max_retries: int = 1,
     workers: int = 8,
-) -> Dict[str, bool]:
+) -> dict[str, bool]:
     """Asegura que ``hosts`` tiene su huella en el ``known_hosts``.
 
     Devuelve ``{host: ok}``. ``ok`` es ``True`` cuando la huella ya estaba
@@ -325,6 +322,7 @@ def ensure_host_keys(
     Los hosts que faltan se escanean en paralelo (con un límite) para que un
     lote grande no convierta el primer acceso en una espera serial.
     """
+
     def _registered(known_hosts: set, host: str) -> bool:
         if host in known_hosts:
             return True
@@ -338,11 +336,9 @@ def ensure_host_keys(
 
     missing = [host for host in host_list if not _registered(known, host)]
     if missing:
-        found: List[HostKey] = []
+        found: list[HostKey] = []
         max_workers = max(1, min(int(workers), len(missing)))
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=max_workers
-        ) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = {
                 pool.submit(
                     scan_host_keys,
@@ -374,9 +370,7 @@ def ensure_host_keys(
             update_known_hosts(found, path=path)
             known = {
                 host
-                for host, _key_type, _key in parse_known_hosts(
-                    _read_known_hosts(path)
-                )
+                for host, _key_type, _key in parse_known_hosts(_read_known_hosts(path))
             }
 
     return {host: _registered(known, host) for host in host_list}

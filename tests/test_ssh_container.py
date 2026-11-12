@@ -52,9 +52,7 @@ def _wait_for_port(host: str, port: int, timeout: float = 30.0) -> None:
 
 @pytest.fixture()
 def ssh_container(monkeypatch):
-    image = os.environ.get(
-        "ACC_SSH_TEST_IMAGE", "linuxserver/openssh-server:latest"
-    )
+    image = os.environ.get("ACC_SSH_TEST_IMAGE", "linuxserver/openssh-server:latest")
     password = "ansible-control-center-test-password"
     name = f"ansible-control-center-ssh-{uuid.uuid4().hex[:8]}"
 
@@ -77,8 +75,7 @@ def ssh_container(monkeypatch):
     )
     if started.returncode != 0:
         pytest.skip(
-            "No se pudo arrancar el contenedor SSH "
-            f"({started.stderr.strip()[:200]})"
+            "No se pudo arrancar el contenedor SSH " f"({started.stderr.strip()[:200]})"
         )
 
     try:

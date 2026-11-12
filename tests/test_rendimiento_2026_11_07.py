@@ -50,9 +50,7 @@ def _post(client, url, data=None):
 
 
 def _login(client, password="admin-password-123"):
-    return _post(
-        client, "/login", {"username": "admin", "password": password}
-    )
+    return _post(client, "/login", {"username": "admin", "password": password})
 
 
 # ---------------------------------------------------------------------------

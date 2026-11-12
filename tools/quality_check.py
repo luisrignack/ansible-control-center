@@ -9,6 +9,7 @@ ejecución de shell, ``eval``/``exec`` y deserialización insegura).
 No sustituye a un linter completo, pero es un gate reproducible que funciona
 sin red y sin instalar herramientas adicionales.
 """
+
 from __future__ import annotations
 
 import ast
@@ -53,20 +54,21 @@ def check_file(path: Path) -> list[str]:
                     f"{relative}:{node.lineno}: llamada peligrosa a '{name}()'"
                 )
             for keyword in node.keywords:
-                if keyword.arg == "shell" and isinstance(
-                    keyword.value, ast.Constant
-                ) and keyword.value.value is True:
+                if (
+                    keyword.arg == "shell"
+                    and isinstance(keyword.value, ast.Constant)
+                    and keyword.value.value is True
+                ):
                     problems.append(
                         f"{relative}:{node.lineno}: subprocess con shell=True"
                     )
-        elif isinstance(node, ast.Attribute):
-            if isinstance(node.value, ast.Name):
-                pair = (node.value.id, node.attr)
-                if pair in FORBIDDEN_ATTRS:
-                    problems.append(
-                        f"{relative}:{node.lineno}: "
-                        f"deserialización insegura {pair[0]}.{pair[1]}"
-                    )
+        elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            pair = (node.value.id, node.attr)
+            if pair in FORBIDDEN_ATTRS:
+                problems.append(
+                    f"{relative}:{node.lineno}: "
+                    f"deserialización insegura {pair[0]}.{pair[1]}"
+                )
     return problems
 
 

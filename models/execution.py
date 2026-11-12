@@ -2,8 +2,8 @@
 # Modelo SQLite para el historial de ejecuciones de configuración de hora.
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from config import resolve_db_path
 from models.db import get_connection, init_schema
@@ -37,7 +37,7 @@ class ExecutionRecord:
         self.password_hash = password_hash
         self.password_origin = password_origin
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convierte el registro a diccionario (sin la contraseña completa)."""
         return {
             "id": self.id,
@@ -51,7 +51,7 @@ class ExecutionRecord:
         }
 
     @staticmethod
-    def init_db(db_path: str = None) -> None:
+    def init_db(db_path: str | None = None) -> None:
         """Crea o migra el esquema completo sin borrar datos existentes."""
         if db_path is None:
             db_path = _default_db_path()
@@ -65,8 +65,8 @@ class ExecutionRecord:
         result: str,
         password_hash: str,
         password_origin: str,
-        db_path: str = None,
-    ) -> "ExecutionRecord":
+        db_path: str | None = None,
+    ) -> ExecutionRecord:
         """Registra una nueva ejecución en la base de datos.
 
         Un registro equivale a un host. Las estadísticas se calculan bajo
@@ -76,7 +76,7 @@ class ExecutionRecord:
         if db_path is None:
             db_path = _default_db_path()
 
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = datetime.now(UTC).isoformat()
 
         with get_connection(db_path) as conn:
             cursor = conn.execute(
@@ -95,7 +95,7 @@ class ExecutionRecord:
                     password_origin,
                 ),
             )
-            execution_id = cursor.lastrowid
+            execution_id = int(cursor.lastrowid or 0)
 
         return ExecutionRecord(
             id=execution_id,
@@ -110,8 +110,8 @@ class ExecutionRecord:
 
     @staticmethod
     def get_all_executions(
-        limit: int = 50, offset: int = 0, db_path: str = None
-    ) -> List["ExecutionRecord"]:
+        limit: int = 50, offset: int = 0, db_path: str | None = None
+    ) -> list[ExecutionRecord]:
         """Obtiene las ejecuciones ordenadas por fecha (más recientes primero)."""
         if db_path is None:
             db_path = _default_db_path()
@@ -132,13 +132,13 @@ class ExecutionRecord:
 
     @staticmethod
     def get_recent_executions(
-        hours: int = 24, db_path: str = None
-    ) -> List["ExecutionRecord"]:
+        hours: int = 24, db_path: str | None = None
+    ) -> list[ExecutionRecord]:
         """Obtiene ejecuciones de las últimas N horas."""
         if db_path is None:
             db_path = _default_db_path()
 
-        since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        since = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
 
         with get_connection(db_path) as conn:
             rows = conn.execute(
@@ -155,7 +155,7 @@ class ExecutionRecord:
         return [_row_to_record(row) for row in rows]
 
     @staticmethod
-    def get_stats(db_path: str = None) -> Dict[str, Any]:
+    def get_stats(db_path: str | None = None) -> dict[str, Any]:
         """Agrega el historial: total, éxitos, fallos y tasa de éxito.
 
         Se calcula directamente desde ``executions`` para que nunca quede
@@ -165,8 +165,7 @@ class ExecutionRecord:
             db_path = _default_db_path()
 
         with get_connection(db_path) as conn:
-            row = conn.execute(
-                """
+            row = conn.execute("""
                 SELECT
                     COUNT(*) AS total,
                     COALESCE(SUM(CASE WHEN result = 'success' THEN 1 ELSE 0 END), 0)
@@ -174,8 +173,7 @@ class ExecutionRecord:
                     COALESCE(SUM(CASE WHEN result = 'failure' THEN 1 ELSE 0 END), 0)
                         AS failure
                 FROM executions
-                """
-            ).fetchone()
+                """).fetchone()
 
         total = int(row["total"])
         success = int(row["success"])
@@ -189,13 +187,11 @@ class ExecutionRecord:
         }
 
     @staticmethod
-    def purge_old(days: int, db_path: str = None) -> int:
+    def purge_old(days: int, db_path: str | None = None) -> int:
         """Elimina registros del historial heredado anteriores a ``days``."""
         if db_path is None:
             db_path = _default_db_path()
-        cutoff = (
-            datetime.now(timezone.utc) - timedelta(days=max(1, int(days)))
-        ).isoformat()
+        cutoff = (datetime.now(UTC) - timedelta(days=max(1, int(days)))).isoformat()
         with get_connection(db_path) as conn:
             cursor = conn.execute(
                 "DELETE FROM executions WHERE timestamp < ?", (cutoff,)
@@ -207,9 +203,11 @@ def _row_to_record(row) -> ExecutionRecord:
     """Convierte una fila SQLite en ``ExecutionRecord``."""
     return ExecutionRecord(
         id=row["id"],
-        timestamp=datetime.fromisoformat(row["timestamp"])
-        if row["timestamp"]
-        else datetime.min,
+        timestamp=(
+            datetime.fromisoformat(row["timestamp"])
+            if row["timestamp"]
+            else datetime.min
+        ),
         action=row["action"],
         value=row["value"],
         host=row["host"],
@@ -239,7 +237,7 @@ class ExecutionSummary:
         self.success_count = success_count
         self.failure_count = failure_count
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "execution_id": self.execution_id,
             "host_count": self.host_count,

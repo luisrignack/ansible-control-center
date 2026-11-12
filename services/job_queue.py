@@ -12,7 +12,8 @@ import queue
 import threading
 import time
 from collections import deque
-from typing import Any, Callable, Deque, Dict, Optional
+from collections.abc import Callable
+from typing import Any
 
 from services.metrics import percentile
 
@@ -28,7 +29,7 @@ class JobQueueFull(RuntimeError):
 
 
 class _Job:
-    __slots__ = ("task_id", "func", "args", "kwargs", "cancel_event")
+    __slots__ = ("args", "cancel_event", "func", "kwargs", "task_id")
 
     def __init__(self, task_id: str, func: Callable[..., Any], args, kwargs):
         self.task_id = task_id
@@ -50,18 +51,16 @@ class JobQueue:
         self.max_workers = max(1, int(max_workers))
         self.max_queue = max(1, int(max_queue))
         self.shutdown_grace = max(0, int(shutdown_grace))
-        self._queue: "queue.Queue[Optional[_Job]]" = queue.Queue(
-            maxsize=self.max_queue
-        )
+        self._queue: queue.Queue[_Job | None] = queue.Queue(maxsize=self.max_queue)
         self._lock = threading.Lock()
-        self._jobs: Dict[str, _Job] = {}
+        self._jobs: dict[str, _Job] = {}
         # Orden FIFO de los trabajos que aún esperan (los que ya están en
         # ejecución salen de esta lista). Permite mostrar la posición en la
         # cola sin inspeccionar las estructuras internas de ``queue.Queue``.
         self._pending_order: list[str] = []
         # Tiempo de espera de los trabajos que ya arrancaron, para métricas.
-        self._enqueued_at: Dict[str, float] = {}
-        self._wait_samples: Deque[float] = deque(maxlen=500)
+        self._enqueued_at: dict[str, float] = {}
+        self._wait_samples: deque[float] = deque(maxlen=500)
         self._threads = []
         self._stopping = False
         for index in range(self.max_workers):
@@ -125,7 +124,7 @@ class JobQueue:
             job = self._jobs.get(task_id)
         return bool(job and job.cancel_event.is_set())
 
-    def cancel_event(self, task_id: str) -> Optional[threading.Event]:
+    def cancel_event(self, task_id: str) -> threading.Event | None:
         with self._lock:
             job = self._jobs.get(task_id)
         return job.cancel_event if job else None
@@ -146,9 +145,7 @@ class JobQueue:
                     pass
                 enqueued = self._enqueued_at.pop(item.task_id, None)
                 if enqueued is not None:
-                    self._wait_samples.append(
-                        max(0.0, time.monotonic() - enqueued)
-                    )
+                    self._wait_samples.append(max(0.0, time.monotonic() - enqueued))
             try:
                 item.func(*item.args, **item.kwargs)
             except JobCancelled:
@@ -181,7 +178,7 @@ class JobQueue:
             for thread in self._threads:
                 thread.join(timeout=self.shutdown_grace)
 
-    def position(self, task_id: str) -> Optional[int]:
+    def position(self, task_id: str) -> int | None:
         """Posición 1-based en la cola, o ``None`` si ya no espera."""
         with self._lock:
             try:
@@ -189,7 +186,7 @@ class JobQueue:
             except ValueError:
                 return None
 
-    def wait_stats(self) -> Dict[str, float]:
+    def wait_stats(self) -> dict[str, float]:
         """Espera en cola de los trabajos ya arrancados (segundos)."""
         with self._lock:
             samples = list(self._wait_samples)

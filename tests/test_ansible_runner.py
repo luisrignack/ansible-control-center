@@ -82,7 +82,7 @@ def test_legacy_playbook_requires_verification(monkeypatch):
 
     for stdout in ("ok", "HORA_VERIFIED=false"):
 
-        def fake_run(cmd, **_kwargs):
+        def fake_run(cmd, stdout=stdout, **_kwargs):
             return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
         monkeypatch.setattr(ansible_runner.subprocess, "run", fake_run)
@@ -212,9 +212,7 @@ def test_ping_nonzero_exit_is_failure(monkeypatch):
     monkeypatch.setattr(password_tester, "DRY_RUN", False)
 
     def fake_run(cmd, **_kwargs):
-        return subprocess.CompletedProcess(
-            cmd, 255, stdout="", stderr="UNREACHABLE"
-        )
+        return subprocess.CompletedProcess(cmd, 255, stdout="", stderr="UNREACHABLE")
 
     monkeypatch.setattr(password_tester.subprocess, "run", fake_run)
     result = password_tester.test_ansible_ping(
@@ -227,14 +225,12 @@ def test_ping_nonzero_exit_is_failure(monkeypatch):
 def test_streaming_callback_receives_ansible_output(tmp_path, monkeypatch):
     script = tmp_path / "fake_playbook.py"
     script.write_text(
-        textwrap.dedent(
-            """
+        textwrap.dedent("""
             import sys
             print("PLAY [hora]")
             print("TASK [leer estado]")
             print("ok: [10.0.0.1]")
-            """
-        ),
+            """),
         encoding="utf-8",
     )
     monkeypatch.setattr(ansible_runner, "BIN_ANSIBLE_PLAYBOOK", sys.executable)
@@ -300,9 +296,7 @@ def test_streaming_output_buffer_is_bounded(monkeypatch):
         ansible_runner.subprocess, "Popen", lambda *a, **k: FakeProcess()
     )
     seen = []
-    process = ansible_runner._run_streaming(
-        ["fake"], {}, 5, seen.append
-    )
+    process = ansible_runner._run_streaming(["fake"], {}, 5, seen.append)
 
     assert len(seen) == total
     kept = process.stdout.splitlines()

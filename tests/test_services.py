@@ -1,18 +1,17 @@
 # tests/test_services.py
 # Tests unitarios para los servicios de la aplicación
+import hashlib
 import os
 import sys
 import tempfile
-import hashlib
 
 # Asegurar que el directorio padre esté en el path para imports de proyecto
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
-from unittest.mock import patch, MagicMock, mock_open
 
-from models.password import PasswordRecord
 from models.execution import ExecutionRecord
+from models.password import PasswordRecord
 
 
 class TestPasswordModel(unittest.TestCase):
@@ -28,11 +27,6 @@ class TestPasswordModel(unittest.TestCase):
         """Limpiar base de datos después de cada test."""
         if os.path.exists(self.db_path):
             os.unlink(self.db_path)
-        # Limpiar file descriptor si existe
-        try:
-            os.unlink(self.db_path)
-        except:
-            pass
 
     def test_init_db_creates_table(self):
         """Test que init_db crea la tabla correctamente."""
@@ -64,6 +58,7 @@ class TestPasswordModel(unittest.TestCase):
         rec2 = PasswordRecord.store_password(
             password="pass_2", origin="file", db_path=self.db_path
         )
+        self.assertNotEqual(rec1.id, rec2.id)
 
         # Eliminar la primera
         success = PasswordRecord.delete_password(rec1.id, db_path=self.db_path)
@@ -99,10 +94,6 @@ class TestExecutionModel(unittest.TestCase):
         """Limpiar base de datos después de cada test."""
         if os.path.exists(self.db_path):
             os.unlink(self.db_path)
-        try:
-            os.unlink(self.db_path)
-        except:
-            pass
 
     def test_init_db_creates_tables(self):
         """Test que init_db crea ambas tablas."""
@@ -174,10 +165,6 @@ class TestModelsIntegration(unittest.TestCase):
         """Limpiar después del test."""
         if os.path.exists(self.db_path):
             os.unlink(self.db_path)
-        try:
-            os.unlink(self.db_path)
-        except:
-            pass
 
     def test_end_to_end_password_storage(self):
         """Test flujo completo: almacenar contraseña y registrar ejecución."""
@@ -188,9 +175,7 @@ class TestModelsIntegration(unittest.TestCase):
         self.assertEqual(password_record.id, 1)
 
         # Registrar ejecución con hash de esa contraseña
-        password_hash_full = hashlib.sha256(
-            "secret_pass".encode("utf-8")
-        ).hexdigest()
+        password_hash_full = hashlib.sha256(b"secret_pass").hexdigest()
         password_hash_short = password_hash_full[:8]
 
         exec_record = ExecutionRecord.record_execution(
@@ -207,6 +192,7 @@ class TestModelsIntegration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
 
 def test_password_hashes_use_pepper_and_accept_legacy_hashes():
     import hashlib

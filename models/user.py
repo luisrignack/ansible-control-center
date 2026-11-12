@@ -2,8 +2,7 @@
 # Usuarios administradores de la aplicación (login con Flask-Login).
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 from flask_login import UserMixin
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -20,10 +19,10 @@ def _default_db_path() -> str:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
-def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
+def _parse_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
     try:
@@ -31,7 +30,7 @@ def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
     except (TypeError, ValueError):
         return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
     return parsed
 
 
@@ -44,10 +43,10 @@ class User(UserMixin):
         username: str,
         password_hash: str,
         is_active: bool = True,
-        created_at: Optional[str] = None,
+        created_at: str | None = None,
         role: str = "admin",
         failed_attempts: int = 0,
-        locked_until: Optional[str] = None,
+        locked_until: str | None = None,
         auth_source: str = "local",
     ):
         self.id = id
@@ -88,9 +87,9 @@ class User(UserMixin):
     def is_locked(self) -> bool:
         if self.locked_until is None:
             return False
-        return datetime.now(timezone.utc) < self.locked_until
+        return datetime.now(UTC) < self.locked_until
 
-    def register_success(self, db_path: str = None) -> None:
+    def register_success(self, db_path: str | None = None) -> None:
         """Reinicia el contador de fallos tras un login correcto."""
         if db_path is None:
             db_path = _default_db_path()
@@ -104,7 +103,7 @@ class User(UserMixin):
         self.locked_until = None
 
     def register_failure(
-        self, threshold: int, lock_minutes: int, db_path: str = None
+        self, threshold: int, lock_minutes: int, db_path: str | None = None
     ) -> bool:
         """Suma un fallo y bloquea la cuenta al alcanzar el umbral.
 
@@ -115,9 +114,7 @@ class User(UserMixin):
         attempts = self.failed_attempts + 1
         locked_until = None
         if threshold > 0 and attempts >= threshold:
-            locked_until = datetime.now(timezone.utc) + timedelta(
-                minutes=max(1, lock_minutes)
-            )
+            locked_until = datetime.now(UTC) + timedelta(minutes=max(1, lock_minutes))
         with get_connection(db_path) as conn:
             conn.execute(
                 "UPDATE users SET failed_attempts = ?, locked_until = ? "
@@ -129,7 +126,7 @@ class User(UserMixin):
         return locked_until is not None
 
     @classmethod
-    def set_role(cls, username: str, role: str, db_path: str = None) -> bool:
+    def set_role(cls, username: str, role: str, db_path: str | None = None) -> bool:
         if role not in VALID_ROLES:
             raise ValueError(f"Rol no válido: {role}")
         if db_path is None:
@@ -144,7 +141,7 @@ class User(UserMixin):
     # Persistencia
     # ------------------------------------------------------------------
     @staticmethod
-    def init_db(db_path: str = None) -> None:
+    def init_db(db_path: str | None = None) -> None:
         """Crea o migra el esquema completo sin borrar datos existentes."""
         if db_path is None:
             db_path = _default_db_path()
@@ -155,11 +152,11 @@ class User(UserMixin):
         cls,
         username: str,
         password: str,
-        db_path: str = None,
+        db_path: str | None = None,
         is_active: bool = True,
         role: str = "admin",
         auth_source: str = "local",
-    ) -> "User":
+    ) -> User:
         """Crea el usuario o actualiza sus credenciales si ya existe.
 
         Sobre una cuenta **existente del mismo ``auth_source``** solo
@@ -182,14 +179,11 @@ class User(UserMixin):
             raise ValueError(f"Origen de cuenta no válido: {auth_source}")
         if auth_source == "ldaps" and password:
             raise ValueError(
-                "Una cuenta LDAPS no guarda contraseñas locales; "
-                "pasa password='' ."
+                "Una cuenta LDAPS no guarda contraseñas locales; " "pasa password='' ."
             )
 
         password_hash = (
-            generate_password_hash(password)
-            if auth_source == "local"
-            else ""
+            generate_password_hash(password) if auth_source == "local" else ""
         )
         created_at = _now_iso()
 
@@ -236,7 +230,7 @@ class User(UserMixin):
     )
 
     @classmethod
-    def get_by_username(cls, username: str, db_path: str = None) -> Optional["User"]:
+    def get_by_username(cls, username: str, db_path: str | None = None) -> User | None:
         if db_path is None:
             db_path = _default_db_path()
 
@@ -248,19 +242,17 @@ class User(UserMixin):
         return cls(*row) if row else None
 
     @classmethod
-    def get_by_id(cls, user_id: int, db_path: str = None) -> Optional["User"]:
+    def get_by_id(cls, user_id: int, db_path: str | None = None) -> User | None:
         if db_path is None:
             db_path = _default_db_path()
 
         with get_connection(db_path) as conn:
-            row = conn.execute(
-                cls._SELECT + "WHERE id = ?", (user_id,)
-            ).fetchone()
+            row = conn.execute(cls._SELECT + "WHERE id = ?", (user_id,)).fetchone()
 
         return cls(*row) if row else None
 
     @classmethod
-    def count(cls, db_path: str = None) -> int:
+    def count(cls, db_path: str | None = None) -> int:
         if db_path is None:
             db_path = _default_db_path()
 
@@ -268,7 +260,7 @@ class User(UserMixin):
             return int(conn.execute("SELECT COUNT(*) FROM users").fetchone()[0])
 
     @classmethod
-    def all(cls, db_path: str = None) -> list["User"]:
+    def all(cls, db_path: str | None = None) -> list[User]:
         """Todos los usuarios (administración de la página /usuarios)."""
         if db_path is None:
             db_path = _default_db_path()
@@ -282,7 +274,7 @@ class User(UserMixin):
 
     @classmethod
     def set_active(
-        cls, username: str, active: bool, db_path: str = None
+        cls, username: str, active: bool, db_path: str | None = None
     ) -> bool:
         """Activa o desactiva la cuenta por nombre."""
         if db_path is None:
@@ -296,7 +288,7 @@ class User(UserMixin):
 
     @classmethod
     def count_active_local_admins_excluding(
-        cls, username: str, db_path: str = None
+        cls, username: str, db_path: str | None = None
     ) -> int:
         """Admins LOCALES activos distintos de ``username``.
 
@@ -326,7 +318,7 @@ class AuthEvent:
         ip: str,
         event: str,
         detail: str = "",
-        db_path: str = None,
+        db_path: str | None = None,
     ) -> None:
         if db_path is None:
             db_path = _default_db_path()
@@ -340,11 +332,11 @@ class AuthEvent:
                     """,
                     (_now_iso(), username or "", ip or "", event, detail or ""),
                 )
-        except Exception:  # pragma: no cover - la auditoría no debe tumbar el login
+        except Exception:  # noqa: BLE001, S110  # auditoría best-effort
             pass
 
     @staticmethod
-    def recent(limit: int = 100, db_path: str = None):
+    def recent(limit: int = 100, db_path: str | None = None):
         if db_path is None:
             db_path = _default_db_path()
         with get_connection(db_path) as conn:
@@ -353,12 +345,10 @@ class AuthEvent:
             ).fetchall()
 
     @staticmethod
-    def purge_old(days: int, db_path: str = None) -> int:
+    def purge_old(days: int, db_path: str | None = None) -> int:
         if db_path is None:
             db_path = _default_db_path()
-        cutoff = (
-            datetime.now(timezone.utc) - timedelta(days=max(1, int(days)))
-        ).isoformat()
+        cutoff = (datetime.now(UTC) - timedelta(days=max(1, int(days)))).isoformat()
         with get_connection(db_path) as conn:
             cursor = conn.execute(
                 "DELETE FROM auth_events WHERE timestamp < ?", (cutoff,)

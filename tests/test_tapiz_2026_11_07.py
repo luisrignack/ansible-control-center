@@ -255,9 +255,7 @@ def test_would_change_compares_wallpaper_uri():
 
 def test_apply_host_selects_wallpaper_playbook(tmp_path, monkeypatch):
     captured = {}
-    state = {
-        "wallpaper_uri": "file:///usr/local/share/backgrounds/acc-tapiz.png"
-    }
+    state = {"wallpaper_uri": "file:///usr/local/share/backgrounds/acc-tapiz.png"}
     encoded = base64.b64encode(json.dumps(state).encode()).decode()
 
     class Process:
@@ -285,9 +283,7 @@ def test_apply_host_selects_wallpaper_playbook(tmp_path, monkeypatch):
         value="fondo.png",
         password="clave",
         wallpaper_path=str(image),
-        wallpaper_uri=(
-            "file:///usr/local/share/backgrounds/acc-tapiz.png"
-        ),
+        wallpaper_uri=("file:///usr/local/share/backgrounds/acc-tapiz.png"),
     )
 
     assert captured["playbook_path"] == str(runner.WALLPAPER_APPLY_PLAYBOOK_FILE)

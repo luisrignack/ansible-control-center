@@ -9,8 +9,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from datetime import UTC, datetime, timedelta
 
 from config import HOST_LOCK_TTL_SECONDS, resolve_db_path
 from models.db import get_connection
@@ -18,20 +17,20 @@ from models.db import get_connection
 logger = logging.getLogger(__name__)
 
 
-def _db_path(db_path: Optional[str]) -> str:
+def _db_path(db_path: str | None) -> str:
     return db_path or str(resolve_db_path())
 
 
 def _iso(moment: datetime) -> str:
-    return moment.astimezone(timezone.utc).isoformat(timespec="seconds")
+    return moment.astimezone(UTC).isoformat(timespec="seconds")
 
 
 def acquire_host_lock(
     host: str,
     batch_id: str,
     owner: str = "",
-    db_path: Optional[str] = None,
-    ttl_seconds: Optional[int] = None,
+    db_path: str | None = None,
+    ttl_seconds: int | None = None,
 ) -> bool:
     """Intenta reservar ``host`` para ``batch_id``.
 
@@ -40,7 +39,7 @@ def acquire_host_lock(
     la decisión atómica: con varios hilos o procesos solo uno gana.
     """
     ttl = int(ttl_seconds if ttl_seconds is not None else HOST_LOCK_TTL_SECONDS)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     now_iso = _iso(now)
     expires_iso = _iso(now + timedelta(seconds=ttl))
 
@@ -72,8 +71,8 @@ def acquire_host_lock(
 def refresh_host_lock(
     host: str,
     batch_id: str,
-    db_path: Optional[str] = None,
-    ttl_seconds: Optional[int] = None,
+    db_path: str | None = None,
+    ttl_seconds: int | None = None,
 ) -> bool:
     """Renueva la reserva mientras el lote sigue trabajando en el host.
 
@@ -81,7 +80,7 @@ def refresh_host_lock(
     contraseñas candidatas puede tardar más que el TTL inicial.
     """
     ttl = int(ttl_seconds if ttl_seconds is not None else HOST_LOCK_TTL_SECONDS)
-    expires_iso = _iso(datetime.now(timezone.utc) + timedelta(seconds=ttl))
+    expires_iso = _iso(datetime.now(UTC) + timedelta(seconds=ttl))
     with get_connection(_db_path(db_path)) as conn:
         cursor = conn.execute(
             "UPDATE host_locks SET expires_at = ? WHERE host = ? AND batch_id = ?",
@@ -92,8 +91,8 @@ def refresh_host_lock(
 
 def release_host_lock(
     host: str,
-    batch_id: Optional[str] = None,
-    db_path: Optional[str] = None,
+    batch_id: str | None = None,
+    db_path: str | None = None,
 ) -> bool:
     """Libera la reserva del host.
 
@@ -111,20 +110,18 @@ def release_host_lock(
         return cursor.rowcount == 1
 
 
-def release_batch_locks(batch_id: str, db_path: Optional[str] = None) -> int:
+def release_batch_locks(batch_id: str, db_path: str | None = None) -> int:
     """Libera todas las reservas de un lote (cierre o error inesperado)."""
     with get_connection(_db_path(db_path)) as conn:
-        cursor = conn.execute(
-            "DELETE FROM host_locks WHERE batch_id = ?", (batch_id,)
-        )
+        cursor = conn.execute("DELETE FROM host_locks WHERE batch_id = ?", (batch_id,))
         return int(cursor.rowcount or 0)
 
 
 def list_active_locks(
-    limit: int = 20, db_path: Optional[str] = None
-) -> List[Dict[str, str]]:
+    limit: int = 20, db_path: str | None = None
+) -> list[dict[str, str]]:
     """Reservas vigentes ordenadas por antigüedad (para avisos y métricas)."""
-    now_iso = _iso(datetime.now(timezone.utc))
+    now_iso = _iso(datetime.now(UTC))
     with get_connection(_db_path(db_path)) as conn:
         rows = conn.execute(
             """
@@ -139,9 +136,9 @@ def list_active_locks(
     return [dict(row) for row in rows]
 
 
-def count_active_locks(db_path: Optional[str] = None) -> int:
+def count_active_locks(db_path: str | None = None) -> int:
     """Número de reservas vigentes en este momento."""
-    now_iso = _iso(datetime.now(timezone.utc))
+    now_iso = _iso(datetime.now(UTC))
     with get_connection(_db_path(db_path)) as conn:
         row = conn.execute(
             "SELECT COUNT(*) AS total FROM host_locks WHERE expires_at >= ?",
@@ -150,9 +147,9 @@ def count_active_locks(db_path: Optional[str] = None) -> int:
     return int(row["total"] if row is not None else 0)
 
 
-def is_host_locked(host: str, db_path: Optional[str] = None) -> bool:
+def is_host_locked(host: str, db_path: str | None = None) -> bool:
     """Indica si hay una reserva vigente para el host (diagnóstico y avisos)."""
-    now_iso = _iso(datetime.now(timezone.utc))
+    now_iso = _iso(datetime.now(UTC))
     with get_connection(_db_path(db_path)) as conn:
         row = conn.execute(
             "SELECT 1 FROM host_locks WHERE host = ? AND expires_at >= ?",

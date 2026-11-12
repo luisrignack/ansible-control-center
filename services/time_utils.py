@@ -6,8 +6,7 @@
 # en los cambios de horario de verano (DST).
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Optional, Tuple
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # Estados posibles al validar una hora de pared local.
@@ -29,7 +28,7 @@ def timezone_exists(name: str) -> bool:
     return True
 
 
-def parse_local_datetime(value: str) -> Optional[datetime]:
+def parse_local_datetime(value: str) -> datetime | None:
     """Convierte ``AAAA-MM-DDTHH:MM`` en un ``datetime`` naive."""
     try:
         return datetime.strptime(value.replace(" ", "T"), "%Y-%m-%dT%H:%M")
@@ -40,8 +39,8 @@ def parse_local_datetime(value: str) -> Optional[datetime]:
 def local_time_status(
     value: str,
     timezone_name: str,
-    fold: Optional[int] = None,
-) -> Tuple[str, str]:
+    fold: int | None = None,
+) -> tuple[str, str]:
     """Clasifica una hora local en ``ok``, ``missing`` o ``ambiguous``.
 
     ``fold`` solo es necesario para desambiguar el segundo pase de una hora
@@ -65,7 +64,7 @@ def local_time_status(
         return (
             LOCAL_TIME_MISSING,
             f"La hora {value} no existe en {timezone_name} por el cambio de "
-            "horario de verano. Elige otra hora.",
+            + "horario de verano. Elige otra hora.",
         )
 
     if first.utcoffset() != second.utcoffset():
@@ -73,8 +72,8 @@ def local_time_status(
             return (
                 LOCAL_TIME_AMBIGUOUS,
                 f"La hora {value} es ambigua en {timezone_name} (se repite por "
-                "el cambio de horario). Indica si corresponde a la primera o a "
-                "la segunda ocurrencia.",
+                + "el cambio de horario). Indica si corresponde a la primera o a "
+                + "la segunda ocurrencia.",
             )
         return LOCAL_TIME_OK, ""
 
@@ -85,7 +84,7 @@ def local_time_epoch(
     value: str,
     timezone_name: str,
     fold: int = 0,
-) -> Optional[int]:
+) -> int | None:
     """Convierte una hora de pared local en epoch usando ``zoneinfo``.
 
     Devuelve ``None`` si la hora o la zona no son válidas. Se usa tanto en la
@@ -104,9 +103,9 @@ def local_time_epoch(
         return None
 
 
-def utc_time_epoch(value: str) -> Optional[int]:
+def utc_time_epoch(value: str) -> int | None:
     """Convierte una hora UTC ``AAAA-MM-DDTHH:MM`` en epoch."""
     parsed = parse_local_datetime(value)
     if parsed is None:
         return None
-    return int(parsed.replace(tzinfo=timezone.utc).timestamp())
+    return int(parsed.replace(tzinfo=UTC).timestamp())

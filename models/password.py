@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from config import get_or_create_password_pepper, resolve_db_path
 from models.db import get_connection, init_schema
@@ -61,19 +61,19 @@ class PasswordRecord:
         # Origen declarado al guardar: manual, file, generated, shared u other.
         self.origin = origin
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convierte el registro a diccionario (solo hash corto, nunca texto plano)."""
         return {
             "id": self.id,
             "password_hash": self.password_hash,  # Siempre los 8 caracteres cortos
-            "creation_date": self.creation_date.isoformat()
-            if self.creation_date
-            else None,
+            "creation_date": (
+                self.creation_date.isoformat() if self.creation_date else None
+            ),
             "origin": self.origin,
         }
 
     @staticmethod
-    def init_db(db_path: str = None) -> None:
+    def init_db(db_path: str | None = None) -> None:
         """Crea o migra el esquema completo sin borrar datos existentes."""
         if db_path is None:
             db_path = _default_db_path()
@@ -83,8 +83,8 @@ class PasswordRecord:
     def store_password(
         password: str,
         origin: str,
-        db_path: str = None,
-    ) -> "PasswordRecord":
+        db_path: str | None = None,
+    ) -> PasswordRecord:
         """Almacena una contraseña en la base de datos.
 
         Solo se persisten hashes (SHA-256 corto para la UI y completo para
@@ -95,7 +95,7 @@ class PasswordRecord:
 
         password_hash_full = PasswordRecord.hash_full(password)
         password_hash_short = PasswordRecord.hash_short(password)
-        creation_date = datetime.now(timezone.utc)
+        creation_date = datetime.now(UTC)
 
         with get_connection(db_path) as conn:
             cursor = conn.execute(
@@ -111,7 +111,7 @@ class PasswordRecord:
                     origin,
                 ),
             )
-            password_id = cursor.lastrowid
+            password_id = int(cursor.lastrowid or 0)
 
         return PasswordRecord(
             id=password_id,
@@ -122,8 +122,8 @@ class PasswordRecord:
 
     @staticmethod
     def get_all_passwords(
-        limit: int = 100, db_path: str = None
-    ) -> List["PasswordRecord"]:
+        limit: int = 100, db_path: str | None = None
+    ) -> list[PasswordRecord]:
         """Obtiene las contraseñas almacenadas (solo hashes)."""
         if db_path is None:
             db_path = _default_db_path()
@@ -143,16 +143,18 @@ class PasswordRecord:
             PasswordRecord(
                 id=row["id"],
                 password_hash=row["password_hash_short"],
-                creation_date=datetime.fromisoformat(row["creation_date"])
-                if row["creation_date"]
-                else datetime.min,
+                creation_date=(
+                    datetime.fromisoformat(row["creation_date"])
+                    if row["creation_date"]
+                    else datetime.min
+                ),
                 origin=row["origin"],
             )
             for row in rows
         ]
 
     @staticmethod
-    def get_hash_full(password_id: int, db_path: str = None) -> Optional[str]:
+    def get_hash_full(password_id: int, db_path: str | None = None) -> str | None:
         """Devuelve el hash completo de una contraseña por su ID."""
         if db_path is None:
             db_path = _default_db_path()
@@ -165,7 +167,9 @@ class PasswordRecord:
         return row["password_hash_full"] if row else None
 
     @staticmethod
-    def exists_by_hash_full(password_hash_full: str, db_path: str = None) -> bool:
+    def exists_by_hash_full(
+        password_hash_full: str, db_path: str | None = None
+    ) -> bool:
         """Indica si ya hay una contraseña con ese hash completo."""
         if db_path is None:
             db_path = _default_db_path()
@@ -178,7 +182,7 @@ class PasswordRecord:
         return row is not None
 
     @staticmethod
-    def delete_password(password_id: int, db_path: str = None) -> bool:
+    def delete_password(password_id: int, db_path: str | None = None) -> bool:
         """Elimina una contraseña por su ID."""
         if db_path is None:
             db_path = _default_db_path()
@@ -191,12 +195,10 @@ class PasswordRecord:
             return cursor.rowcount > 0
 
     @staticmethod
-    def get_password_count(db_path: str = None) -> int:
+    def get_password_count(db_path: str | None = None) -> int:
         """Obtiene el total de contraseñas almacenadas."""
         if db_path is None:
             db_path = _default_db_path()
 
         with get_connection(db_path) as conn:
-            return int(
-                conn.execute("SELECT COUNT(*) FROM passwords").fetchone()[0]
-            )
+            return int(conn.execute("SELECT COUNT(*) FROM passwords").fetchone()[0])

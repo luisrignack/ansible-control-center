@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from config import resolve_db_path
 from models.db import get_connection, init_schema
@@ -64,10 +64,10 @@ def _default_db_path() -> str:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
-def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
+def _parse_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
     try:
@@ -88,7 +88,7 @@ def _dumps_state(value: Any) -> str:
         return str(value)
 
 
-def _loads_state(value: Optional[str]) -> Any:
+def _loads_state(value: str | None) -> Any:
     if not value:
         return None
     try:
@@ -112,7 +112,7 @@ class HostResult:
         after_state: Any = None,
         password_hash: str = "",
         password_origin: str = "",
-        created_at: Optional[str] = None,
+        created_at: str | None = None,
     ):
         self.id = id
         self.batch_id = batch_id
@@ -126,7 +126,7 @@ class HostResult:
         self.password_origin = password_origin
         self.created_at = _parse_datetime(created_at)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "batch_id": self.batch_id,
@@ -138,9 +138,7 @@ class HostResult:
             "after_state": self.after_state,
             "password_hash": self.password_hash,
             "password_origin": self.password_origin,
-            "created_at": self.created_at.isoformat()
-            if self.created_at
-            else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
 
@@ -151,8 +149,8 @@ class ExecutionBatch:
         self,
         id: int,
         batch_id: str,
-        created_at: Optional[datetime],
-        finished_at: Optional[datetime],
+        created_at: datetime | None,
+        finished_at: datetime | None,
         operator: str,
         action: str,
         value: str,
@@ -170,13 +168,13 @@ class ExecutionBatch:
         dry_run: bool = False,
         admin_user: str = "",
         password_origin: str = "",
-        ntp_servers: Optional[List[str]] = None,
+        ntp_servers: list[str] | None = None,
         sync_rtc: bool = False,
         force: bool = False,
-        local_fold: Optional[int] = None,
+        local_fold: int | None = None,
         time_zone: str = "",
         task_id: str = "",
-        min_free_gb: Optional[float] = None,
+        min_free_gb: float | None = None,
     ):
         self.id = id
         self.batch_id = batch_id
@@ -207,9 +205,7 @@ class ExecutionBatch:
         # Tarea del catálogo que lanzó el lote ("zona-todas", "hora", ...).
         self.task_id = task_id or ""
         # Umbral de espacio libre usado por la tarjeta APT (GiB).
-        self.min_free_gb = (
-            float(min_free_gb) if min_free_gb is not None else None
-        )
+        self.min_free_gb = float(min_free_gb) if min_free_gb is not None else None
 
     @property
     def processed_count(self) -> int:
@@ -223,21 +219,17 @@ class ExecutionBatch:
         )
 
     @property
-    def duration_seconds(self) -> Optional[float]:
+    def duration_seconds(self) -> float | None:
         if not self.created_at or not self.finished_at:
             return None
         return round((self.finished_at - self.created_at).total_seconds(), 2)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "batch_id": self.batch_id,
-            "created_at": self.created_at.isoformat()
-            if self.created_at
-            else None,
-            "finished_at": self.finished_at.isoformat()
-            if self.finished_at
-            else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
             "operator": self.operator,
             "action": self.action,
             "value": self.value,
@@ -270,14 +262,12 @@ class ExecutionBatch:
     # Lectura
     # ------------------------------------------------------------------
     @staticmethod
-    def init_db(db_path: str = None) -> None:
+    def init_db(db_path: str | None = None) -> None:
         """Crea o migra el esquema completo sin borrar datos existentes."""
         init_schema(db_path or _default_db_path())
 
     @staticmethod
-    def get_batch(
-        batch_id: str, db_path: str = None
-    ) -> Optional["ExecutionBatch"]:
+    def get_batch(batch_id: str, db_path: str | None = None) -> ExecutionBatch | None:
         if db_path is None:
             db_path = _default_db_path()
 
@@ -290,8 +280,8 @@ class ExecutionBatch:
 
     @staticmethod
     def get_batches(
-        limit: int = 50, offset: int = 0, db_path: str = None
-    ) -> List["ExecutionBatch"]:
+        limit: int = 50, offset: int = 0, db_path: str | None = None
+    ) -> list[ExecutionBatch]:
         if db_path is None:
             db_path = _default_db_path()
 
@@ -308,8 +298,8 @@ class ExecutionBatch:
 
     @staticmethod
     def get_latest_by_task(
-        task_id: str, db_path: str = None
-    ) -> Optional["ExecutionBatch"]:
+        task_id: str, db_path: str | None = None
+    ) -> ExecutionBatch | None:
         """Último lote lanzado por una tarea del catálogo.
 
         Los lotes anteriores a la migración v9 no guardan ``task_id``
@@ -334,9 +324,7 @@ class ExecutionBatch:
         return _row_to_batch(row) if row else None
 
     @staticmethod
-    def get_host_results(
-        batch_id: str, db_path: str = None
-    ) -> List[HostResult]:
+    def get_host_results(batch_id: str, db_path: str | None = None) -> list[HostResult]:
         if db_path is None:
             db_path = _default_db_path()
 
@@ -352,9 +340,7 @@ class ExecutionBatch:
         return [_row_to_host_result(row) for row in rows]
 
     @staticmethod
-    def get_duration_stats(
-        batch_id: str, db_path: str = None
-    ) -> Dict[str, Any]:
+    def get_duration_stats(batch_id: str, db_path: str | None = None) -> dict[str, Any]:
         """Latencia por host del lote (p50/p95/máximo) a partir de SQLite.
 
         Es la métrica de rendimiento que sobrevive a reinicios: no depende de
@@ -395,10 +381,10 @@ class ExecutionBatch:
 
     @staticmethod
     def recent_completed_durations(
-        action: Optional[str] = None,
+        action: str | None = None,
         limit: int = 20,
-        db_path: str = None,
-    ) -> List[float]:
+        db_path: str | None = None,
+    ) -> list[float]:
         """Duración total de los últimos lotes cerrados, en segundos.
 
         Sirve para estimar la espera de una tarea encolada. Se excluyen las
@@ -414,7 +400,7 @@ class ExecutionBatch:
             "WHERE finished_at IS NOT NULL "
             "AND status IN ('success', 'partial', 'failure') "
         )
-        params: List[Any] = []
+        params: list[Any] = []
         if action:
             sql += "AND action = ? "
             params.append(str(action).upper())
@@ -424,7 +410,7 @@ class ExecutionBatch:
         with get_connection(db_path) as conn:
             rows = conn.execute(sql, params).fetchall()
 
-        durations: List[float] = []
+        durations: list[float] = []
         for row in rows:
             try:
                 seconds = float(row["seconds"])
@@ -435,7 +421,7 @@ class ExecutionBatch:
         return durations
 
     @staticmethod
-    def get_stats(db_path: str = None) -> Dict[str, Any]:
+    def get_stats(db_path: str | None = None) -> dict[str, Any]:
         """Estadísticas globales de lotes y hosts.
 
         Los contadores de éxito/fallo son solo de ejecuciones reales: los
@@ -448,9 +434,7 @@ class ExecutionBatch:
 
         with get_connection(db_path) as conn:
             batches = int(
-                conn.execute(
-                    "SELECT COUNT(*) FROM execution_batches"
-                ).fetchone()[0]
+                conn.execute("SELECT COUNT(*) FROM execution_batches").fetchone()[0]
             )
             simulated_batches = int(
                 conn.execute(
@@ -459,19 +443,15 @@ class ExecutionBatch:
                 ).fetchone()[0]
             )
             hosts = int(
-                conn.execute(
-                    "SELECT COUNT(*) FROM execution_hosts"
-                ).fetchone()[0]
+                conn.execute("SELECT COUNT(*) FROM execution_hosts").fetchone()[0]
             )
-            rows = conn.execute(
-                """
+            rows = conn.execute("""
                 SELECT b.status AS batch_status, b.dry_run AS dry_run,
                        h.result AS result, COUNT(*) AS total
                 FROM execution_hosts h
                 JOIN execution_batches b ON b.batch_id = h.batch_id
                 GROUP BY b.status, b.dry_run, h.result
-                """
-            ).fetchall()
+                """).fetchall()
 
         real = {
             row["result"]: int(row["total"])
@@ -481,9 +461,7 @@ class ExecutionBatch:
         # Una vista previa es una inspección real aunque el lote se cree en
         # modo DRY_RUN; no debe contarse como cambio simulado. Sus fallos
         # tampoco contaminan los contadores de ejecuciones reales.
-        preview = sum(
-            int(row["total"]) for row in rows if row["result"] == "preview"
-        )
+        preview = sum(int(row["total"]) for row in rows if row["result"] == "preview")
         simulated = sum(
             int(row["total"])
             for row in rows
@@ -521,15 +499,15 @@ class ExecutionBatch:
         dry_run: bool = False,
         admin_user: str = "",
         password_origin: str = "",
-        ntp_servers: Optional[List[str]] = None,
+        ntp_servers: list[str] | None = None,
         sync_rtc: bool = False,
         force: bool = False,
-        local_fold: Optional[int] = None,
+        local_fold: int | None = None,
         time_zone: str = "",
         task_id: str = "",
-        min_free_gb: Optional[float] = None,
-        db_path: str = None,
-    ) -> "ExecutionBatch":
+        min_free_gb: float | None = None,
+        db_path: str | None = None,
+    ) -> ExecutionBatch:
         if db_path is None:
             db_path = _default_db_path()
         if status not in BATCH_STATUSES:
@@ -588,7 +566,7 @@ class ExecutionBatch:
         password_hash: str = "",
         password_origin: str = "",
         position: int = 0,
-        db_path: str = None,
+        db_path: str | None = None,
     ) -> HostResult:
         """Inserta el resultado de un host y actualiza el contador del lote.
 
@@ -634,9 +612,11 @@ class ExecutionBatch:
                     created_at,
                 ),
             )
-            host_result_id = cursor.lastrowid
+            host_result_id = int(cursor.lastrowid or 0)
+            # ``counter`` sale de _RESULT_COUNTERS tras validar ``result``;
+            # no se interpola ningún dato de usuario.
             conn.execute(
-                f"UPDATE execution_batches SET {counter} = {counter} + 1 "
+                f"UPDATE execution_batches SET {counter} = {counter} + 1 "  # nosec B608
                 "WHERE batch_id = ?",
                 (batch_id,),
             )
@@ -658,10 +638,10 @@ class ExecutionBatch:
     @staticmethod
     def finish_batch(
         batch_id: str,
-        status: Optional[str] = None,
-        total_hosts: Optional[int] = None,
-        db_path: str = None,
-    ) -> Optional["ExecutionBatch"]:
+        status: str | None = None,
+        total_hosts: int | None = None,
+        db_path: str | None = None,
+    ) -> ExecutionBatch | None:
         """Cierra el lote recalculando contadores y estado final."""
         if db_path is None:
             db_path = _default_db_path()
@@ -743,7 +723,7 @@ class ExecutionBatch:
 
     @staticmethod
     def reconcile_orphans(
-        db_path: str = None, stale_minutes: Optional[int] = None
+        db_path: str | None = None, stale_minutes: int | None = None
     ) -> int:
         """Marca como error los lotes que quedaron ``running`` tras un reinicio.
 
@@ -759,12 +739,11 @@ class ExecutionBatch:
         if db_path is None:
             db_path = _default_db_path()
 
-        params: List[Any] = [_now()]
+        params: list[Any] = [_now()]
         stale_filter = ""
         if stale_minutes is not None:
             cutoff = (
-                datetime.now(timezone.utc)
-                - timedelta(minutes=max(1, int(stale_minutes)))
+                datetime.now(UTC) - timedelta(minutes=max(1, int(stale_minutes)))
             ).isoformat()
             stale_filter = (
                 " AND created_at < ?"
@@ -776,26 +755,25 @@ class ExecutionBatch:
             )
             params.extend([cutoff, cutoff])
 
+        # ``stale_filter`` solo añade SQL fijo cuando hay ventana; los valores
+        # de fecha viajan como parámetros. No se interpola entrada de usuario.
+        update_sql = (
+            "UPDATE execution_batches "
+            "SET status = 'error', "
+            "finished_at = COALESCE(finished_at, ?) "
+            "WHERE status = 'running'" + stale_filter  # nosec B608
+        )
+
         with get_connection(db_path) as conn:
-            cursor = conn.execute(
-                f"""
-                UPDATE execution_batches
-                SET status = 'error',
-                    finished_at = COALESCE(finished_at, ?)
-                WHERE status = 'running'{stale_filter}
-                """,
-                tuple(params),
-            )
+            cursor = conn.execute(update_sql, tuple(params))
             return int(cursor.rowcount or 0)
 
     @staticmethod
-    def purge_old(days: int, db_path: str = None) -> int:
+    def purge_old(days: int, db_path: str | None = None) -> int:
         """Elimina lotes (y sus hosts por cascada) anteriores a ``days``."""
         if db_path is None:
             db_path = _default_db_path()
-        cutoff = (
-            datetime.now(timezone.utc) - timedelta(days=max(1, int(days)))
-        ).isoformat()
+        cutoff = (datetime.now(UTC) - timedelta(days=max(1, int(days)))).isoformat()
         with get_connection(db_path) as conn:
             cursor = conn.execute(
                 "DELETE FROM execution_batches WHERE created_at < ?", (cutoff,)
@@ -847,8 +825,11 @@ def _row_to_batch(row) -> ExecutionBatch:
         skipped_count=row["skipped_count"],
         error_count=row["error_count"],
         preview_count=row["preview_count"],
+        # sqlite3.Row no implementa .get(); se conserva la comprobación.
         attention_count=(
-            row["attention_count"] if "attention_count" in row.keys() else 0
+            row["attention_count"]
+            if "attention_count" in row.keys()  # noqa: SIM118
+            else 0
         ),
         dry_run=bool(row["dry_run"]),
         admin_user=row["admin_user"],
@@ -858,10 +839,11 @@ def _row_to_batch(row) -> ExecutionBatch:
         force=bool(row["force"]),
         local_fold=row["local_fold"],
         time_zone=row["time_zone"],
-        task_id=row["task_id"] if "task_id" in row.keys() else "",
+        task_id=row["task_id"] if "task_id" in row.keys() else "",  # noqa: SIM118
         min_free_gb=(
             row["min_free_gb"]
-            if "min_free_gb" in row.keys() and row["min_free_gb"] is not None
+            if "min_free_gb" in row.keys()  # noqa: SIM118
+            and row["min_free_gb"] is not None
             else None
         ),
     )

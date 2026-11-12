@@ -8,7 +8,7 @@ programaciones (que se posponen en vez de usar una excepción).
 from __future__ import annotations
 
 import io
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -61,16 +61,12 @@ def _post(client, url, data=None):
 
 
 def _login(client, username="admin", password="admin-password-123"):
-    return _post(
-        client, "/login", {"username": username, "password": password}
-    )
+    return _post(client, "/login", {"username": username, "password": password})
 
 
 def _active_task():
     for task in app_module.TASK_CATALOG:
-        if task.get("status") == "active" and "TZ" in (
-            task.get("actions") or []
-        ):
+        if task.get("status") == "active" and "TZ" in (task.get("actions") or []):
             return task
     raise AssertionError("El catálogo no tiene una tarea TZ activa")
 
@@ -123,7 +119,7 @@ def _critical_group(db_path, *, days="", start="", end="", hosts=("10.0.0.5",)):
 
 def _outside_window_now():
     """Ventana mañana a las 00:00–00:01: nunca abierta hoy."""
-    tomorrow = (datetime.now(timezone.utc).isoweekday() % 7) + 1
+    tomorrow = (datetime.now(UTC).isoweekday() % 7) + 1
     return str(tomorrow), "00:00", "00:01"
 
 
@@ -163,19 +159,19 @@ def test_window_error_validation():
 
 def test_day_window_is_open_and_next_open():
     # Lunes 2026-11-02 10:30 UTC.
-    moment = datetime(2026, 11, 2, 10, 30, tzinfo=timezone.utc)
+    moment = datetime(2026, 11, 2, 10, 30, tzinfo=UTC)
     assert is_window_open((1,), "08:00", "12:00", moment) is True
     assert is_window_open((2,), "08:00", "12:00", moment) is False
     nxt = next_window_open((2,), "08:00", "12:00", moment)
-    assert nxt == datetime(2026, 11, 3, 8, 0, tzinfo=timezone.utc)
+    assert nxt == datetime(2026, 11, 3, 8, 0, tzinfo=UTC)
 
 
 def test_night_window_crosses_midnight():
     # Ventana lunes 22:00 → 06:00: abierta el lunes por la noche y el martes
     # de madrugada, cerrada el martes por la noche.
-    monday_night = datetime(2026, 11, 2, 23, 0, tzinfo=timezone.utc)
-    tuesday_dawn = datetime(2026, 11, 3, 2, 0, tzinfo=timezone.utc)
-    tuesday_night = datetime(2026, 11, 3, 23, 0, tzinfo=timezone.utc)
+    monday_night = datetime(2026, 11, 2, 23, 0, tzinfo=UTC)
+    tuesday_dawn = datetime(2026, 11, 3, 2, 0, tzinfo=UTC)
+    tuesday_night = datetime(2026, 11, 3, 23, 0, tzinfo=UTC)
     assert is_window_open((1,), "22:00", "06:00", monday_night) is True
     assert is_window_open((1,), "22:00", "06:00", tuesday_dawn) is True
     assert is_window_open((1,), "22:00", "06:00", tuesday_night) is False
@@ -248,9 +244,7 @@ def test_group_and_host_safety_persist(db_path):
     assert stored.window_start == "22:00"
     assert stored.window_label == "Lun, Mar, Mié 22:00–06:00 UTC"
 
-    found, found_group = InventoryHost.find_by_address(
-        "10.0.0.7", db_path=db_path
-    )
+    found, found_group = InventoryHost.find_by_address("10.0.0.7", db_path=db_path)
     assert found is not None and found.criticality == "critical"
     assert found_group is not None and found_group.id == group.id
 
@@ -271,12 +265,10 @@ def test_migration_v14_adds_safety_columns(db_path):
     with get_connection(db_path) as conn:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
         columns = {
-            row["name"]
-            for row in conn.execute("PRAGMA table_info(inventory_groups)")
+            row["name"] for row in conn.execute("PRAGMA table_info(inventory_groups)")
         }
         host_columns = {
-            row["name"]
-            for row in conn.execute("PRAGMA table_info(inventory_hosts)")
+            row["name"] for row in conn.execute("PRAGMA table_info(inventory_hosts)")
         }
         # El número de esquema vigente puede crecer con migraciones
         # posteriores; lo que se comprueba aquí son los campos de la v14.
@@ -305,12 +297,10 @@ def test_migration_v14_adds_safety_columns(db_path):
     with get_connection(db_path) as conn:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
         columns = {
-            row["name"]
-            for row in conn.execute("PRAGMA table_info(inventory_groups)")
+            row["name"] for row in conn.execute("PRAGMA table_info(inventory_groups)")
         }
         host_columns = {
-            row["name"]
-            for row in conn.execute("PRAGMA table_info(inventory_hosts)")
+            row["name"] for row in conn.execute("PRAGMA table_info(inventory_hosts)")
         }
         # El número de esquema vigente puede crecer con migraciones
         # posteriores; lo que se comprueba aquí son los campos de la v14.
@@ -362,9 +352,7 @@ def test_preview_is_allowed_outside_window(client, db_path, monkeypatch):
     assert "safety_blocked" not in events
 
 
-def test_admin_override_requires_reason_and_is_audited(
-    client, db_path, monkeypatch
-):
+def test_admin_override_requires_reason_and_is_audited(client, db_path, monkeypatch):
     days, start, end = _outside_window_now()
     group = _critical_group(db_path, days=days, start=start, end=end)
     queue = _StubQueue()
@@ -374,9 +362,7 @@ def test_admin_override_requires_reason_and_is_audited(
     short = _post(
         client,
         "/execute",
-        _execution_form(
-            group.id, safety_override="1", safety_reason="corto"
-        ),
+        _execution_form(group.id, safety_override="1", safety_reason="corto"),
     )
     assert short.status_code == 302
     assert queue.calls == []
@@ -433,7 +419,7 @@ def test_schedule_creation_rejects_outside_window(client, db_path):
     group = _critical_group(db_path)
     # El grupo no tiene ventana configurada: no bloquea, solo avisa. Se le
     # añade una ventana que no cubre mañana para forzar el rechazo.
-    today = datetime.now(timezone.utc).isoweekday()
+    today = datetime.now(UTC).isoweekday()
     HostGroup.set_safety(
         group.id,
         "critical",
@@ -443,9 +429,7 @@ def test_schedule_creation_rejects_outside_window(client, db_path):
         db_path=db_path,
     )
     _login(client)
-    run_at = (datetime.now(timezone.utc) + timedelta(days=1)).strftime(
-        "%Y-%m-%dT%H:%M"
-    )
+    run_at = (datetime.now(UTC) + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M")
 
     response = _post(
         client,
@@ -477,7 +461,7 @@ def test_launch_scheduled_defers_outside_window(db_path, monkeypatch):
         app_module.scheduler, "decrypt_secret", lambda value: "vault-pass"
     )
     task = _active_task()
-    run_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    run_at = datetime.now(UTC) - timedelta(minutes=1)
     Schedule.create(
         "Pendiente",
         task["id"],
@@ -500,9 +484,7 @@ def test_launch_scheduled_defers_outside_window(db_path, monkeypatch):
     )
     schedule = Schedule.all(db_path=db_path)[0]
 
-    launched = app_module.launch_scheduled(
-        schedule.to_dict(), schedule.params
-    )
+    launched = app_module.launch_scheduled(schedule.to_dict(), schedule.params)
 
     assert launched is False
     stored = Schedule.get(schedule.id, db_path=db_path)

@@ -33,7 +33,7 @@ INSTANCE_DIR = BASE_DIR / "instance"
 try:
     from dotenv import load_dotenv
 except ImportError:  # pragma: no cover - dependencia opcional en tests aislados
-    load_dotenv = None
+    load_dotenv = None  # type: ignore[assignment]
 
 if load_dotenv is not None:
     load_dotenv(BASE_DIR / ".env", override=False)
@@ -71,7 +71,9 @@ def _env_int(
     try:
         value = int(raw)
     except ValueError as exc:
-        raise ValueError(f"{name} debe ser un número entero, se recibió {raw!r}") from exc
+        raise ValueError(
+            f"{name} debe ser un número entero, se recibió {raw!r}"
+        ) from exc
     if minimum is not None and value < minimum:
         raise ValueError(f"{name} no puede ser menor que {minimum}")
     if maximum is not None and value > maximum:
@@ -92,9 +94,7 @@ def _env_float(
     try:
         value = float(raw.replace(",", "."))
     except ValueError as exc:
-        raise ValueError(
-            f"{name} debe ser un número, se recibió {raw!r}"
-        ) from exc
+        raise ValueError(f"{name} debe ser un número, se recibió {raw!r}") from exc
     if minimum is not None and value < minimum:
         raise ValueError(f"{name} no puede ser menor que {minimum}")
     if maximum is not None and value > maximum:
@@ -152,9 +152,7 @@ IS_PRODUCTION = ENVIRONMENT == "production"
 # En producción las rutas configuradas son obligatorias: si no son
 # escribibles, la aplicación no debe arrancar con una base o un vault
 # "de rebote" en ``instance/``. El fallback es solo para desarrollo.
-ALLOW_DEV_FALLBACK = _env_bool(
-    "ACC_ALLOW_DEV_FALLBACK", not IS_PRODUCTION
-)
+ALLOW_DEV_FALLBACK = _env_bool("ACC_ALLOW_DEV_FALLBACK", not IS_PRODUCTION)
 
 # Rol del proceso. Permite separar el servidor web del programador de tareas:
 #   * ``all``    -> web + scheduler + mantenimiento (comportamiento histórico).
@@ -231,17 +229,18 @@ OS_PASSWORD_MAX_LENGTH = 512
 # Política de distribuciones que no se actualizan automáticamente porque su
 # base (Ubuntu 20.04 / focal) ya no recibe soporte estándar y requiere una
 # migración de distribución controlada. Formato ``id:prefijo_version``.
-APT_BLOCKED_OS = os.environ.get(
-    "ACC_APT_BLOCKED_OS",
-    "ubuntu:20.04,linuxmint:20,linuxlite:5,mx:19",
-).strip() or "ubuntu:20.04,linuxmint:20,linuxlite:5,mx:19"
+APT_BLOCKED_OS = (
+    os.environ.get(
+        "ACC_APT_BLOCKED_OS",
+        "ubuntu:20.04,linuxmint:20,linuxlite:5,mx:19",
+    ).strip()
+    or "ubuntu:20.04,linuxmint:20,linuxlite:5,mx:19"
+)
 
 # Umbral mínimo de espacio libre (GiB) exigido antes de ejecutar la
 # actualización. Es un mínimo, no un máximo: si APT estima que necesita más,
 # se exige la estimación. Se puede ajustar por ejecución desde la tarjeta.
-APT_MIN_FREE_GB = _env_float(
-    "ACC_APT_MIN_FREE_GB", 2.0, minimum=0.5, maximum=100.0
-)
+APT_MIN_FREE_GB = _env_float("ACC_APT_MIN_FREE_GB", 2.0, minimum=0.5, maximum=100.0)
 APT_MIN_FREE_GB_FLOOR = _env_float(
     "ACC_APT_MIN_FREE_GB_FLOOR", 0.5, minimum=0.1, maximum=100.0
 )
@@ -274,9 +273,7 @@ if WINRM_TRANSPORT not in {"basic", "ntlm", "credssp"}:
 # laboratorios con certificados autofirmados. Con WinRM sobre HTTP (5985)
 # Ansible no usa el certificado, pero el valor se mantiene coherente.
 WINRM_SERVER_CERT_VALIDATION = (
-    os.environ.get("ACC_WINRM_SERVER_CERT_VALIDATION", "validate")
-    .strip()
-    .lower()
+    os.environ.get("ACC_WINRM_SERVER_CERT_VALIDATION", "validate").strip().lower()
     or "validate"
 )
 if WINRM_SERVER_CERT_VALIDATION not in {"validate", "ignore"}:
@@ -304,27 +301,23 @@ SESSION_COOKIE_SAMESITE = "Lax"
 # Cookie de sesión solo por HTTPS. En producción es 1 por defecto a menos que
 # se fije ACC_COOKIE_SECURE explícitamente (desarrollo sigue en 0: sin HTTPS
 # la cookie Secure no se enviaría y nadie podría iniciar sesión).
-SESSION_COOKIE_SECURE = _env_bool(
-    "ACC_COOKIE_SECURE", default=IS_PRODUCTION
-)
+SESSION_COOKIE_SECURE = _env_bool("ACC_COOKIE_SECURE", default=IS_PRODUCTION)
 REMEMBER_COOKIE_HTTPONLY = True
 REMEMBER_COOKIE_SAMESITE = "Lax"
 REMEMBER_COOKIE_SECURE = SESSION_COOKIE_SECURE
-REMEMBER_COOKIE_DURATION_SECONDS = _env_int(
-    "ACC_REMEMBER_DAYS", 7, minimum=1, maximum=30
-) * 86400
-PERMANENT_SESSION_LIFETIME_SECONDS = _env_int(
-    "ACC_SESSION_HOURS", 8, minimum=1, maximum=72
-) * 3600
+REMEMBER_COOKIE_DURATION_SECONDS = (
+    _env_int("ACC_REMEMBER_DAYS", 7, minimum=1, maximum=30) * 86400
+)
+PERMANENT_SESSION_LIFETIME_SECONDS = (
+    _env_int("ACC_SESSION_HOURS", 8, minimum=1, maximum=72) * 3600
+)
 
 # Pepper para los hashes de contraseñas candidatas guardados en SQLite. Si no
 # se define, se genera un secreto local 0600 en DATA_DIR.
 PASSWORD_PEPPER = _env_secret("ACC_PASSWORD_PEPPER")
 PASSWORD_PEPPER_FILE = DATA_DIR / "password_pepper.key"
 
-MAX_CONTENT_LENGTH = _env_int(
-    "ACC_MAX_UPLOAD_BYTES", 2 * 1024 * 1024, minimum=1024
-)
+MAX_CONTENT_LENGTH = _env_int("ACC_MAX_UPLOAD_BYTES", 2 * 1024 * 1024, minimum=1024)
 
 # ---------------------------------------------------------------------------
 # Protección CSRF
@@ -342,28 +335,16 @@ CSRF_TIME_LIMIT_SECONDS = _env_int(
 RATE_LIMIT_ENABLED = _env_bool("ACC_RATE_LIMIT_ENABLED", True)
 
 # Intentos de login por IP dentro de la ventana.
-LOGIN_RATE_LIMIT = _env_int(
-    "ACC_LOGIN_RATE_LIMIT", 10, minimum=1, maximum=1000
-)
-LOGIN_RATE_WINDOW = _env_int(
-    "ACC_LOGIN_RATE_WINDOW", 300, minimum=10, maximum=86400
-)
+LOGIN_RATE_LIMIT = _env_int("ACC_LOGIN_RATE_LIMIT", 10, minimum=1, maximum=1000)
+LOGIN_RATE_WINDOW = _env_int("ACC_LOGIN_RATE_WINDOW", 300, minimum=10, maximum=86400)
 
 # Ejecuciones de Ansible por usuario/IP.
-EXEC_RATE_LIMIT = _env_int(
-    "ACC_EXEC_RATE_LIMIT", 10, minimum=1, maximum=1000
-)
-EXEC_RATE_WINDOW = _env_int(
-    "ACC_EXEC_RATE_WINDOW", 60, minimum=10, maximum=86400
-)
+EXEC_RATE_LIMIT = _env_int("ACC_EXEC_RATE_LIMIT", 10, minimum=1, maximum=1000)
+EXEC_RATE_WINDOW = _env_int("ACC_EXEC_RATE_WINDOW", 60, minimum=10, maximum=86400)
 
 # Operaciones sobre el vault (cifrar, importar, borrar).
-VAULT_RATE_LIMIT = _env_int(
-    "ACC_VAULT_RATE_LIMIT", 20, minimum=1, maximum=1000
-)
-VAULT_RATE_WINDOW = _env_int(
-    "ACC_VAULT_RATE_WINDOW", 60, minimum=10, maximum=86400
-)
+VAULT_RATE_LIMIT = _env_int("ACC_VAULT_RATE_LIMIT", 20, minimum=1, maximum=1000)
+VAULT_RATE_WINDOW = _env_int("ACC_VAULT_RATE_WINDOW", 60, minimum=10, maximum=86400)
 
 # ---------------------------------------------------------------------------
 # Proxy inverso y cabeceras de seguridad
@@ -375,9 +356,7 @@ TRUST_PROXY = _env_bool("ACC_TRUST_PROXY", False)
 SECURITY_HEADERS_ENABLED = _env_bool("ACC_SECURITY_HEADERS", True)
 CSP_ENABLED = _env_bool("ACC_CSP_ENABLED", True)
 HSTS_ENABLED = _env_bool("ACC_HSTS", SESSION_COOKIE_SECURE)
-HSTS_MAX_AGE = _env_int(
-    "ACC_HSTS_MAX_AGE", 31536000, minimum=0, maximum=63072000
-)
+HSTS_MAX_AGE = _env_int("ACC_HSTS_MAX_AGE", 31536000, minimum=0, maximum=63072000)
 
 # ---------------------------------------------------------------------------
 # LDAPS (autenticación corporativa)
@@ -399,9 +378,7 @@ LDAP_USER_BASE = os.environ.get(
     "ACC_LDAP_USER_BASE", "ou=etecsa.cu,ou=people,dc=etecsa,dc=cu"
 )
 LDAP_USER_FILTER = os.environ.get("ACC_LDAP_USER_FILTER", "(objectClass=person)")
-LDAP_USER_SCOPE = (
-    os.environ.get("ACC_LDAP_USER_SCOPE", "onelevel").strip().lower()
-)
+LDAP_USER_SCOPE = os.environ.get("ACC_LDAP_USER_SCOPE", "onelevel").strip().lower()
 if LDAP_USER_SCOPE not in ("onelevel", "subtree"):
     LDAP_USER_SCOPE = "onelevel"
 # Atributo que contiene el nombre de usuario (uid en este directorio).
@@ -423,9 +400,7 @@ LDAP_TLS_CA_FILE = os.environ.get("ACC_LDAP_TLS_CA_FILE", "").strip()
 LDAP_ALLOW_INSECURE = _env_bool("ACC_LDAP_ALLOW_INSECURE", False)
 # Rol con el que se crea la cuenta sombra en el primer login LDAP. Se admite
 # solo ``viewer`` (la promoción la hace el admin local en /usuarios).
-LDAP_DEFAULT_ROLE = (
-    os.environ.get("ACC_LDAP_DEFAULT_ROLE", "viewer").strip().lower()
-)
+LDAP_DEFAULT_ROLE = os.environ.get("ACC_LDAP_DEFAULT_ROLE", "viewer").strip().lower()
 if LDAP_DEFAULT_ROLE not in ("viewer", "operator"):
     LDAP_DEFAULT_ROLE = "viewer"
 
@@ -510,9 +485,7 @@ UI_CONFIG_PANEL = _env_bool("ACC_UI_CONFIG_PANEL", True)
 # Límites de seguridad
 MAX_HOSTS = _env_int("ACC_MAX_HOSTS", 256, minimum=1, maximum=4096)
 MAX_PASSWORDS = _env_int("ACC_MAX_PASSWORDS", 200, minimum=1, maximum=1000)
-MAX_PASSWORD_LENGTH = _env_int(
-    "ACC_MAX_PASSWORD_LENGTH", 512, minimum=8, maximum=4096
-)
+MAX_PASSWORD_LENGTH = _env_int("ACC_MAX_PASSWORD_LENGTH", 512, minimum=8, maximum=4096)
 
 # Timeouts de Ansible (segundos)
 PING_TIMEOUT = _env_int("ACC_PING_TIMEOUT", 30, minimum=5, maximum=300)
@@ -528,9 +501,7 @@ MAX_OUTPUT_BUFFER_LINES = _env_int(
 # Retención del historial y del progreso en memoria
 HISTORY_RETENTION_DAYS = _env_int("ACC_HISTORY_DAYS", 180, minimum=1)
 JOB_RETENTION_HOURS = _env_int("ACC_JOB_RETENTION_HOURS", 24, minimum=1)
-AUTH_EVENT_RETENTION_DAYS = _env_int(
-    "ACC_AUTH_EVENT_DAYS", 365, minimum=1
-)
+AUTH_EVENT_RETENTION_DAYS = _env_int("ACC_AUTH_EVENT_DAYS", 365, minimum=1)
 # Cada cuántas horas el scheduler vuelve a aplicar la retención mientras el
 # proceso sigue vivo (al arrancar ya se aplica una vez). Evita que un proceso
 # de larga vida acumule historial aunque no se reinicie.
@@ -541,9 +512,7 @@ RETENTION_INTERVAL_HOURS = _env_int(
 # Límites de memoria y de la tabla de instantáneas de tareas. Evitan que un
 # proceso de larga vida acumule estados de todas las operaciones históricas.
 MAX_MEMORY_TASKS = _env_int("ACC_MAX_MEMORY_TASKS", 200, minimum=10)
-MAX_TASK_STATE_ROWS = _env_int(
-    "ACC_MAX_TASK_STATE_ROWS", 500, minimum=10
-)
+MAX_TASK_STATE_ROWS = _env_int("ACC_MAX_TASK_STATE_ROWS", 500, minimum=10)
 # Intervalo mínimo entre escrituras de consola/log en SQLite. Los cambios de
 # estado se guardan siempre; el resto se agrupa para no escribir en cada línea
 # de Ansible. 0 desactiva el agrupado.
@@ -569,9 +538,7 @@ JOB_SHUTDOWN_GRACE_SECONDS = _env_int(
 # Reserva por host: evita que dos lotes apliquen playbooks a la vez sobre el
 # mismo equipo. Se renueva antes de cada intento de credencial y caduca sola
 # si el proceso muere, para no bloquear el host indefinidamente.
-HOST_LOCK_TTL_SECONDS = _env_int(
-    "ACC_HOST_LOCK_TTL", 1800, minimum=60, maximum=86400
-)
+HOST_LOCK_TTL_SECONDS = _env_int("ACC_HOST_LOCK_TTL", 1800, minimum=60, maximum=86400)
 # Hosts procesados en paralelo dentro de un mismo lote. El límite global
 # acota cuántos playbooks corren a la vez en el proceso sumando todos los
 # lotes, para que dos operadores no saturen CPU, SSH ni la red.
@@ -612,8 +579,7 @@ def _parse_allowed_networks(raw: str) -> tuple:
             networks.append(ipaddress.ip_network(chunk, strict=False))
         except ValueError as exc:
             raise ValueError(
-                f"ACC_ALLOWED_NETWORKS contiene una red inválida: "
-                f"{chunk!r}"
+                f"ACC_ALLOWED_NETWORKS contiene una red inválida: " f"{chunk!r}"
             ) from exc
     return tuple(networks)
 
@@ -621,15 +587,11 @@ def _parse_allowed_networks(raw: str) -> tuple:
 # Allowlist obligatoria de redes de destino. En producción, un valor vacío
 # impide el arranque: la aplicación prueba credenciales y ejecuta ``become``
 # contra lo que se le indique, así que nunca debe quedar sin restricción.
-ALLOWED_NETWORKS = _parse_allowed_networks(
-    os.environ.get("ACC_ALLOWED_NETWORKS", "")
-)
+ALLOWED_NETWORKS = _parse_allowed_networks(os.environ.get("ACC_ALLOWED_NETWORKS", ""))
 
 # Loopback solo se permite explícitamente en desarrollo (tests y laboratorio).
 # En producción siempre se bloquea, incluso si la allowlist lo incluyera.
-ALLOW_LOOPBACK = _env_bool(
-    "ACC_ALLOW_LOOPBACK", not IS_PRODUCTION
-)
+ALLOW_LOOPBACK = _env_bool("ACC_ALLOW_LOOPBACK", not IS_PRODUCTION)
 
 # Direcciones que nunca deben ser objetivo de una operación: loopback,
 # link-local (incluye 169.254.169.254 de metadatos cloud), multicast,
@@ -655,9 +617,7 @@ BLOCKED_NETWORKS: tuple = tuple(
 # Diferencia máxima aceptada entre la hora objetivo y la hora final del host.
 # Para una herramienta de fijación de hora, 2 s es un margen razonable; 120 s
 # permitía reportar como éxito un reloj claramente desviado.
-TIME_VERIFY_TOLERANCE = _env_int(
-    "ACC_TIME_TOLERANCE", 2, minimum=0, maximum=3600
-)
+TIME_VERIFY_TOLERANCE = _env_int("ACC_TIME_TOLERANCE", 2, minimum=0, maximum=3600)
 
 # ``TIME`` con NTP activo y política ``keep`` puede revertirse en segundos.
 # Por defecto se bloquea la ejecución; la vista previa sigue mostrando el
@@ -666,17 +626,13 @@ TIME_REQUIRE_NTP_OFF = _env_bool("ACC_TIME_REQUIRE_NTP_OFF", True)
 
 # Espera tras reactivar NTP antes de la verificación final (segundos). Da
 # margen a que el demonio aplique su corrección y permite detectar reversiones.
-NTP_SETTLE_SECONDS = _env_int(
-    "ACC_NTP_SETTLE_SECONDS", 3, minimum=0, maximum=60
-)
+NTP_SETTLE_SECONDS = _env_int("ACC_NTP_SETTLE_SECONDS", 3, minimum=0, maximum=60)
 
 # Límite de contraseñas candidatas que se prueban contra un mismo host. Sin
 # este tope, una contraseña válida con un playbook que falla por un motivo
 # ajeno a la autenticación haría probar todas las candidatas (hasta 200 por
 # defecto) con ping + playbook cada una.
-MAX_PASSWORD_ATTEMPTS = _env_int(
-    "ACC_MAX_PASSWORD_ATTEMPTS", 3, minimum=1, maximum=50
-)
+MAX_PASSWORD_ATTEMPTS = _env_int("ACC_MAX_PASSWORD_ATTEMPTS", 3, minimum=1, maximum=50)
 
 # Presupuesto total de tiempo para un lote (segundos). Al agotarse, los hosts
 # pendientes se registran como ``skipped`` en lugar de dejar el lote abierto
@@ -691,14 +647,10 @@ BATCH_TIME_BUDGET_SECONDS = _env_int(
 #   restore   -> desactivar, fijar la hora y restaurar el estado NTP previo.
 #   configure -> configurar servidores NTP y dejar NTP activo.
 NTP_POLICIES: tuple[str, ...] = ("keep", "off", "restore", "configure")
-MAX_NTP_SERVERS = _env_int(
-    "ACC_MAX_NTP_SERVERS", 8, minimum=1, maximum=32
-)
+MAX_NTP_SERVERS = _env_int("ACC_MAX_NTP_SERVERS", 8, minimum=1, maximum=32)
 DEFAULT_NTP_SERVERS: tuple[str, ...] = tuple(
     server.strip()
-    for server in os.environ.get(
-        "ACC_DEFAULT_NTP_SERVERS", "pool.ntp.org"
-    ).split(",")
+    for server in os.environ.get("ACC_DEFAULT_NTP_SERVERS", "pool.ntp.org").split(",")
     if server.strip()
 )
 
@@ -984,9 +936,7 @@ def get_or_create_password_pepper() -> str:
                 # Otro worker ganó la carrera; puede tardar un instante en
                 # escribir el valor, así que se reintenta la lectura.
                 for _ in range(5):
-                    pepper = pepper_file.read_text(
-                        encoding="utf-8"
-                    ).strip()
+                    pepper = pepper_file.read_text(encoding="utf-8").strip()
                     if pepper:
                         return pepper
                     time.sleep(0.05)

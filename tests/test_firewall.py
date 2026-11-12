@@ -27,13 +27,9 @@ ACTIVE_STATE = {
     "active": True,
     "allowed_sources": ["192.168.1.25"],
 }
-ENCODED_ACTIVE = base64.b64encode(
-    json.dumps(ACTIVE_STATE).encode()
-).decode()
+ENCODED_ACTIVE = base64.b64encode(json.dumps(ACTIVE_STATE).encode()).decode()
 ENCODED_INACTIVE = base64.b64encode(
-    json.dumps(
-        {"manager": "ufw", "active": False, "allowed_sources": []}
-    ).encode()
+    json.dumps({"manager": "ufw", "active": False, "allowed_sources": []}).encode()
 ).decode()
 
 
@@ -135,23 +131,35 @@ def test_validate_core_rejects_firewall_for_non_firewall_task():
 
 
 def test_would_change_for_firewall():
-    assert app_module._would_change(
-        ACTIVE_STATE, "FIREWALL", "disable", "utc", "keep", False
-    ) is True
-    assert app_module._would_change(
-        ACTIVE_STATE, "FIREWALL", "enable", "utc", "keep", False
-    ) is False
-    assert app_module._would_change(
-        ACTIVE_STATE, "FIREWALL", "allow:10.9.9.9", "utc", "keep", False
-    ) is True
-    assert app_module._would_change(
-        ACTIVE_STATE,
-        "FIREWALL",
-        "allow:192.168.1.25",
-        "utc",
-        "keep",
-        False,
-    ) is False
+    assert (
+        app_module._would_change(
+            ACTIVE_STATE, "FIREWALL", "disable", "utc", "keep", False
+        )
+        is True
+    )
+    assert (
+        app_module._would_change(
+            ACTIVE_STATE, "FIREWALL", "enable", "utc", "keep", False
+        )
+        is False
+    )
+    assert (
+        app_module._would_change(
+            ACTIVE_STATE, "FIREWALL", "allow:10.9.9.9", "utc", "keep", False
+        )
+        is True
+    )
+    assert (
+        app_module._would_change(
+            ACTIVE_STATE,
+            "FIREWALL",
+            "allow:192.168.1.25",
+            "utc",
+            "keep",
+            False,
+        )
+        is False
+    )
 
 
 def test_inspect_firewall_decodes_state(monkeypatch):
@@ -166,13 +174,9 @@ def test_inspect_firewall_decodes_state(monkeypatch):
         return Process()
 
     monkeypatch.setattr(runner, "_invoke_playbook", fake_invoke)
-    result = runner.inspect_firewall(
-        host="10.0.0.10", user="root", password="clave"
-    )
+    result = runner.inspect_firewall(host="10.0.0.10", user="root", password="clave")
 
-    assert captured["playbook_path"] == str(
-        runner.FIREWALL_INSPECT_PLAYBOOK_FILE
-    )
+    assert captured["playbook_path"] == str(runner.FIREWALL_INSPECT_PLAYBOOK_FILE)
     assert result["success"] is True
     assert result["state"]["manager"] == "ufw"
     assert result["state"]["allowed_sources"] == ["192.168.1.25"]
@@ -228,9 +232,7 @@ def test_apply_host_firewall_reports_verification_failure(monkeypatch):
             "FIREWALL_ERRORS=El firewall no quedó activo.\n"
         )
 
-    monkeypatch.setattr(
-        runner, "_invoke_playbook", lambda **kwargs: Process()
-    )
+    monkeypatch.setattr(runner, "_invoke_playbook", lambda **kwargs: Process())
     monkeypatch.setattr(runner, "DRY_RUN", False)
 
     result = runner.apply_host(

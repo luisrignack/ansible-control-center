@@ -8,13 +8,14 @@ ruta local del controlador al escritorio de cada host.
 Formatos admitidos: PNG, JPEG, WebP, GIF y BMP. Son formatos raster que GNOME
 puede usar como fondo; no se admite SVG porque puede contener scripts.
 """
+
 from __future__ import annotations
 
 import os
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from config import DATA_DIR, MAX_CONTENT_LENGTH
 
@@ -24,7 +25,7 @@ REMOTE_WALLPAPER_BASENAME = "acc-tapiz"
 
 # Firma binaria -> (extensión, MIME). El orden no importa salvo WebP, que
 # necesita comprobar además el identificador en el offset 8.
-_SIGNATURES: Tuple[Tuple[bytes, str, str], ...] = (
+_SIGNATURES: tuple[tuple[bytes, str, str], ...] = (
     (b"\x89PNG\r\n\x1a\n", "png", "image/png"),
     (b"\xff\xd8\xff", "jpg", "image/jpeg"),
     (b"GIF87a", "gif", "image/gif"),
@@ -41,13 +42,13 @@ ALLOWED_MIME_TYPES = {
 }
 
 
-def wallpaper_dir(data_dir: Optional[Path] = None) -> Path:
+def wallpaper_dir(data_dir: Path | None = None) -> Path:
     """Directorio privado donde viven las imágenes subidas."""
     root = Path(data_dir) if data_dir is not None else Path(DATA_DIR)
     return root / WALLPAPER_SUBDIR
 
 
-def detect_image_type(raw: bytes) -> Optional[Tuple[str, str]]:
+def detect_image_type(raw: bytes) -> tuple[str, str] | None:
     """Devuelve ``(extensión, mime)`` según la firma real del archivo."""
     if not raw:
         return None
@@ -75,7 +76,7 @@ def remote_wallpaper_uri(extension: str) -> str:
     return f"file://{remote_wallpaper_path(extension)}"
 
 
-def prune_wallpapers(max_age_hours: int = 24, data_dir: Optional[Path] = None) -> None:
+def prune_wallpapers(max_age_hours: int = 24, data_dir: Path | None = None) -> None:
     """Elimina restos de operaciones antiguas que no llegaron a limpiarse.
 
     Es una salvaguarda para caídas del proceso: el flujo normal borra la
@@ -97,8 +98,8 @@ def prune_wallpapers(max_age_hours: int = 24, data_dir: Optional[Path] = None) -
 
 def save_wallpaper(
     upload: Any,
-    data_dir: Optional[Path] = None,
-) -> Dict[str, Any]:
+    data_dir: Path | None = None,
+) -> dict[str, Any]:
     """Valida y guarda una imagen subida.
 
     Devuelve un diccionario con ``path``, ``name``, ``mime``, ``ext`` y
@@ -118,8 +119,7 @@ def save_wallpaper(
     detected = detect_image_type(raw)
     if detected is None:
         raise ValueError(
-            "El archivo no es una imagen admitida. Usa PNG, JPEG, WebP, GIF "
-            "o BMP."
+            "El archivo no es una imagen admitida. Usa PNG, JPEG, WebP, GIF " "o BMP."
         )
     extension, mime = detected
 
@@ -152,7 +152,7 @@ def save_wallpaper(
     }
 
 
-def remove_wallpaper(path: Optional[str], data_dir: Optional[Path] = None) -> None:
+def remove_wallpaper(path: str | None, data_dir: Path | None = None) -> None:
     """Borra una imagen temporal si está dentro del directorio de tapices."""
     if not path:
         return

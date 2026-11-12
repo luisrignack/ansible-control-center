@@ -7,9 +7,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import app as app_module
-import services.ansible_runner as ansible_runner
 from models.batch import ExecutionBatch
 from models.db import get_connection, init_schema
+from services import ansible_runner
 from services.host_locks import (
     acquire_host_lock,
     count_active_locks,
@@ -105,9 +105,7 @@ def test_only_one_concurrent_acquire_wins(tmp_path):
 
     def contender(index: int) -> None:
         barrier.wait()
-        acquired = acquire_host_lock(
-            "10.0.0.6", f"lote-{index}", db_path=db_path
-        )
+        acquired = acquire_host_lock("10.0.0.6", f"lote-{index}", db_path=db_path)
         with lock:
             results.append((index, acquired))
 
@@ -157,9 +155,7 @@ def test_apply_batch_skips_a_host_locked_by_another_batch(tmp_path, monkeypatch)
         tmp_path, monkeypatch, [host], batch_id="lote-ocupado"
     )
 
-    results = ExecutionBatch.get_host_results(
-        "lote-ocupado", db_path=db_path
-    )
+    results = ExecutionBatch.get_host_results("lote-ocupado", db_path=db_path)
     assert outcome == "completed"
     assert len(results) == 1
     assert results[0].result == "skipped"

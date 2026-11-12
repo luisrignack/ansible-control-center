@@ -48,9 +48,7 @@ def test_scan_host_keys_builds_a_valid_ssh_keyscan_command(monkeypatch):
         "rsa,ed25519,ecdsa",
         "10.0.0.5",
     ]
-    assert keys == [
-        ("10.0.0.5", "ssh-ed25519", "AAAAC3NzaC1lZDI1NTE5AAAAIfake")
-    ]
+    assert keys == [("10.0.0.5", "ssh-ed25519", "AAAAC3NzaC1lZDI1NTE5AAAAIfake")]
 
 
 def test_scan_host_keys_rejects_option_injection(monkeypatch):
@@ -128,9 +126,7 @@ def test_update_known_hosts_takes_interprocess_lock(monkeypatch, tmp_path):
         return real_flock(fd, operation)
 
     monkeypatch.setattr(host_keys.fcntl, "flock", fake_flock)
-    host_keys.update_known_hosts(
-        [("10.0.0.5", "ssh-ed25519", "NEW")], path=path
-    )
+    host_keys.update_known_hosts([("10.0.0.5", "ssh-ed25519", "NEW")], path=path)
 
     assert host_keys.fcntl.LOCK_EX in calls
     assert path.with_name(path.name + ".lock").exists()
@@ -138,10 +134,7 @@ def test_update_known_hosts_takes_interprocess_lock(monkeypatch, tmp_path):
 
 def test_concurrent_known_hosts_updates_keep_all_keys(tmp_path):
     path = tmp_path / "known_hosts"
-    keys = [
-        (f"10.0.1.{index}", "ssh-ed25519", f"KEY{index}")
-        for index in range(1, 21)
-    ]
+    keys = [(f"10.0.1.{index}", "ssh-ed25519", f"KEY{index}") for index in range(1, 21)]
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(lambda key: host_keys.update_known_hosts([key], path=path), keys))

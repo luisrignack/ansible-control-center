@@ -11,10 +11,11 @@ v15), el despliegue es reversible con la variable ``ACC_UI_CONFIG_PANEL=0`` y
 una versión anterior del código puede seguir arrancando sobre la misma base de
 datos ignorando estas filas.
 """
+
 from __future__ import annotations
 
 import json
-from typing import Iterable, List, Optional, Set
+from collections.abc import Iterable
 
 from models.db import get_setting, set_setting
 
@@ -25,9 +26,7 @@ def _key(user_id: object) -> str:
     return f"{KEY_PREFIX}{user_id}"
 
 
-def hidden_task_ids(
-    user_id: object, db_path: Optional[str] = None
-) -> Set[str]:
+def hidden_task_ids(user_id: object, db_path: str | None = None) -> set[str]:
     """Devuelve los identificadores de tarea ocultos por el usuario."""
     raw = get_setting(_key(user_id), "", db_path=db_path)
     if not raw:
@@ -41,7 +40,7 @@ def hidden_task_ids(
     return {str(item) for item in data if isinstance(item, str) and item}
 
 
-def _write(user_id: object, task_ids: Iterable[str], db_path: Optional[str]) -> None:
+def _write(user_id: object, task_ids: Iterable[str], db_path: str | None) -> None:
     set_setting(
         _key(user_id),
         json.dumps(sorted(set(task_ids)), ensure_ascii=False),
@@ -53,8 +52,8 @@ def set_task_hidden(
     user_id: object,
     task_id: str,
     hidden: bool,
-    db_path: Optional[str] = None,
-) -> Set[str]:
+    db_path: str | None = None,
+) -> set[str]:
     """Oculta o restaura una tarea. Devuelve el conjunto resultante."""
     current = hidden_task_ids(user_id, db_path=db_path)
     if hidden:
@@ -65,18 +64,18 @@ def set_task_hidden(
     return current
 
 
-def restore_all(user_id: object, db_path: Optional[str] = None) -> None:
+def restore_all(user_id: object, db_path: str | None = None) -> None:
     """Vuelve a mostrar todas las tarjetas del usuario."""
     _write(user_id, [], db_path)
 
 
 def split_catalog(
     catalog: Iterable[dict], hidden: Iterable[str]
-) -> tuple[List[dict], List[dict]]:
+) -> tuple[list[dict], list[dict]]:
     """Separa el catálogo en ``(visibles, ocultas)`` conservando el orden."""
     hidden_set = set(hidden)
-    visible: List[dict] = []
-    parked: List[dict] = []
+    visible: list[dict] = []
+    parked: list[dict] = []
     for task in catalog:
         if task.get("id") in hidden_set:
             parked.append(task)

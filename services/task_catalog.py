@@ -8,8 +8,9 @@ pero todavía no tienen playbook integrado.
 Añadir una tarea nueva = añadir una entrada aquí (+ su playbook en
 ``ansible/`` y su página de configuración cuando esté operativa).
 """
-from typing import Any, Dict, List, Optional
+
 import sys
+from typing import Any
 
 TASK_ID_ZONA_ALL = "zona-todas"
 TASK_ID_KASPERSKY = "kaspersky"
@@ -24,7 +25,7 @@ DEFAULT_TASK_ID = TASK_ID_ZONA_ALL
 STATUS_ACTIVE = "active"
 STATUS_PLANNED = "planned"
 
-TASK_CATALOG: List[Dict[str, Any]] = [
+TASK_CATALOG: list[dict[str, Any]] = [
     {
         "id": TASK_ID_ZONA_ALL,
         "name": "Zona horaria",
@@ -211,12 +212,10 @@ TASK_CATALOG: List[Dict[str, Any]] = [
     },
 ]
 
-_CATALOG_INDEX: Dict[str, Dict[str, Any]] = {
-    task["id"]: task for task in TASK_CATALOG
-}
+_CATALOG_INDEX: dict[str, dict[str, Any]] = {task["id"]: task for task in TASK_CATALOG}
 
 
-def _register_test_task(task: Dict[str, Any], monkeypatch) -> None:
+def _register_test_task(task: dict[str, Any], monkeypatch) -> None:
     """Registra una tarea temporal (uso exclusivo de las pruebas).
 
     Ciertas piezas del motor (acción TIME, políticas NTP, RTC) ya no están
@@ -236,17 +235,17 @@ def _register_test_task(task: Dict[str, Any], monkeypatch) -> None:
         monkeypatch.setattr(app_module, "TASK_CATALOG", new_catalog)
 
 
-def get_task(task_id: Optional[str]) -> Optional[Dict[str, Any]]:
+def get_task(task_id: str | None) -> dict[str, Any] | None:
     """Devuelve la entrada del catálogo con ese id, o ``None``."""
     if not task_id:
         return None
     return _CATALOG_INDEX.get(task_id.strip().lower())
 
 
-def get_task_or_default(task_id: Optional[str]) -> Dict[str, Any]:
+def get_task_or_default(task_id: str | None) -> dict[str, Any]:
     """Devuelve la tarea pedida o la tarea por defecto si no existe."""
     return get_task(task_id) or _CATALOG_INDEX[DEFAULT_TASK_ID]
 
 
-def active_tasks() -> List[Dict[str, Any]]:
+def active_tasks() -> list[dict[str, Any]]:
     return [task for task in TASK_CATALOG if task["status"] == STATUS_ACTIVE]

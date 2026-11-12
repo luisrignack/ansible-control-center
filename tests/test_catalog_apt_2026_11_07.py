@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import base64
 import json
-from datetime import datetime, timezone
-from types import SimpleNamespace
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -56,9 +56,7 @@ def test_apt_playbook_uses_safe_apt_get_upgrade():
     tasks = data[0]["tasks"]
 
     apt_upgrade = next(
-        item
-        for item in tasks
-        if item.get("name") == "Aplicar la actualización segura"
+        item for item in tasks if item.get("name") == "Aplicar la actualización segura"
     )
     module = apt_upgrade["ansible.builtin.apt"]
     assert module["upgrade"] == "safe"
@@ -277,9 +275,7 @@ def test_apply_host_reports_space_attention(monkeypatch):
             "APT_VERIFIED=True\n"
         )
 
-    monkeypatch.setattr(
-        runner, "_invoke_playbook", lambda **kwargs: Process()
-    )
+    monkeypatch.setattr(runner, "_invoke_playbook", lambda **kwargs: Process())
     monkeypatch.setattr(runner, "DRY_RUN", False)
 
     result = runner.apply_host(
@@ -340,9 +336,7 @@ def test_schema_v15_adds_attention_and_threshold(tmp_path):
     with get_connection(db_path) as conn:
         batch_cols = {
             row["name"]
-            for row in conn.execute(
-                "PRAGMA table_info(execution_batches)"
-            ).fetchall()
+            for row in conn.execute("PRAGMA table_info(execution_batches)").fetchall()
         }
     assert "attention_count" in batch_cols
     assert "min_free_gb" in batch_cols
@@ -356,7 +350,7 @@ def test_general_report_includes_space_attention_and_migration_report_is_separat
     batch = SimpleNamespace(
         batch_id="apt-pdf-batch-0001",
         task_id="apt-upgrade",
-        created_at=datetime(2026, 11, 7, 12, 0, tzinfo=timezone.utc),
+        created_at=datetime(2026, 11, 7, 12, 0, tzinfo=UTC),
         finished_at=None,
         operator="tester",
         action="APT",
@@ -437,7 +431,6 @@ def test_apt_task_page_has_execution_form_and_threshold(client):
 
 
 def _login(client):
-    from models.user import User
 
     client.get("/login")
     with client.session_transaction() as sess:

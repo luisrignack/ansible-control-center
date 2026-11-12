@@ -5,14 +5,14 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from config import (
     BIN_ANSIBLE,
     CONNECT_TIMEOUT,
     # ``DRY_RUN`` se conserva como atributo del módulo para el interruptor
     # global, pero el ping ya no lo consulta: es una operación de solo lectura.
-    DRY_RUN,
+    DRY_RUN,  # noqa: F401
     PING_TIMEOUT,
     WINRM_PORT,
     WINRM_SERVER_CERT_VALIDATION,
@@ -21,6 +21,8 @@ from config import (
 from models.password import PasswordRecord
 from services.ansible_runner import (
     ansible_environment,
+)
+from services.ansible_runner import (
     run_ansible_playbook as _run_playbook,
 )
 from services.host_resolver import resolve_target
@@ -37,14 +39,14 @@ def test_passwords_single(
     master_password: str,
     action: str,
     value: str,
-    temporal_passwords: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    temporal_passwords: list[str] | None = None,
+) -> dict[str, Any]:
     """Prueba contraseñas candidatas contra uno o varios hosts.
 
     Se conserva como API de servicio; la interfaz usa su propio flujo con
     progreso SSE. Nunca se registran contraseñas en claro.
     """
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "success": False,
         "password_hash": "",
         "overall_result": "unknown",
@@ -79,7 +81,7 @@ def test_passwords_single(
         result["details"].append("No hay contraseñas candidatas.")
         return result
 
-    host_results: List[Dict[str, Any]] = []
+    host_results: list[dict[str, Any]] = []
     for host in hosts:
         result["hosts_tested"].append(host)
         host_success = False
@@ -139,9 +141,7 @@ def test_passwords_single(
         result["overall_result"] = "partial"
     else:
         result["overall_result"] = "failure"
-        result["details"].append(
-            "Ninguna contraseña funcionó para los hosts objetivo."
-        )
+        result["details"].append("Ninguna contraseña funcionó para los hosts objetivo.")
     return result
 
 
@@ -149,11 +149,11 @@ def test_ansible_ping(
     host: str,
     user: str,
     password: str,
-    timeout: int = None,
+    timeout: int | None = None,
     cancel_event=None,
-    private_key: str = None,
+    private_key: str | None = None,
     connection: str = "ssh",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Ejecuta ``ansible -m ping`` con la contraseña candidata.
 
     La contraseña se pasa en un fichero temporal 0600 mediante
@@ -162,7 +162,7 @@ def test_ansible_ping(
     queda solo para el become (sudo). Con ``connection == "winrm"`` se usa el
     módulo ``win_ping`` y las variables de conexión de WinRM.
     """
-    result: Dict[str, Any] = {"success": False, "host": host, "error": ""}
+    result: dict[str, Any] = {"success": False, "host": host, "error": ""}
 
     if cancel_event is not None and cancel_event.is_set():
         result["error"] = "Operación cancelada por el usuario."
@@ -176,8 +176,8 @@ def test_ansible_ping(
         return result
 
     module = "raw" if connection == "winrm" else "ping"
-    module_args: Optional[List[str]] = None
-    connection_vars: Dict[str, Any] = {}
+    module_args: list[str] | None = None
+    connection_vars: dict[str, Any] = {}
     if connection == "winrm":
         # Sin colecciones externas: ``raw`` es builtin y no exige Python en
         # el destino, así que sirve de ping sobre WinRM con pywinrm.
@@ -186,18 +186,16 @@ def test_ansible_ping(
             "ansible_connection": "winrm",
             "ansible_port": str(WINRM_PORT),
             "ansible_winrm_transport": WINRM_TRANSPORT,
-            "ansible_winrm_server_cert_validation": (
-                WINRM_SERVER_CERT_VALIDATION
-            ),
+            "ansible_winrm_server_cert_validation": (WINRM_SERVER_CERT_VALIDATION),
         }
 
     try:
         with secure_temp_file(
-            json.dumps({"ansible_password": password} |
-                       connection_vars | (
-                {"ansible_ssh_private_key_file": private_key}
-                if private_key else {}
-            )),
+            json.dumps(
+                {"ansible_password": password}
+                | connection_vars
+                | ({"ansible_ssh_private_key_file": private_key} if private_key else {})
+            ),
             prefix=".ansible-ping-",
             suffix=".json",
         ) as vars_file:
@@ -228,6 +226,7 @@ def test_ansible_ping(
                 text=True,
                 timeout=timeout or PING_TIMEOUT,
                 env=ansible_environment(),
+                check=False,
             )
     except subprocess.TimeoutExpired:
         result["error"] = f"Timeout after {timeout or PING_TIMEOUT}s"
@@ -237,7 +236,7 @@ def test_ansible_ping(
             "Comando ansible no encontrado. Verifique que Ansible esté instalado."
         )
         return result
-    except Exception as exc:  # pragma: no cover - salvaguarda
+    except Exception as exc:  # noqa: BLE001  # pragma: no cover - salvaguarda
         result["error"] = str(exc)
         return result
 
@@ -269,7 +268,7 @@ def run_ansible_playbook(
     password: str,
     action: str,
     value: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Ejecuta el playbook de configuración de hora con una contraseña."""
     return _run_playbook(
         host=host,
@@ -280,6 +279,6 @@ def run_ansible_playbook(
     )
 
 
-def resolve_hosts(target_ip: str) -> List[str]:
+def resolve_hosts(target_ip: str) -> list[str]:
     """Resolver una IP o rango CIDR a lista de hosts."""
     return resolve_target(target_ip)

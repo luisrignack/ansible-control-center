@@ -167,11 +167,14 @@ def test_resolve_target_expands_ipv4_range():
 
 
 def test_resolve_target_rejects_oversized_ipv4_range():
-    assert resolve_target(
-        "172.17.128.118-172.17.129.118",
-        max_hosts=256,
-        min_prefix=22,
-    ) == []
+    assert (
+        resolve_target(
+            "172.17.128.118-172.17.129.118",
+            max_hosts=256,
+            min_prefix=22,
+        )
+        == []
+    )
 
 
 def test_pin_target_normalizes_ipv4_range():
@@ -338,9 +341,7 @@ def auth_client(tmp_path, monkeypatch):
     db_path = str(tmp_path / "auth.db")
     monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
     app_module.init_db()
-    User.create_or_update(
-        "admin", "admin-password-123", db_path=db_path, role="admin"
-    )
+    User.create_or_update("admin", "admin-password-123", db_path=db_path, role="admin")
     User.create_or_update(
         "operador", "operador-password-123", db_path=db_path, role="operator"
     )

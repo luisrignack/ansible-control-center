@@ -6,8 +6,8 @@
 # y del catálogo/validación de la app.
 from __future__ import annotations
 
-import io
 import html
+import io
 import json
 import subprocess
 import time
@@ -261,16 +261,15 @@ def test_win_ping_module_and_connection_vars(monkeypatch, tmp_path):
     def fake_run(cmd, **_kw):
         vars_file = cmd[cmd.index("--extra-vars") + 1].lstrip("@")
         captured["cmd"] = cmd
-        captured["payload"] = json.loads(open(vars_file, encoding="utf-8").read())
+        with open(vars_file, encoding="utf-8") as handle:
+            captured["payload"] = json.load(handle)
         # El tester exige ver "SUCCESS" en stdout cuando el returncode es 0.
         return subprocess.CompletedProcess(cmd, 0, "10.55.0.2 | SUCCESS >> {}", "")
 
     monkeypatch.setattr(tester.subprocess, "run", fake_run)
     monkeypatch.setattr(tester, "DRY_RUN", False)
 
-    result = tester.test_ansible_ping(
-        "10.55.0.2", "admin", "clave", connection="winrm"
-    )
+    result = tester.test_ansible_ping("10.55.0.2", "admin", "clave", connection="winrm")
     assert result["success"]
     # raw + echo: el ping sobre WinRM con solo módulos builtin y pywinrm.
     cmd = captured["cmd"]
@@ -307,8 +306,12 @@ def test_apply_host_windows_playbook_path(monkeypatch, tmp_path):
     monkeypatch.setattr(runner, "DRY_RUN", False)
 
     result = runner.apply_host(
-        "10.55.0.2", "admin", "TZ", "America/Caracas",
-        password="clave", connection="winrm",
+        "10.55.0.2",
+        "admin",
+        "TZ",
+        "America/Caracas",
+        password="clave",
+        connection="winrm",
     )
     assert result["success"], result
     assert "win" in seen["path"] and seen["path"].endswith(".yml")
@@ -332,8 +335,6 @@ def test_windows_playbooks_exist_with_expected_markers():
     assert "SA Pacific Standard Time" in apply_pb
     assert "become: false" in apply_pb
 
-    inspect_pb = Path(config.WINDOWS_INSPECT_PLAYBOOK_FILE).read_text(
-        encoding="utf-8"
-    )
+    inspect_pb = Path(config.WINDOWS_INSPECT_PLAYBOOK_FILE).read_text(encoding="utf-8")
     assert "HORA_STATE_B64" in inspect_pb
     assert "genuine" not in inspect_pb

@@ -64,9 +64,7 @@ def _post(client, url, data=None, **kwargs):
 
 
 def _login(client, username="admin", password="admin-password-123"):
-    return _post(
-        client, "/login", {"username": username, "password": password}
-    )
+    return _post(client, "/login", {"username": username, "password": password})
 
 
 def _execution_form(**overrides):
@@ -205,28 +203,18 @@ def test_invented_timezone_is_rejected():
 
 
 def test_nonexistent_local_time_during_spring_gap_is_rejected():
-    status, message = local_time_status(
-        "2026-03-29T02:30", "Europe/Madrid"
-    )
+    status, message = local_time_status("2026-03-29T02:30", "Europe/Madrid")
     assert status == LOCAL_TIME_MISSING
     assert "no existe" in message
 
 
 def test_ambiguous_local_time_requires_explicit_fold():
-    status, message = local_time_status(
-        "2026-10-25T02:30", "Europe/Madrid"
-    )
+    status, message = local_time_status("2026-10-25T02:30", "Europe/Madrid")
     assert status == LOCAL_TIME_AMBIGUOUS
     assert "ambigua" in message
 
-    assert (
-        local_time_status("2026-10-25T02:30", "Europe/Madrid", fold=0)[0]
-        == "ok"
-    )
-    assert (
-        local_time_status("2026-10-25T02:30", "Europe/Madrid", fold=1)[0]
-        == "ok"
-    )
+    assert local_time_status("2026-10-25T02:30", "Europe/Madrid", fold=0)[0] == "ok"
+    assert local_time_status("2026-10-25T02:30", "Europe/Madrid", fold=1)[0] == "ok"
 
 
 def test_fold_selects_two_different_instants():
@@ -426,9 +414,7 @@ def test_viewer_is_read_only(client, tmp_path):
     assert client.get("/").status_code == 200
     assert client.get("/history").status_code == 200
     assert client.get("/audit").status_code == 403
-    assert (
-        _post(client, "/execute", _execution_form()).status_code == 403
-    )
+    assert _post(client, "/execute", _execution_form()).status_code == 403
 
 
 def test_operator_cannot_read_audit(client):
@@ -436,9 +422,7 @@ def test_operator_cannot_read_audit(client):
     User.create_or_update(
         "operator", "operator-password-123", db_path=db_path, role="operator"
     )
-    assert (
-        _login(client, "operator", "operator-password-123").status_code == 302
-    )
+    assert _login(client, "operator", "operator-password-123").status_code == 302
     assert client.get("/audit").status_code == 403
     # Puede enviar operaciones: un formulario inválido se rechaza con
     # redirección, no con 403 (no se lanza ningún trabajo real).
@@ -449,7 +433,11 @@ def test_operator_cannot_read_audit(client):
 def test_admin_can_read_audit(client):
     _login(client)
     AuthEvent.record(
-        "admin", "127.0.0.1", "login_success", "Prueba", db_path=app_module.get_db_path()
+        "admin",
+        "127.0.0.1",
+        "login_success",
+        "Prueba",
+        db_path=app_module.get_db_path(),
     )
     response = client.get("/audit")
     assert response.status_code == 200
@@ -460,9 +448,7 @@ def test_admin_can_read_audit(client):
 
 def test_account_is_locked_after_repeated_failures(client, monkeypatch):
     db_path = app_module.get_db_path()
-    User.create_or_update(
-        "bloqueado", "correcta-123", db_path=db_path, role="viewer"
-    )
+    User.create_or_update("bloqueado", "correcta-123", db_path=db_path, role="viewer")
     monkeypatch.setattr(app_module, "LOGIN_LOCKOUT_THRESHOLD", 2)
 
     for _ in range(2):

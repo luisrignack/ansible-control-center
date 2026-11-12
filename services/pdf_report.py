@@ -10,15 +10,16 @@
 from __future__ import annotations
 
 import io
-from datetime import datetime, timezone
-from typing import Any, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from datetime import UTC, datetime
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Clasificación de motivos
 # ---------------------------------------------------------------------------
 # Pares (patrón case-insensitive, motivo breve). El orden importa: lo más
 # específico primero; el resto se reporta con el texto del error truncado.
-REASON_PATTERNS: Tuple[Tuple[str, str], ...] = (
+REASON_PATTERNS: tuple[tuple[str, str], ...] = (
     # Conexión: estación apagada, fuera de red, puerto cerrado.
     ("unreachable", "Estación apagada o sin conexión"),
     ("timed out", "Estación apagada o sin conexión"),
@@ -54,14 +55,22 @@ REASON_PATTERNS: Tuple[Tuple[str, str], ...] = (
 )
 
 _MESES = (
-    "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
-    "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
 )
 
 
-def format_spanish_datetime(
-    value: Optional[datetime], with_time: bool = True
-) -> str:
+def format_spanish_datetime(value: datetime | None, with_time: bool = True) -> str:
     """Fecha/hora legible en español, en la zona local del servidor."""
     if value is None:
         return "—"
@@ -72,7 +81,7 @@ def format_spanish_datetime(
     return base
 
 
-def format_station_timestamp(value: Optional[datetime]) -> str:
+def format_station_timestamp(value: datetime | None) -> str:
     """Fecha y hora compacta de una estación (columna del informe)."""
     if value is None:
         return "—"
@@ -111,7 +120,7 @@ def classify_failure_reason(error: str, result: str = "") -> str:
 # ---------------------------------------------------------------------------
 # PDF mínimo (sin dependencias)
 # ---------------------------------------------------------------------------
-PAGE_W = 595.28   # A4 en puntos
+PAGE_W = 595.28  # A4 en puntos
 PAGE_H = 841.89
 MARGIN = 54
 USABLE_W = PAGE_W - 2 * MARGIN
@@ -128,9 +137,9 @@ def _max_chars(col_width: float, font_size: float) -> int:
     return max(6, int(col_width / (font_size * _CHARS_PER_POINT)))
 
 
-def _wrap_text(text: str, max_chars: int) -> List[str]:
+def _wrap_text(text: str, max_chars: int) -> list[str]:
     """Corte de línea simple por anchura estimada."""
-    output: List[str] = []
+    output: list[str] = []
     for raw in (text or "").splitlines() or [""]:
         raw = raw.strip()
         if not raw:
@@ -146,7 +155,7 @@ def _wrap_text(text: str, max_chars: int) -> List[str]:
                 output.append(current)
             while len(word) > max_chars:
                 output.append(word[: max_chars - 1] + "-")
-                word = word[max_chars - 1:]
+                word = word[max_chars - 1 :]
             current = word
         output.append(current)
     return output
@@ -156,10 +165,10 @@ class _ContentBuilder:
     """Construye un stream de contenido PDF (texto y gráficos vectoriales)."""
 
     def __init__(self) -> None:
-        self.parts: List[str] = []
+        self.parts: list[str] = []
 
     def fill_rect(
-        self, x: float, y: float, w: float, h: float, color: Tuple[float, ...]
+        self, x: float, y: float, w: float, h: float, color: tuple[float, ...]
     ) -> None:
         r, g, b = (round(float(c), 3) for c in color)
         self.parts.append(f"{r} {g} {b} rg")
@@ -172,18 +181,13 @@ class _ContentBuilder:
         text: str,
         size: float = 10,
         bold: bool = False,
-        color: Tuple[float, ...] = (0, 0, 0),
+        color: tuple[float, ...] = (0, 0, 0),
     ) -> None:
         font = "/F2" if bold else "/F1"
         r, g, b = (round(float(c), 3) for c in color)
         # Solo se escapan los caracteres especiales del PDF; la conversión a
         # WinAnsi (cp1252) se hace una sola vez al guardar el stream.
-        safe = (
-            (text or "")
-            .replace("\\", r"\\")
-            .replace("(", r"\(")
-            .replace(")", r"\)")
-        )
+        safe = (text or "").replace("\\", r"\\").replace("(", r"\(").replace(")", r"\)")
         self.parts.append(
             f"BT {r} {g} {b} rg {font} {size:.1f} Tf "
             f"1 0 0 1 {x:.2f} {y:.2f} Tm ({safe}) Tj ET"
@@ -197,7 +201,7 @@ class PDFDocument:
     """PDF de varias páginas con las fuentes base F1/F2 (sin colecciones)."""
 
     def __init__(self) -> None:
-        self.pages: List[_ContentBuilder] = [_ContentBuilder()]
+        self.pages: list[_ContentBuilder] = [_ContentBuilder()]
 
     @property
     def content(self) -> _ContentBuilder:
@@ -213,26 +217,25 @@ class PDFDocument:
         n_pages = len(self.pages)
         # Objetos: 1 catálogo, 2 árbol de páginas, 3-4 fuentes,
         # luego (contenido, página) por cada página a partir del 5.
-        objects: List[bytes] = [
+        objects: list[bytes] = [
             b"<< /Type /Catalog /Pages 2 0 R >>",
             (
                 f"<< /Type /Pages /Count {n_pages} /Kids ["
-                + " ".join(
-                    f"{5 + 2 * k + 1} 0 R" for k in range(n_pages)
-                )
+                + " ".join(f"{5 + 2 * k + 1} 0 R" for k in range(n_pages))
                 + "] >>"
             ).encode(),
             b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica "
-            b"/Encoding /WinAnsiEncoding >>",
+            + b"/Encoding /WinAnsiEncoding >>",
             b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold "
-            b"/Encoding /WinAnsiEncoding >>",
+            + b"/Encoding /WinAnsiEncoding >>",
         ]
 
         for index, content in enumerate(self.pages, start=1):
             stream = content.build().encode("cp1252", errors="replace")
             objects.append(
                 f"<< /Length {len(stream)} >>\nstream\n".encode()
-                + stream + b"\nendstream"
+                + stream
+                + b"\nendstream"
             )
             content_id = len(objects)
             page_id = 5 + 2 * (index - 1) + 1
@@ -251,7 +254,7 @@ class PDFDocument:
                 ).encode()
             )
 
-        offsets: List[int] = []
+        offsets: list[int] = []
         for i, obj in enumerate(objects, start=1):
             offsets.append(buf.tell())
             buf.write(f"{i} 0 obj\n".encode())
@@ -354,7 +357,7 @@ def _attention_reason(row: Any) -> str:
     return " · ".join(parts)
 
 
-def _migration_rows(host_results: Sequence[Any]) -> List[Any]:
+def _migration_rows(host_results: Sequence[Any]) -> list[Any]:
     """Estaciones del lote que necesitan migración de distribución."""
     rows = []
     for row in host_results or []:
@@ -377,9 +380,9 @@ def _batch_mode_text(batch: Any) -> str:
 
 def build_execution_report(
     batch: Any,
-    host_results: Optional[Sequence[Any]],
+    host_results: Sequence[Any] | None,
     task_name: str = "",
-    generated_at: Optional[datetime] = None,
+    generated_at: datetime | None = None,
 ) -> bytes:
     """Construye un informe PDF de un lote: resumen y estaciones fallidas.
 
@@ -389,13 +392,10 @@ def build_execution_report(
     """
     doc = PDFDocument()
     body = doc.content
-    generated_at = generated_at or datetime.now(timezone.utc)
+    generated_at = generated_at or datetime.now(UTC)
 
     host_rows = list(host_results or [])
-    failed_rows = [
-        h for h in host_rows
-        if h.result in {"failure", "error", "skipped"}
-    ]
+    failed_rows = [h for h in host_rows if h.result in {"failure", "error", "skipped"}]
     attention_rows = [h for h in host_rows if h.result == "attention"]
     ok_rows = [h for h in host_rows if h.result == "success"]
     ordered_rows = (
@@ -440,8 +440,7 @@ def build_execution_report(
     line("Tarea", task_name or batch.task_id or "—")
     line(
         "Acción aplicada",
-        f"{ACTION_LABELS.get(batch.action, batch.action)} = "
-        f"{batch.value or '—'}",
+        f"{ACTION_LABELS.get(batch.action, batch.action)} = " f"{batch.value or '—'}",
     )
     line("Objetivo", batch.target or "—")
     line("Ordenada por", batch.operator or "—")
@@ -487,12 +486,11 @@ def build_execution_report(
         table_body = doc.content  # siempre sobre la página activa
         head_y = y - row_min_h
         table_body.fill_rect(MARGIN, head_y, USABLE_W, row_min_h, DARK)
-        x = MARGIN
-        for i, title in enumerate(
-            ("Estación", "Fecha y hora", "Estado", "Motivo")
-        ):
-            table_body.text(x + padding, head_y + 5, title, size=9, bold=True,
-                            color=(1, 1, 1))
+        x = float(MARGIN)
+        for i, title in enumerate(("Estación", "Fecha y hora", "Estado", "Motivo")):
+            table_body.text(
+                x + padding, head_y + 5, title, size=9, bold=True, color=(1, 1, 1)
+            )
             x += col_widths[i]
         y = head_y - 2
 
@@ -501,11 +499,10 @@ def build_execution_report(
         if y - needed < MARGIN + 30:
             doc.add_page()
             new_body = doc.content
-            new_body.text(MARGIN, PAGE_H - MARGIN + 6, BRAND, size=9,
-                          bold=True, color=DARK)
-            new_body.fill_rect(
-                MARGIN, PAGE_H - MARGIN + 8, USABLE_W, 0.8, DARK
+            new_body.text(
+                MARGIN, PAGE_H - MARGIN + 6, BRAND, size=9, bold=True, color=DARK
             )
+            new_body.fill_rect(MARGIN, PAGE_H - MARGIN + 8, USABLE_W, 0.8, DARK)
             # Reusar el builder nuevo para continuar el bucle.
             table_header()
 
@@ -515,9 +512,13 @@ def build_execution_report(
     if not host_rows:
         ensure_space(row_min_h + 4)
         current_body = doc.content
-        current_body.text(MARGIN, y - 10,
-                          "No hay estaciones registradas en esta corrida.",
-                          size=9, color=GRAY)
+        current_body.text(
+            MARGIN,
+            y - 10,
+            "No hay estaciones registradas en esta corrida.",
+            size=9,
+            color=GRAY,
+        )
         y -= 18
     else:
         for index, row in enumerate(ordered_rows, start=1):
@@ -540,37 +541,35 @@ def build_execution_report(
                 estado,
                 reason,
             )
-            wrapped_cells = [
-                _wrap_text(str(c), m) for c, m in zip(cells, max_chars)
-            ]
+            wrapped_cells = [_wrap_text(str(c), m) for c, m in zip(cells, max_chars)]
             n_lines = max(len(w) for w in wrapped_cells)
             row_h = max(row_min_h, n_lines * line_h + 2 * padding)
             ensure_space(row_h)
             current_body = doc.content
             if index % 2 == 0:
-                current_body.fill_rect(MARGIN, y - row_h, USABLE_W, row_h,
-                                       ZEBRA)
+                current_body.fill_rect(MARGIN, y - row_h, USABLE_W, row_h, ZEBRA)
             # Separador fino.
-            current_body.fill_rect(
-                MARGIN, y - row_h, USABLE_W, 0.5, LIGHT_LINE
-            )
-            x = MARGIN
+            current_body.fill_rect(MARGIN, y - row_h, USABLE_W, 0.5, LIGHT_LINE)
+            x = float(MARGIN)
             for i, parts in enumerate(wrapped_cells):
                 ty = y - padding - line_h
                 for j, part in enumerate(parts):
                     if i == 0:
-                        current_body.text(x + padding, ty, part,
-                                          size=font_size, bold=True)
+                        current_body.text(
+                            x + padding, ty, part, size=font_size, bold=True
+                        )
                     elif i == 2:
                         color = RESULT_COLORS.get(row.result, (0, 0, 0))
-                        current_body.text(x + padding, ty, part,
-                                          size=font_size,
-                                          bold=row.result in {"failure", "error", "attention"},
-                                          color=color
-                                          if j == 0 else (0, 0, 0))
+                        current_body.text(
+                            x + padding,
+                            ty,
+                            part,
+                            size=font_size,
+                            bold=row.result in {"failure", "error", "attention"},
+                            color=color if j == 0 else (0, 0, 0),
+                        )
                     else:
-                        current_body.text(x + padding, ty, part,
-                                          size=font_size)
+                        current_body.text(x + padding, ty, part, size=font_size)
                     ty -= line_h
                 x += col_widths[i]
             y -= row_h
@@ -593,20 +592,22 @@ def build_execution_report(
     # --- Cabeceras/pies de página ---
     total_pages = len(doc.pages)
     for number, builder in enumerate(doc.pages, start=1):
-        builder.fill_rect(
-            MARGIN, FOOTER_Y + 14, USABLE_W, 0.6, LIGHT_LINE
-        )
-        builder.text(MARGIN, FOOTER_Y, FOOTER_LEFT, size=8, bold=True,
-                     color=GRAY)
+        builder.fill_rect(MARGIN, FOOTER_Y + 14, USABLE_W, 0.6, LIGHT_LINE)
+        builder.text(MARGIN, FOOTER_Y, FOOTER_LEFT, size=8, bold=True, color=GRAY)
         stamp = format_spanish_datetime(generated_at)
         builder.text(
-            MARGIN, FOOTER_Y - 11,
+            MARGIN,
+            FOOTER_Y - 11,
             f"Informe generado el {stamp} (hora del servidor)",
-            size=8, color=GRAY,
+            size=8,
+            color=GRAY,
         )
         builder.text(
-            PAGE_W - MARGIN, FOOTER_Y,
-            f"Página {number} de {total_pages}", size=8, color=GRAY,
+            PAGE_W - MARGIN,
+            FOOTER_Y,
+            f"Página {number} de {total_pages}",
+            size=8,
+            color=GRAY,
         )
 
     return doc.render()
@@ -626,9 +627,9 @@ MIGRATION_ACTION_TEXT = (
 
 def build_migration_report(
     batch: Any,
-    host_results: Optional[Sequence[Any]],
+    host_results: Sequence[Any] | None,
     task_name: str = "",
-    generated_at: Optional[datetime] = None,
+    generated_at: datetime | None = None,
 ) -> bytes:
     """Informe PDF específico para estaciones que requieren migración.
 
@@ -637,7 +638,7 @@ def build_migration_report(
     insuficiente se reporta en el informe general, no aquí.
     """
     doc = PDFDocument()
-    generated_at = generated_at or datetime.now(timezone.utc)
+    generated_at = generated_at or datetime.now(UTC)
     rows = _migration_rows(host_results or [])
     y = PAGE_H - MARGIN
 
@@ -647,19 +648,21 @@ def build_migration_report(
             doc.add_page()
             new_body = doc.content
             new_body.text(
-                MARGIN, PAGE_H - MARGIN + 6, BRAND, size=9, bold=True,
+                MARGIN,
+                PAGE_H - MARGIN + 6,
+                BRAND,
+                size=9,
+                bold=True,
                 color=DARK,
             )
-            new_body.fill_rect(
-                MARGIN, PAGE_H - MARGIN + 8, USABLE_W, 0.8, DARK
-            )
+            new_body.fill_rect(MARGIN, PAGE_H - MARGIN + 8, USABLE_W, 0.8, DARK)
             y = PAGE_H - MARGIN - 6
 
     def write(
         text: str,
         size: float = 9,
         bold: bool = False,
-        color: Tuple[float, ...] = (0, 0, 0),
+        color: tuple[float, ...] = (0, 0, 0),
         gap: float = 12.0,
         indent: float = 0.0,
     ) -> None:
@@ -740,9 +743,7 @@ def build_migration_report(
             # Cada estación se presenta como una ficha para que los datos
             # técnicos y la acción recomendada sean legibles sin tabla ancha.
             ensure(110)
-            doc.content.fill_rect(
-                MARGIN, y - 4, USABLE_W, 0.6, LIGHT_LINE
-            )
+            doc.content.fill_rect(MARGIN, y - 4, USABLE_W, 0.6, LIGHT_LINE)
             y -= 14
             write(f"{station} — {name}", size=11, bold=True, color=DARK)
             write(f"Sistema operativo: {os_pretty}", size=9)
@@ -751,8 +752,7 @@ def build_migration_report(
                 resources += f" · {cpu_model}"
             write(f"Recursos: {resources}", size=9)
             write(
-                f"Disco: {disk_total:.2f} GB totales · "
-                f"{disk_free:.2f} GB libres",
+                f"Disco: {disk_total:.2f} GB totales · " f"{disk_free:.2f} GB libres",
                 size=9,
             )
             write(f"Motivo: {reason}", size=9, color=(0.55, 0.28, 0.05))
@@ -776,12 +776,8 @@ def build_migration_report(
     # --- Cabeceras/pies de página ---
     total_pages = len(doc.pages)
     for number, builder in enumerate(doc.pages, start=1):
-        builder.fill_rect(
-            MARGIN, FOOTER_Y + 14, USABLE_W, 0.6, LIGHT_LINE
-        )
-        builder.text(
-            MARGIN, FOOTER_Y, FOOTER_LEFT, size=8, bold=True, color=GRAY
-        )
+        builder.fill_rect(MARGIN, FOOTER_Y + 14, USABLE_W, 0.6, LIGHT_LINE)
+        builder.text(MARGIN, FOOTER_Y, FOOTER_LEFT, size=8, bold=True, color=GRAY)
         stamp = format_spanish_datetime(generated_at)
         builder.text(
             MARGIN,

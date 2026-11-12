@@ -9,7 +9,6 @@ from __future__ import annotations
 import threading
 import time
 from collections import defaultdict, deque
-from typing import DefaultDict, Deque, Optional, Tuple
 
 
 class RateLimiter:
@@ -28,7 +27,7 @@ class RateLimiter:
     MAX_KEYS = 50_000
 
     def __init__(self) -> None:
-        self._events: DefaultDict[str, Deque[float]] = defaultdict(deque)
+        self._events: defaultdict[str, deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
         self._checks = 0
         # Ventana más amplia observada. Las claves solo se consideran obsoletas
@@ -36,7 +35,7 @@ class RateLimiter:
         # limpieza con una ventana corta no borre cubos de ventanas largas.
         self._max_window = 0
 
-    def check(self, key: str, limit: int, window: int) -> Tuple[bool, int]:
+    def check(self, key: str, limit: int, window: int) -> tuple[bool, int]:
         """Registra un intento y decide si está permitido.
 
         Args:
@@ -78,7 +77,8 @@ class RateLimiter:
         """Elimina los cubos cuyo último intento ya no cuenta en ninguna ventana."""
         stale_after = max(self._max_window, 60)
         for key in [
-            k for k, events in self._events.items()
+            k
+            for k, events in self._events.items()
             if not events or events[-1] <= now - stale_after
         ]:
             del self._events[key]
@@ -93,7 +93,7 @@ class RateLimiter:
         for key in oldest:
             del self._events[key]
 
-    def reset(self, key: Optional[str] = None) -> None:
+    def reset(self, key: str | None = None) -> None:
         """Limpia una clave o todas (útil al autenticarse o en pruebas)."""
         with self._lock:
             if key is None:

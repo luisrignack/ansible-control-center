@@ -11,8 +11,9 @@ Una ventana con ``inicio > fin`` cruza medianoche (p. ej. 22:00–06:00).
 
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta, timezone
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from collections.abc import Iterable, Sequence
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 CRITICALITY_LEVELS = ("low", "medium", "high", "critical")
 CRITICALITY_LABELS = {
@@ -52,17 +53,13 @@ _WEEKDAY_ALIASES = {
 }
 
 
-def normalize_criticality(
-    value: Any, default: str = DEFAULT_CRITICALITY
-) -> str:
+def normalize_criticality(value: Any, default: str = DEFAULT_CRITICALITY) -> str:
     """Normaliza un nivel de criticidad; lanza ``ValueError`` si no es válido."""
     raw = str(value or "").strip().lower()
     if not raw:
         return default
     if raw not in CRITICALITY_LEVELS:
-        raise ValueError(
-            "Criticidad no válida; usa low, medium, high o critical."
-        )
+        raise ValueError("Criticidad no válida; usa low, medium, high o critical.")
     return raw
 
 
@@ -74,7 +71,7 @@ def normalize_criticality_override(value: Any) -> str:
     return normalize_criticality(raw)
 
 
-def parse_window_days(value: Any) -> Tuple[int, ...]:
+def parse_window_days(value: Any) -> tuple[int, ...]:
     """Convierte ``"1,2,3"`` (o nombres) en días ISO ordenados y únicos."""
     if value is None:
         return ()
@@ -93,9 +90,7 @@ def parse_window_days(value: Any) -> Tuple[int, ...]:
         else:
             day = _WEEKDAY_ALIASES.get(token.lower()[:3], 0)
         if day < 1 or day > 7:
-            raise ValueError(
-                "Día de ventana no válido; usa 1 (lunes) a 7 (domingo)."
-            )
+            raise ValueError("Día de ventana no válido; usa 1 (lunes) a 7 (domingo).")
         days.add(day)
     return tuple(sorted(days))
 
@@ -112,9 +107,7 @@ def parse_window_time(value: Any) -> str:
     return parsed.strftime("%H:%M")
 
 
-def window_error(
-    days: Sequence[int], start: str, end: str
-) -> Optional[str]:
+def window_error(days: Sequence[int], start: str, end: str) -> str | None:
     """Valida una ventana completa; ``None`` si es válida o está vacía."""
     if not days and not start and not end:
         return None
@@ -131,29 +124,27 @@ def format_days(days: Sequence[int]) -> str:
     return ", ".join(_WEEKDAY_LABELS.get(int(day), str(day)) for day in days)
 
 
-def window_label(
-    days: Sequence[int], start: str, end: str
-) -> str:
+def window_label(days: Sequence[int], start: str, end: str) -> str:
     """Etiqueta legible; texto vacío si no hay ventana configurada."""
     if not days or not start or not end:
         return ""
     return f"{format_days(days)} {start}–{end} UTC"
 
 
-def _as_utc(moment: Optional[datetime]) -> datetime:
+def _as_utc(moment: datetime | None) -> datetime:
     if moment is None:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
     if moment.tzinfo is None:
-        return moment.replace(tzinfo=timezone.utc)
-    return moment.astimezone(timezone.utc)
+        return moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC)
 
 
 def is_window_open(
     days: Sequence[int],
     start: str,
     end: str,
-    now: Optional[datetime] = None,
-) -> Optional[bool]:
+    now: datetime | None = None,
+) -> bool | None:
     """Indica si ``now`` cae dentro de la ventana; ``None`` si no hay ventana."""
     if not days or not start or not end:
         return None
@@ -180,8 +171,8 @@ def next_window_open(
     days: Sequence[int],
     start: str,
     end: str,
-    now: Optional[datetime] = None,
-) -> Optional[datetime]:
+    now: datetime | None = None,
+) -> datetime | None:
     """Primera apertura futura de la ventana (búsqueda de hasta 8 días)."""
     if not days or not start or not end:
         return None
@@ -190,11 +181,9 @@ def next_window_open(
     start_time = datetime.strptime(start, "%H:%M").time()
     day_set = {int(day) for day in days}
 
-    for offset in range(0, 9):
+    for offset in range(9):
         candidate_day = moment.date() + timedelta(days=offset)
-        candidate = datetime.combine(
-            candidate_day, start_time, tzinfo=timezone.utc
-        )
+        candidate = datetime.combine(candidate_day, start_time, tzinfo=UTC)
         if candidate.isoweekday() not in day_set:
             continue
         if candidate > moment:
@@ -206,13 +195,13 @@ def evaluate_safety(
     *,
     group_name: str = "",
     group_criticality: str = DEFAULT_CRITICALITY,
-    hosts: Optional[Iterable[Dict[str, Any]]] = None,
+    hosts: Iterable[dict[str, Any]] | None = None,
     window_days: Any = "",
     window_start: Any = "",
     window_end: Any = "",
     window_note: str = "",
-    now: Optional[datetime] = None,
-) -> Dict[str, Any]:
+    now: datetime | None = None,
+) -> dict[str, Any]:
     """Evalúa criticidad y ventana de un objetivo.
 
     Devuelve un diccionario estable con ``blocked``, ``level`` (ok/warn/block),
@@ -237,8 +226,8 @@ def evaluate_safety(
     except ValueError:
         base_level = DEFAULT_CRITICALITY
 
-    critical_hosts: List[str] = []
-    high_hosts: List[str] = []
+    critical_hosts: list[str] = []
+    high_hosts: list[str] = []
     for host in hosts or []:
         address = str(host.get("address") or "")
         raw_level = host.get("criticality") or base_level
@@ -251,8 +240,8 @@ def evaluate_safety(
         elif level == "high":
             high_hosts.append(address)
 
-    reasons: List[str] = []
-    warnings: List[str] = []
+    reasons: list[str] = []
+    warnings: list[str] = []
     blocked = False
     next_open = None
     objective = f"el grupo '{group_name}'" if group_name else "el objetivo"
@@ -312,12 +301,14 @@ def evaluate_safety(
         "window_label": label,
         "window_note": str(window_note or ""),
         "inside_window": open_now,
-        "next_open": (
-            next_open.isoformat(timespec="minutes") if next_open else ""
-        ),
+        "next_open": (next_open.isoformat(timespec="minutes") if next_open else ""),
         "summary": (
             reasons[0]
             if reasons
-            else (warnings[0] if warnings else "Dentro de la política de criticidad y ventana.")
+            else (
+                warnings[0]
+                if warnings
+                else "Dentro de la política de criticidad y ventana."
+            )
         ),
     }

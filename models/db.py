@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterator, Optional
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
 SCHEMA_VERSION = 18
@@ -70,7 +70,9 @@ def _default_db_path() -> str:
     return str(resolve_db_path())
 
 
-def get_setting(key: str, default: Optional[str] = None, db_path: Optional[str] = None) -> Optional[str]:
+def get_setting(
+    key: str, default: str | None = None, db_path: str | None = None
+) -> str | None:
     """Lee un parámetro persistente de ``app_settings``.
 
     Devuelve ``default`` si la clave no existe o si la tabla todavía no se ha
@@ -88,9 +90,9 @@ def get_setting(key: str, default: Optional[str] = None, db_path: Optional[str] 
     return row["value"]
 
 
-def set_setting(key: str, value: str, db_path: Optional[str] = None) -> None:
+def set_setting(key: str, value: str, db_path: str | None = None) -> None:
     """Crea o actualiza un parámetro persistente de ``app_settings``."""
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    now = datetime.now(UTC).isoformat(timespec="seconds")
     with get_connection(db_path or _default_db_path()) as conn:
         conn.execute(
             """
@@ -111,16 +113,13 @@ def _ensure_column(
     ddl: str,
 ) -> None:
     """Añade una columna si no existe (migración no destructiva)."""
-    columns = {
-        row["name"] for row in conn.execute(f"PRAGMA table_info({table})")
-    }
+    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
     if column not in columns:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
 
 
 def _migrate_v1(conn: sqlite3.Connection) -> None:
-    conn.executescript(
-        """
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,
@@ -167,8 +166,7 @@ def _migrate_v1(conn: sqlite3.Connection) -> None:
             ON executions (result);
         CREATE INDEX IF NOT EXISTS idx_passwords_creation_date
             ON passwords (creation_date);
-        """
-    )
+        """)
 
 
 def _migrate_v2(conn: sqlite3.Connection) -> None:
@@ -187,14 +185,12 @@ def _migrate_v2(conn: sqlite3.Connection) -> None:
     )
 
     # Normaliza resúmenes duplicados y garantiza unicidad por ejecución.
-    conn.execute(
-        """
+    conn.execute("""
         DELETE FROM execution_summaries
         WHERE id NOT IN (
             SELECT MIN(id) FROM execution_summaries GROUP BY execution_id
         )
-        """
-    )
+        """)
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS "
         "idx_execution_summaries_execution_id "
@@ -204,8 +200,7 @@ def _migrate_v2(conn: sqlite3.Connection) -> None:
 
 def _migrate_v3(conn: sqlite3.Connection) -> None:
     """Añade el modelo de lotes y resultados por host (P4)."""
-    conn.executescript(
-        """
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS execution_batches (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             batch_id TEXT NOT NULL UNIQUE,
@@ -252,8 +247,7 @@ def _migrate_v3(conn: sqlite3.Connection) -> None:
             ON execution_hosts (host);
         CREATE INDEX IF NOT EXISTS idx_hosts_result
             ON execution_hosts (result);
-        """
-    )
+        """)
 
 
 def _migrate_v4(conn: sqlite3.Connection) -> None:
@@ -268,8 +262,7 @@ def _migrate_v4(conn: sqlite3.Connection) -> None:
 
 def _migrate_v5(conn: sqlite3.Connection) -> None:
     """Persiste el estado de las tareas SSE para sobrevivir a reinicios (P4.1)."""
-    conn.executescript(
-        """
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS task_state (
             task_id TEXT PRIMARY KEY,
             payload TEXT NOT NULL,
@@ -278,25 +271,21 @@ def _migrate_v5(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_task_state_updated_at
             ON task_state (updated_at);
-        """
-    )
+        """)
 
 
 def _migrate_v6(conn: sqlite3.Connection) -> None:
     """Añade roles, bloqueo/auditoría de login y parámetros de prellenado."""
+    _ensure_column(conn, "users", "role", "role TEXT NOT NULL DEFAULT 'admin'")
     _ensure_column(
-        conn, "users", "role", "role TEXT NOT NULL DEFAULT 'admin'"
-    )
-    _ensure_column(
-        conn, "users", "failed_attempts",
+        conn,
+        "users",
+        "failed_attempts",
         "failed_attempts INTEGER NOT NULL DEFAULT 0",
     )
-    _ensure_column(
-        conn, "users", "locked_until", "locked_until TEXT"
-    )
+    _ensure_column(conn, "users", "locked_until", "locked_until TEXT")
 
-    conn.executescript(
-        """
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS auth_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT NOT NULL,
@@ -310,8 +299,7 @@ def _migrate_v6(conn: sqlite3.Connection) -> None:
             ON auth_events (timestamp);
         CREATE INDEX IF NOT EXISTS idx_auth_events_username
             ON auth_events (username);
-        """
-    )
+        """)
 
     for column, ddl in (
         ("admin_user", "admin_user TEXT NOT NULL DEFAULT ''"),
@@ -327,15 +315,13 @@ def _migrate_v6(conn: sqlite3.Connection) -> None:
 
 def _migrate_v7(conn: sqlite3.Connection) -> None:
     """Parámetros de ejecución persistentes (por ejemplo, el modo simulación)."""
-    conn.executescript(
-        """
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS app_settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
-        """
-    )
+        """)
 
 
 def _migrate_v8(conn: sqlite3.Connection) -> None:
@@ -344,8 +330,7 @@ def _migrate_v8(conn: sqlite3.Connection) -> None:
     Todas con ``CREATE TABLE IF NOT EXISTS``: la migración es idempotente y
     nunca transforma datos, así que puede ejecutarse siempre.
     """
-    conn.executescript(
-        """
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS inventory_groups (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
@@ -404,8 +389,7 @@ def _migrate_v8(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_approvals_status
             ON approvals (status, task_id);
-        """
-    )
+        """)
 
 
 def _migrate_v9(conn: sqlite3.Connection) -> None:
@@ -438,8 +422,7 @@ def _migrate_v11(conn: sqlite3.Connection) -> None:
     Antes vivían solo en memoria: un reinicio permitía reenviar la misma
     operación y varios workers no compartían la reserva.
     """
-    conn.executescript(
-        """
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS operation_ids (
             operation_id TEXT PRIMARY KEY,
             created_at TEXT NOT NULL,
@@ -448,8 +431,7 @@ def _migrate_v11(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_operation_ids_created
             ON operation_ids (created_at);
-        """
-    )
+        """)
 
 
 def _migrate_v12(conn: sqlite3.Connection) -> None:
@@ -566,8 +548,7 @@ def _migrate_v17(conn: sqlite3.Connection) -> None:
     intentos de credencial y caduca sola si el proceso muere, para que un
     despliegue caído no bloquee el host para siempre.
     """
-    conn.executescript(
-        """
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS host_locks (
             host TEXT PRIMARY KEY,
             batch_id TEXT NOT NULL,
@@ -578,8 +559,7 @@ def _migrate_v17(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_host_locks_expires_at
             ON host_locks (expires_at);
-        """
-    )
+        """)
 
 
 def _migrate_v18(conn: sqlite3.Connection) -> None:
@@ -596,9 +576,7 @@ def _migrate_v18(conn: sqlite3.Connection) -> None:
         "position INTEGER NOT NULL DEFAULT 0",
     )
     # Los lotes anteriores conservan el orden histórico (id de inserción).
-    conn.execute(
-        "UPDATE execution_hosts SET position = id WHERE position = 0"
-    )
+    conn.execute("UPDATE execution_hosts SET position = id WHERE position = 0")
 
 
 def init_schema(db_path: str) -> None:

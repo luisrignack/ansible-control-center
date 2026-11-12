@@ -101,7 +101,9 @@ def test_apply_playbook_never_echoes_the_secret_and_uses_chpasswd():
 
     assert data[0]["become"] is True
     change = next(
-        item for item in tasks if item.get("name") == "Cambiar la contraseña del usuario"
+        item
+        for item in tasks
+        if item.get("name") == "Cambiar la contraseña del usuario"
     )
     command = change["ansible.builtin.command"]
     assert command["argv"] == ["chpasswd"]
@@ -148,9 +150,7 @@ def test_parse_target_user_accepts_valid_and_rejects_invalid():
 
 
 def test_validate_new_password_requires_match_and_minimum_length():
-    assert (
-        app_module._validate_new_password("", "", required=False) is None
-    )
+    assert app_module._validate_new_password("", "", required=False) is None
     assert (
         app_module._validate_new_password("", "", required=True)
         == "La nueva contraseña es obligatoria."
@@ -158,13 +158,9 @@ def test_validate_new_password_requires_match_and_minimum_length():
     assert "no coinciden" in app_module._validate_new_password(
         NEW_PASSWORD, NEW_PASSWORD + "x", required=True
     )
-    assert "al menos" in app_module._validate_new_password(
-        "abc", "abc", required=True
-    )
+    assert "al menos" in app_module._validate_new_password("abc", "abc", required=True)
     assert (
-        app_module._validate_new_password(
-            NEW_PASSWORD, NEW_PASSWORD, required=True
-        )
+        app_module._validate_new_password(NEW_PASSWORD, NEW_PASSWORD, required=True)
         is None
     )
 
@@ -257,9 +253,7 @@ def test_inspect_password_decodes_state_without_secret(monkeypatch):
         target_user="ladmin",
     )
 
-    assert captured["playbook_path"] == str(
-        runner.PASSWORD_INSPECT_PLAYBOOK_FILE
-    )
+    assert captured["playbook_path"] == str(runner.PASSWORD_INSPECT_PLAYBOOK_FILE)
     assert captured["extra_vars"] == {"target_user": "ladmin"}
     assert result["success"] is True
     assert result["state"]["user"] == "ladmin"

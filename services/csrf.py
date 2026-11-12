@@ -9,7 +9,6 @@ from __future__ import annotations
 import hmac
 import secrets
 import time
-from typing import Optional
 
 from flask import abort, current_app, jsonify, request, session
 
@@ -21,10 +20,9 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
 
 
 def _wants_json() -> bool:
-    return (
-        request.headers.get("X-Requested-With") == "XMLHttpRequest"
-        or "application/json" in request.headers.get("Accept", "")
-    )
+    return request.headers.get(
+        "X-Requested-With"
+    ) == "XMLHttpRequest" or "application/json" in request.headers.get("Accept", "")
 
 
 def _time_limit() -> int:
@@ -35,9 +33,11 @@ def generate_csrf_token() -> str:
     """Devuelve el token de la sesión, creándolo o renovándolo si caducó."""
     token = session.get(CSRF_SESSION_KEY)
     issued = session.get(CSRF_SESSION_TS_KEY, 0)
-    if not token or not isinstance(issued, (int, float)):
-        token = None
-    elif time.time() - issued > _time_limit():
+    if (
+        not token
+        or not isinstance(issued, (int, float))
+        or time.time() - issued > _time_limit()
+    ):
         token = None
 
     if not token:
@@ -54,7 +54,7 @@ def rotate_csrf_token() -> str:
     return generate_csrf_token()
 
 
-def validate_csrf_token(token: Optional[str]) -> bool:
+def validate_csrf_token(token: str | None) -> bool:
     expected = session.get(CSRF_SESSION_KEY)
     issued = session.get(CSRF_SESSION_TS_KEY, 0)
     if not expected or not token:

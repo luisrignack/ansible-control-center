@@ -74,9 +74,7 @@ def _start_execution(client, mode: str, **overrides):
         ),
     }
     data.update(overrides)
-    response = _post(
-        client, "/", data=data, content_type="multipart/form-data"
-    )
+    response = _post(client, "/", data=data, content_type="multipart/form-data")
     assert response.status_code == 302, response.data
     task_id = response.headers["Location"].rstrip("/").split("/")[-1]
     return task_id
@@ -160,9 +158,7 @@ def test_batch_model_tracks_partial_results(tmp_path):
     assert hosts[1].error == "permiso denegado"
 
 
-def test_execution_processes_all_hosts_and_retries_passwords(
-    client, monkeypatch
-):
+def test_execution_processes_all_hosts_and_retries_passwords(client, monkeypatch):
     _login(client)
     db_path = app_module.get_db_path()
     calls = []
@@ -235,13 +231,15 @@ def test_execution_processes_all_hosts_and_retries_passwords(
     # se probó la segunda. El host 3 también agotó todas las candidatas.
     # Los hosts se procesan en paralelo: el orden de las llamadas ya no es
     # determinista, pero cada host conserva sus reintentos.
-    assert sorted(calls) == sorted([
-        ("10.0.0.1", "clave-uno"),
-        ("10.0.0.2", "clave-uno"),
-        ("10.0.0.2", "clave-dos"),
-        ("10.0.0.3", "clave-uno"),
-        ("10.0.0.3", "clave-dos"),
-    ])
+    assert sorted(calls) == sorted(
+        [
+            ("10.0.0.1", "clave-uno"),
+            ("10.0.0.2", "clave-uno"),
+            ("10.0.0.2", "clave-dos"),
+            ("10.0.0.3", "clave-uno"),
+            ("10.0.0.3", "clave-dos"),
+        ]
+    )
 
     history = client.get("/history")
     assert history.status_code == 200
@@ -258,9 +256,7 @@ def test_preview_inspects_without_applying_changes(client, monkeypatch):
     _login(client)
     db_path = app_module.get_db_path()
 
-    monkeypatch.setattr(
-        app_module, "resolve_target", lambda _target: ["10.0.0.10"]
-    )
+    monkeypatch.setattr(app_module, "resolve_target", lambda _target: ["10.0.0.10"])
     monkeypatch.setattr(
         app_module,
         "inspect_host",
@@ -301,14 +297,14 @@ def test_preview_inspects_without_applying_changes(client, monkeypatch):
     assert hosts[0].after_state["would_change"] is True
 
 
-def test_time_mode_and_ntp_policy_reach_ansible(client, monkeypatch, task_hora_multiaccion):
+def test_time_mode_and_ntp_policy_reach_ansible(
+    client, monkeypatch, task_hora_multiaccion
+):
     _login(client)
     db_path = app_module.get_db_path()
     received = {}
 
-    monkeypatch.setattr(
-        app_module, "resolve_target", lambda _target: ["10.0.0.20"]
-    )
+    monkeypatch.setattr(app_module, "resolve_target", lambda _target: ["10.0.0.20"])
     monkeypatch.setattr(
         app_module,
         "test_ansible_ping",
@@ -351,13 +347,9 @@ def test_time_mode_and_ntp_policy_reach_ansible(client, monkeypatch, task_hora_m
     assert batch.time_zone == "Europe/Madrid"
 
 
-def test_live_console_streams_redacts_and_compacts_markers(
-    client, monkeypatch
-):
+def test_live_console_streams_redacts_and_compacts_markers(client, monkeypatch):
     _login(client)
-    monkeypatch.setattr(
-        app_module, "resolve_target", lambda _target: ["10.0.0.30"]
-    )
+    monkeypatch.setattr(app_module, "resolve_target", lambda _target: ["10.0.0.30"])
     monkeypatch.setattr(
         app_module,
         "test_ansible_ping",
@@ -386,16 +378,12 @@ def test_live_console_streams_redacts_and_compacts_markers(
     assert "clave-uno" not in console
     assert "***" in console
     assert "[marcador de estado del host recibido]" in console
-    assert any(
-        "Playbook y verificación OK" in line for line in status["console"]
-    )
+    assert any("Playbook y verificación OK" in line for line in status["console"])
 
 
 def test_preview_failure_is_not_counted_as_real_error(client, monkeypatch):
     _login(client)
-    monkeypatch.setattr(
-        app_module, "resolve_target", lambda _target: ["10.0.0.55"]
-    )
+    monkeypatch.setattr(app_module, "resolve_target", lambda _target: ["10.0.0.55"])
     monkeypatch.setattr(
         app_module,
         "inspect_host",
@@ -420,9 +408,7 @@ def test_preview_failure_is_not_counted_as_real_error(client, monkeypatch):
 
 def test_dry_run_visible_and_persisted(client, monkeypatch):
     _login(client)
-    monkeypatch.setattr(
-        app_module, "resolve_target", lambda _target: ["10.0.0.40"]
-    )
+    monkeypatch.setattr(app_module, "resolve_target", lambda _target: ["10.0.0.40"])
     monkeypatch.setattr(
         app_module,
         "test_ansible_ping",
@@ -454,9 +440,7 @@ def test_dry_run_visible_and_persisted(client, monkeypatch):
 
 def test_real_execution_is_not_marked_as_dry_run(client, monkeypatch):
     _login(client)
-    monkeypatch.setattr(
-        app_module, "resolve_target", lambda _target: ["10.0.0.41"]
-    )
+    monkeypatch.setattr(app_module, "resolve_target", lambda _target: ["10.0.0.41"])
     monkeypatch.setattr(
         app_module,
         "test_ansible_ping",
@@ -478,16 +462,12 @@ def test_real_execution_is_not_marked_as_dry_run(client, monkeypatch):
     )
     assert batch is not None
     assert batch.dry_run is False
-    assert b"DRY RUN" not in client.get(
-        f"/batches/{status['batch_id']}"
-    ).data
+    assert b"DRY RUN" not in client.get(f"/batches/{status['batch_id']}").data
 
 
 def test_task_status_json_is_not_cached(client, monkeypatch):
     _login(client)
-    monkeypatch.setattr(
-        app_module, "resolve_target", lambda _target: ["10.0.0.70"]
-    )
+    monkeypatch.setattr(app_module, "resolve_target", lambda _target: ["10.0.0.70"])
     monkeypatch.setattr(
         app_module,
         "inspect_host",
@@ -509,9 +489,7 @@ def test_preview_inspects_for_real_even_in_dry_run(client, monkeypatch):
     _login(client)
     seen = {}
     monkeypatch.setattr(app_module, "DRY_RUN", True)
-    monkeypatch.setattr(
-        app_module, "resolve_target", lambda _target: ["10.0.0.71"]
-    )
+    monkeypatch.setattr(app_module, "resolve_target", lambda _target: ["10.0.0.71"])
 
     def fake_inspect(host, **kwargs):
         seen["force_real"] = kwargs.get("force_real")
@@ -543,9 +521,7 @@ def test_password_attempts_per_host_are_capped(client, monkeypatch):
     _login(client)
     calls = []
     monkeypatch.setattr(app_module, "MAX_PASSWORD_ATTEMPTS", 1)
-    monkeypatch.setattr(
-        app_module, "resolve_target", lambda _target: ["10.0.0.72"]
-    )
+    monkeypatch.setattr(app_module, "resolve_target", lambda _target: ["10.0.0.72"])
     monkeypatch.setattr(
         app_module,
         "test_ansible_ping",
@@ -609,16 +585,10 @@ def test_restore_does_not_add_net_ntp_change():
 
     # TZ ya correcta + restore: NTP vuelve a su estado previo, sin cambio neto.
     assert (
-        app_module._would_change(
-            state, "TZ", "UTC", "utc", "restore", False
-        )
-        is False
+        app_module._would_change(state, "TZ", "UTC", "utc", "restore", False) is False
     )
     # off sí exige apagar NTP.
-    assert (
-        app_module._would_change(state, "TZ", "UTC", "utc", "off", False)
-        is True
-    )
+    assert app_module._would_change(state, "TZ", "UTC", "utc", "off", False) is True
     # configure exige activar NTP cuando está apagado.
     assert (
         app_module._would_change(
@@ -663,9 +633,7 @@ def test_preview_warns_about_time_with_keep_and_active_ntp(
     client, monkeypatch, task_hora_multiaccion
 ):
     _login(client)
-    monkeypatch.setattr(
-        app_module, "resolve_target", lambda _target: ["10.0.0.42"]
-    )
+    monkeypatch.setattr(app_module, "resolve_target", lambda _target: ["10.0.0.42"])
     monkeypatch.setattr(
         app_module,
         "inspect_host",
@@ -710,18 +678,14 @@ def test_login_cookies_are_hardened(client):
 
     cookies = response.headers.getlist("Set-Cookie")
     session_cookie = next(c for c in cookies if c.startswith("session="))
-    remember_cookie = next(
-        c for c in cookies if c.startswith("remember_token=")
-    )
+    remember_cookie = next(c for c in cookies if c.startswith("remember_token="))
 
     # La sesión es permanente y la cookie no es accesible desde JavaScript.
     assert "HttpOnly" in session_cookie
     assert "SameSite=Lax" in session_cookie
     assert "Expires=" in session_cookie
     assert "Expires=" in remember_cookie
-    assert app_module.app.config[
-        "REMEMBER_COOKIE_DURATION"
-    ].total_seconds() == 604800
+    assert app_module.app.config["REMEMBER_COOKIE_DURATION"].total_seconds() == 604800
     assert "HttpOnly" in remember_cookie
     assert "SameSite=Lax" in remember_cookie
     assert "Secure" not in session_cookie
@@ -767,37 +731,25 @@ def test_duplicate_submission_is_idempotent(client, monkeypatch, task_hora_multi
     import re
 
     _login(client)
-    monkeypatch.setattr(
-        app_module, "resolve_target", lambda _target: ["10.0.0.50"]
-    )
+    monkeypatch.setattr(app_module, "resolve_target", lambda _target: ["10.0.0.50"])
     monkeypatch.setattr(
         app_module,
         "test_ansible_ping",
         lambda **_kwargs: {"success": True, "error": ""},
     )
-    monkeypatch.setattr(
-        app_module, "apply_host", lambda host, **_kwargs: _ok(host)
-    )
+    monkeypatch.setattr(app_module, "apply_host", lambda host, **_kwargs: _ok(host))
 
     page = client.get("/tarea/zona-todas")
-    match = re.search(
-        rb'name="operation_id" value="([0-9a-f]+)"', page.data
-    )
+    match = re.search(rb'name="operation_id" value="([0-9a-f]+)"', page.data)
     assert match is not None
     operation_id = match.group(1).decode()
 
-    first_task = _start_execution(
-        client, "execute", operation_id=operation_id
-    )
-    second_task = _start_execution(
-        client, "execute", operation_id=operation_id
-    )
+    first_task = _start_execution(client, "execute", operation_id=operation_id)
+    second_task = _start_execution(client, "execute", operation_id=operation_id)
 
     assert second_task == first_task
     _wait_for_task(client, first_task)
-    batches = ExecutionBatch.get_batches(
-        db_path=app_module.get_db_path()
-    )
+    batches = ExecutionBatch.get_batches(db_path=app_module.get_db_path())
     assert len(batches) == 1
 
 
@@ -822,17 +774,13 @@ def test_operation_ids_persist_in_sqlite(client):
 
 def test_task_state_survives_memory_loss(client, monkeypatch):
     _login(client)
-    monkeypatch.setattr(
-        app_module, "resolve_target", lambda _target: ["10.0.0.60"]
-    )
+    monkeypatch.setattr(app_module, "resolve_target", lambda _target: ["10.0.0.60"])
     monkeypatch.setattr(
         app_module,
         "test_ansible_ping",
         lambda **_kwargs: {"success": True, "error": ""},
     )
-    monkeypatch.setattr(
-        app_module, "apply_host", lambda host, **_kwargs: _ok(host)
-    )
+    monkeypatch.setattr(app_module, "apply_host", lambda host, **_kwargs: _ok(host))
 
     task_id = _start_execution(client, "execute")
     status = _wait_for_task(client, task_id)
@@ -852,9 +800,7 @@ def test_task_state_survives_memory_loss(client, monkeypatch):
 
 def test_incomplete_tasks_are_closed_after_restart(client):
     task_id = app_module.create_task()
-    app_module.update_task(
-        task_id, {"status": "running", "message": "En curso"}
-    )
+    app_module.update_task(task_id, {"status": "running", "message": "En curso"})
     with app_module._tasks_lock:
         app_module._tasks.pop(task_id, None)
 

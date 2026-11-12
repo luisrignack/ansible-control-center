@@ -2,8 +2,9 @@
 # Preferencias del panel: ocultar/restaurar tarjetas y pestañas de Configuración.
 from __future__ import annotations
 
-import app as app_module
 import pytest
+
+import app as app_module
 from models.user import User
 
 
@@ -12,9 +13,7 @@ def client(tmp_path, monkeypatch):
     db_path = str(tmp_path / "modules.db")
     monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
     app_module.init_db()
-    User.create_or_update(
-        "admin", "admin-password-123", db_path=db_path, role="admin"
-    )
+    User.create_or_update("admin", "admin-password-123", db_path=db_path, role="admin")
     User.create_or_update(
         "operador", "operador-password-123", db_path=db_path, role="operator"
     )

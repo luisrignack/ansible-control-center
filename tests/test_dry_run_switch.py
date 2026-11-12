@@ -5,10 +5,9 @@ from __future__ import annotations
 import pytest
 
 import app as app_module
-import services.ansible_runner as ansible_runner
-import services.password_tester as password_tester
 from models.db import get_setting
 from models.user import User
+from services import ansible_runner, password_tester
 
 
 @pytest.fixture()

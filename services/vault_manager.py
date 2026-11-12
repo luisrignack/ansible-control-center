@@ -10,15 +10,15 @@ from __future__ import annotations
 import fcntl
 import os
 import subprocess
-import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any
 
 from config import (
     BIN_ANSIBLE_VAULT,
-    MAX_PASSWORDS,
     MAX_PASSWORD_LENGTH,
+    MAX_PASSWORDS,
     resolve_vault_file,
 )
 from models.password import PasswordRecord
@@ -51,9 +51,9 @@ def _vault_lock(vault_file: str) -> Iterator[None]:
             os.close(fd)
 
 
-def _normalize_passwords(passwords: List[str]) -> List[str]:
+def _normalize_passwords(passwords: list[str]) -> list[str]:
     """Limpia, valida y deduplica contraseñas conservando el orden."""
-    normalized: List[str] = []
+    normalized: list[str] = []
     seen = set()
     for raw in passwords:
         password = (raw or "").strip()
@@ -73,9 +73,9 @@ def _normalize_passwords(passwords: List[str]) -> List[str]:
     return normalized
 
 
-def _parse_plaintext(content: str) -> List[Dict[str, Any]]:
+def _parse_plaintext(content: str) -> list[dict[str, Any]]:
     """Convierte el contenido descifrado en entradas con hashes."""
-    entries: List[Dict[str, Any]] = []
+    entries: list[dict[str, Any]] = []
     for line in content.splitlines():
         password = line.strip()
         if not password or password.startswith("#"):
@@ -97,7 +97,11 @@ def _vault_error(result: subprocess.CompletedProcess) -> str:
     """Mensaje de error legible sin exponer secretos."""
     detail = (result.stderr or result.stdout or "").strip()
     lowered = detail.lower()
-    if "decrypt" in lowered or "invalid vault password" in lowered or "vault password" in lowered:
+    if (
+        "decrypt" in lowered
+        or "invalid vault password" in lowered
+        or "vault password" in lowered
+    ):
         return "Contraseña maestra incorrecta o vault corrupto."
     if "not found" in lowered or "no such file" in lowered:
         return "ansible-vault no encontrado. Instala ansible-core."
@@ -123,13 +127,13 @@ class VaultManager:
 
     @staticmethod
     def encrypt_passwords(
-        passwords: List[str],
+        passwords: list[str],
         master_password: str,
-        output_file: str = None,
+        output_file: str | None = None,
         origin: str = "manual",
         append: bool = True,
-        db_path: str = None,
-    ) -> Tuple[bool, str]:
+        db_path: str | None = None,
+    ) -> tuple[bool, str]:
         """Cifra contraseñas y actualiza el vault de forma atómica y segura.
 
         La lectura-modificación-escritura se hace bajo un bloqueo de fichero
@@ -155,13 +159,13 @@ class VaultManager:
 
     @staticmethod
     def _encrypt_passwords_unlocked(
-        passwords: List[str],
+        passwords: list[str],
         master_password: str,
-        output_file: str = None,
+        output_file: str | None = None,
         origin: str = "manual",
         append: bool = True,
-        db_path: str = None,
-    ) -> Tuple[bool, str]:
+        db_path: str | None = None,
+    ) -> tuple[bool, str]:
         """Cifra contraseñas y actualiza el vault de forma atómica.
 
         Si ``append`` es ``True`` y el vault ya existe, se descifra con la
@@ -195,9 +199,12 @@ class VaultManager:
             if not parent_existed:
                 os.chmod(output_path.parent, 0o700)
         except OSError as exc:
-            return False, f"No se puede escribir el vault en {output_path.parent}: {exc}"
+            return (
+                False,
+                f"No se puede escribir el vault en {output_path.parent}: {exc}",
+            )
 
-        existing: List[str] = []
+        existing: list[str] = []
         if append and output_path.exists() and output_path.stat().st_size > 0:
             ok, message, entries = VaultManager.decrypt_vault_file(
                 vault_file=str(output_path),
@@ -223,14 +230,12 @@ class VaultManager:
         try:
             for password in combined:
                 hash_full = PasswordRecord.hash_full(password)
-                if not PasswordRecord.exists_by_hash_full(
-                    hash_full, db_path=db_path
-                ):
+                if not PasswordRecord.exists_by_hash_full(hash_full, db_path=db_path):
                     PasswordRecord.store_password(
                         password, origin=origin, db_path=db_path
                     )
                     stored += 1
-        except Exception:  # pragma: no cover - no impedir el vault por la BD
+        except Exception:  # noqa: BLE001  # no impedir el vault por la BD
             # El vault ya está guardado; la UI puede reintentar el registro.
             return True, (
                 f"Vault guardado con {len(combined)} contraseña(s), pero no se "
@@ -244,10 +249,10 @@ class VaultManager:
 
     @staticmethod
     def _write_encrypted(
-        passwords: List[str],
+        passwords: list[str],
         master_password: str,
         output_path: Path,
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Cifra la lista completa y reemplaza el vault de forma atómica."""
         plaintext = "\n".join(passwords) + "\n"
 
@@ -277,6 +282,7 @@ class VaultManager:
                         capture_output=True,
                         text=True,
                         timeout=VAULT_TIMEOUT,
+                        check=False,
                     )
 
                 if result.returncode != 0:
@@ -295,7 +301,7 @@ class VaultManager:
             return False, f"Timeout al cifrar el vault ({VAULT_TIMEOUT}s)."
         except OSError as exc:
             return False, f"Error de fichero al guardar el vault: {exc}"
-        except Exception as exc:  # pragma: no cover - salvaguarda
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover - salvaguarda
             return False, f"Error inesperado al cifrar el vault: {exc}"
 
         return True, ""
@@ -304,8 +310,8 @@ class VaultManager:
     def remove_password(
         password_hash_full: str,
         master_password: str,
-        vault_file: str = None,
-    ) -> Tuple[bool, str]:
+        vault_file: str | None = None,
+    ) -> tuple[bool, str]:
         """Elimina del vault la contraseña con ese hash completo.
 
         La operación se serializa con el resto de escrituras del vault.
@@ -332,7 +338,7 @@ class VaultManager:
         password_hash_full: str,
         master_password: str,
         vault_file: str,
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Implementación de ``remove_password`` ya bajo el bloqueo."""
         ok, message, entries = VaultManager.decrypt_vault_file(
             vault_file=vault_file,
@@ -370,15 +376,13 @@ class VaultManager:
         if not ok:
             return False, message
 
-        return True, (
-            f"Contraseña eliminada del vault ({len(remaining)} restante(s))."
-        )
+        return True, (f"Contraseña eliminada del vault ({len(remaining)} restante(s)).")
 
     @staticmethod
     def decrypt_vault_file(
-        vault_file: str = None,
-        master_password: str = None,
-    ) -> Tuple[bool, str, Optional[List[Dict[str, Any]]]]:
+        vault_file: str | None = None,
+        master_password: str | None = None,
+    ) -> tuple[bool, str, list[dict[str, Any]] | None]:
         """Descifra el vault en memoria y devuelve las contraseñas.
 
         Returns:
@@ -416,12 +420,13 @@ class VaultManager:
                     capture_output=True,
                     text=True,
                     timeout=VAULT_TIMEOUT,
+                    check=False,
                 )
         except FileNotFoundError:
             return False, "ansible-vault no encontrado. Instala ansible-core.", None
         except subprocess.TimeoutExpired:
             return False, f"Timeout al descifrar el vault ({VAULT_TIMEOUT}s).", None
-        except Exception as exc:  # pragma: no cover - salvaguarda
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover - salvaguarda
             return False, f"Error inesperado al descifrar: {exc}", None
 
         if result.returncode != 0:
@@ -435,9 +440,9 @@ class VaultManager:
 
     @staticmethod
     def validate_master_password(
-        vault_file: str = None,
-        test_password: str = None,
-    ) -> Tuple[bool, str]:
+        vault_file: str | None = None,
+        test_password: str | None = None,
+    ) -> tuple[bool, str]:
         """Comprueba que la contraseña maestra puede abrir el vault."""
         if test_password is None:
             test_password = VaultManager._get_master_password()

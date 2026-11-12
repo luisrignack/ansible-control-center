@@ -9,12 +9,13 @@
 
 Todas las operaciones usan ``get_connection`` y son no destructivas.
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from models.db import get_connection
 from services.safety import (
@@ -29,6 +30,7 @@ from services.safety import (
 
 class OSFlavor:
     """Sistemas operativos soportados por el inventario."""
+
     LINUX = "linux"
     WINDOWS = "windows"
 
@@ -39,6 +41,7 @@ OS_FLAVORS = (OSFlavor.LINUX, OSFlavor.WINDOWS)
 
 class OSConnection:
     """Tipos de conexión de Ansible por plataforma."""
+
     SSH = "ssh"
     WINRM = "winrm"
 
@@ -53,7 +56,7 @@ def _default_db_path() -> str:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _criticality_label(value: str) -> str:
@@ -62,7 +65,7 @@ def _criticality_label(value: str) -> str:
     return CRITICALITY_LABELS.get(str(value or "").lower(), "—")
 
 
-def params_hash(params: Dict[str, Any]) -> str:
+def params_hash(params: dict[str, Any]) -> str:
     """Hash estable de los parámetros de una solicitud de aprobación.
 
     Excluye secretos: los parámetros que viajan aquí nunca contienen
@@ -108,7 +111,7 @@ class HostGroup:
         self.window_end = window_end or ""
         self.window_note = window_note or ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,
@@ -138,7 +141,7 @@ class HostGroup:
         )
 
     @staticmethod
-    def _row_to_group(row) -> "HostGroup":
+    def _row_to_group(row) -> HostGroup:
         keys = row.keys()
         return HostGroup(
             id=row["id"],
@@ -150,34 +153,28 @@ class HostGroup:
             created_at=row["created_at"],
             host_count=row["host_count"] if "host_count" in keys else 0,
             criticality=(
-                row["criticality"]
-                if "criticality" in keys
-                else DEFAULT_CRITICALITY
+                row["criticality"] if "criticality" in keys else DEFAULT_CRITICALITY
             ),
             window_days=row["window_days"] if "window_days" in keys else "",
-            window_start=(
-                row["window_start"] if "window_start" in keys else ""
-            ),
+            window_start=(row["window_start"] if "window_start" in keys else ""),
             window_end=row["window_end"] if "window_end" in keys else "",
             window_note=row["window_note"] if "window_note" in keys else "",
         )
 
     @classmethod
-    def all(cls, db_path: str = None) -> List["HostGroup"]:
+    def all(cls, db_path: str | None = None) -> list[HostGroup]:
         if db_path is None:
             db_path = _default_db_path()
         with get_connection(db_path) as conn:
-            rows = conn.execute(
-                """
+            rows = conn.execute("""
                 SELECT g.*, (SELECT COUNT(*) FROM inventory_hosts h
                              WHERE h.group_id = g.id) AS host_count
                 FROM inventory_groups g ORDER BY g.name
-                """
-            ).fetchall()
+                """).fetchall()
         return [cls._row_to_group(row) for row in rows]
 
     @classmethod
-    def get(cls, group_id: int, db_path: str = None) -> Optional["HostGroup"]:
+    def get(cls, group_id: int, db_path: str | None = None) -> HostGroup | None:
         if db_path is None:
             db_path = _default_db_path()
         with get_connection(db_path) as conn:
@@ -198,13 +195,13 @@ class HostGroup:
         description: str = "",
         os_flavor: str = "linux",
         connection: str = "",
-        db_path: str = None,
+        db_path: str | None = None,
         criticality: str = DEFAULT_CRITICALITY,
         window_days: str = "",
         window_start: str = "",
         window_end: str = "",
         window_note: str = "",
-    ) -> "HostGroup":
+    ) -> HostGroup:
         if db_path is None:
             db_path = _default_db_path()
         name = (name or "").strip()
@@ -216,9 +213,7 @@ class HostGroup:
         # La conexión se deriva de la plataforma salvo que se fuerce.
         connection = (connection or "").strip().lower()
         if not connection:
-            connection = (
-                "winrm" if os_flavor == OSFlavor.WINDOWS else "ssh"
-            )
+            connection = "winrm" if os_flavor == OSFlavor.WINDOWS else "ssh"
         if connection not in OS_CONNECTIONS:
             raise ValueError("Tipo de conexión no soportado.")
 
@@ -252,7 +247,10 @@ class HostGroup:
                     (window_note or "").strip()[:200],
                 ),
             )
-        return cls.get(cursor.lastrowid, db_path=db_path)
+        created = cls.get(int(cursor.lastrowid or 0), db_path=db_path)
+        if created is None:  # pragma: no cover - el INSERT acaba de ejecutarse
+            raise RuntimeError(f"No se pudo recuperar el grupo creado: {name}")
+        return created
 
     @classmethod
     def set_safety(
@@ -263,7 +261,7 @@ class HostGroup:
         window_start: str = "",
         window_end: str = "",
         window_note: str = "",
-        db_path: str = None,
+        db_path: str | None = None,
     ) -> None:
         """Actualiza criticidad y ventana de un grupo existente."""
         if db_path is None:
@@ -295,7 +293,7 @@ class HostGroup:
 
     @classmethod
     def set_ssh_key(
-        cls, group_id: int, ssh_key_path: str, db_path: str = None
+        cls, group_id: int, ssh_key_path: str, db_path: str | None = None
     ) -> None:
         if db_path is None:
             db_path = _default_db_path()
@@ -305,23 +303,17 @@ class HostGroup:
                 (ssh_key_path or "", int(group_id)),
             )
 
-    def delete(self, db_path: str = None) -> None:
+    def delete(self, db_path: str | None = None) -> None:
         if db_path is None:
             db_path = _default_db_path()
         if self.id is None:
             return
         with get_connection(db_path) as conn:
-            conn.execute(
-                "DELETE FROM inventory_hosts WHERE group_id = ?", (self.id,)
-            )
-            conn.execute(
-                "DELETE FROM inventory_groups WHERE id = ?", (self.id,)
-            )
+            conn.execute("DELETE FROM inventory_hosts WHERE group_id = ?", (self.id,))
+            conn.execute("DELETE FROM inventory_groups WHERE id = ?", (self.id,))
 
     @classmethod
-    def hosts_of(
-        cls, group_id: int, db_path: str = None
-    ) -> List["InventoryHost"]:
+    def hosts_of(cls, group_id: int, db_path: str | None = None) -> list[InventoryHost]:
         if db_path is None:
             db_path = _default_db_path()
         with get_connection(db_path) as conn:
@@ -355,7 +347,7 @@ class InventoryHost:
         self.criticality = criticality or ""
 
     @staticmethod
-    def from_row(row) -> "InventoryHost":
+    def from_row(row) -> InventoryHost:
         keys = row.keys()
         return InventoryHost(
             id=row["id"],
@@ -363,12 +355,10 @@ class InventoryHost:
             address=row["address"],
             label=row["label"],
             created_at=row["created_at"],
-            criticality=(
-                row["criticality"] if "criticality" in keys else ""
-            ),
+            criticality=(row["criticality"] if "criticality" in keys else ""),
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "group_id": self.group_id,
@@ -383,9 +373,9 @@ class InventoryHost:
         group_id: int,
         address: str,
         label: str = "",
-        db_path: str = None,
+        db_path: str | None = None,
         criticality: str = "",
-    ) -> Tuple[Optional["InventoryHost"], Optional[str]]:
+    ) -> tuple[InventoryHost | None, str | None]:
         """Añade un host validando su formato IPv4.
 
         Devuelve ``(host, error)``. La validación de formato es la misma que
@@ -431,18 +421,22 @@ class InventoryHost:
                         criticality,
                     ),
                 )
-            except Exception as exc:  # duplicado u otro error
+            except Exception as exc:  # noqa: BLE001  # duplicado u otro error
                 return None, f"No se pudo añadir el host: {exc}"
         return (
             InventoryHost(
-                cursor.lastrowid, group_id, pinned, label, criticality=criticality
+                int(cursor.lastrowid or 0),
+                group_id,
+                pinned,
+                label,
+                criticality=criticality,
             ),
             None,
         )
 
     @classmethod
     def set_criticality(
-        cls, host_id: int, criticality: str, db_path: str = None
+        cls, host_id: int, criticality: str, db_path: str | None = None
     ) -> None:
         if db_path is None:
             db_path = _default_db_path()
@@ -455,8 +449,8 @@ class InventoryHost:
 
     @classmethod
     def find_by_address(
-        cls, address: str, db_path: str = None
-    ) -> Tuple[Optional["InventoryHost"], Optional["HostGroup"]]:
+        cls, address: str, db_path: str | None = None
+    ) -> tuple[InventoryHost | None, HostGroup | None]:
         """Busca un host por IP y devuelve también su grupo (si existe)."""
         if db_path is None:
             db_path = _default_db_path()
@@ -470,13 +464,11 @@ class InventoryHost:
         host = cls.from_row(row)
         return host, HostGroup.get(host.group_id, db_path=db_path)
 
-    def delete(self, db_path: str = None) -> None:
+    def delete(self, db_path: str | None = None) -> None:
         if db_path is None:
             db_path = _default_db_path()
         with get_connection(db_path) as conn:
-            conn.execute(
-                "DELETE FROM inventory_hosts WHERE id = ?", (int(self.id),)
-            )
+            conn.execute("DELETE FROM inventory_hosts WHERE id = ?", (int(self.id),))
 
 
 # ---------------------------------------------------------------------------
@@ -505,7 +497,7 @@ class Schedule:
         self.created_by = row["created_by"]
         self.created_at = row["created_at"]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,
@@ -521,36 +513,32 @@ class Schedule:
         }
 
     @staticmethod
-    def is_due(row, now: Optional[datetime] = None) -> bool:
+    def is_due(row, now: datetime | None = None) -> bool:
         """Indica si una fila de ``schedules`` está lista para dispararse."""
         if not bool(row["enabled"]):
             return False
         plan = datetime.fromisoformat(row["run_at"])
         if plan.tzinfo is None:
-            plan = plan.replace(tzinfo=timezone.utc)
-        now = now or datetime.now(timezone.utc)
+            plan = plan.replace(tzinfo=UTC)
+        now = now or datetime.now(UTC)
         return now >= plan
 
     @classmethod
-    def due(cls, db_path: str = None) -> List["Schedule"]:
+    def due(cls, db_path: str | None = None) -> list[Schedule]:
         """Devuelve las programaciones activas cuya hora ya llegó."""
         if db_path is None:
             db_path = _default_db_path()
         with get_connection(db_path) as conn:
-            rows = conn.execute(
-                "SELECT * FROM schedules WHERE enabled = 1"
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM schedules WHERE enabled = 1").fetchall()
         return [cls(row) for row in rows if cls.is_due(row)]
 
     @classmethod
-    def due_rows(cls, db_path: str = None) -> List[Any]:
+    def due_rows(cls, db_path: str | None = None) -> list[Any]:
         """Fila cruda de programaciones vencidas (para workflows con claim)."""
         if db_path is None:
             db_path = _default_db_path()
         with get_connection(db_path) as conn:
-            rows = conn.execute(
-                "SELECT * FROM schedules WHERE enabled = 1"
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM schedules WHERE enabled = 1").fetchall()
         return [row for row in rows if cls.is_due(row)]
 
     @classmethod
@@ -559,7 +547,7 @@ class Schedule:
         schedule_id: int,
         owner: str = "",
         lease_seconds: int = 300,
-        db_path: str = None,
+        db_path: str | None = None,
     ) -> bool:
         """Reserva atómicamente una programación vencida para un proceso.
 
@@ -570,7 +558,7 @@ class Schedule:
         """
         if db_path is None:
             db_path = _default_db_path()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         cutoff = (now - timedelta(seconds=int(lease_seconds))).isoformat(
             timespec="seconds"
         )
@@ -595,7 +583,7 @@ class Schedule:
             return int(cursor.rowcount or 0) == 1
 
     @classmethod
-    def all(cls, db_path: str = None) -> List["Schedule"]:
+    def all(cls, db_path: str | None = None) -> list[Schedule]:
         if db_path is None:
             db_path = _default_db_path()
         with get_connection(db_path) as conn:
@@ -605,7 +593,7 @@ class Schedule:
         return [cls(row) for row in rows]
 
     @classmethod
-    def get(cls, schedule_id: int, db_path: str = None) -> Optional["Schedule"]:
+    def get(cls, schedule_id: int, db_path: str | None = None) -> Schedule | None:
         if db_path is None:
             db_path = _default_db_path()
         with get_connection(db_path) as conn:
@@ -620,11 +608,11 @@ class Schedule:
         name: str,
         task_id: str,
         run_at: datetime,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         recurrence: str = SCHEDULE_ONESHOT,
         created_by: str = "",
-        db_path: str = None,
-    ) -> "Schedule":
+        db_path: str | None = None,
+    ) -> Schedule:
         if db_path is None:
             db_path = _default_db_path()
         name = (name or "").strip()
@@ -633,8 +621,8 @@ class Schedule:
         if recurrence not in SCHEDULE_RECURRENCES:
             raise ValueError("Recurrencia no válida.")
         if run_at.tzinfo is None:
-            run_at = run_at.replace(tzinfo=timezone.utc)
-        if run_at < datetime.now(timezone.utc) - timedelta(seconds=120):
+            run_at = run_at.replace(tzinfo=UTC)
+        if run_at < datetime.now(UTC) - timedelta(seconds=120):
             raise ValueError("La fecha/hora debe estar en el futuro (UTC).")
         with get_connection(db_path) as conn:
             cursor = conn.execute(
@@ -654,16 +642,14 @@ class Schedule:
                     _now(),
                 ),
             )
-        row = conn_row = None
+        row = None
         with get_connection(db_path) as conn:
             row = conn.execute(
                 "SELECT * FROM schedules WHERE id = ?",
                 (cursor.lastrowid,),
             ).fetchone()
         if row is None:  # pragma: no cover - el INSERT acaba de ejecutarse
-            raise RuntimeError(
-                f"No se pudo recuperar la programación creada: {name}"
-            )
+            raise RuntimeError(f"No se pudo recuperar la programación creada: {name}")
         return Schedule(row)
 
     @classmethod
@@ -671,7 +657,7 @@ class Schedule:
         cls,
         schedule_id: int,
         enabled: bool,
-        db_path: str = None,
+        db_path: str | None = None,
     ) -> None:
         if db_path is None:
             db_path = _default_db_path()
@@ -682,7 +668,7 @@ class Schedule:
             )
 
     @classmethod
-    def delete(cls, schedule_id: int, db_path: str = None) -> None:
+    def delete(cls, schedule_id: int, db_path: str | None = None) -> None:
         if db_path is None:
             db_path = _default_db_path()
         with get_connection(db_path) as conn:
@@ -694,10 +680,10 @@ class Schedule:
         schedule_id: int,
         batch_id: str = "",
         error: str = "",
-        next_run: Optional[datetime] = None,
+        next_run: datetime | None = None,
         disable: bool = False,
         retry_delay_seconds: int = 0,
-        db_path: str = None,
+        db_path: str | None = None,
     ) -> None:
         """Registra el disparo de una programación y calcula la siguiente.
 
@@ -710,13 +696,11 @@ class Schedule:
         if db_path is None:
             db_path = _default_db_path()
         enabled = 0 if disable else 1
-        scheduled_at: Optional[str] = None
+        scheduled_at: str | None = None
         if next_run is not None:
             scheduled_at = next_run.isoformat(timespec="seconds")
         elif retry_delay_seconds > 0:
-            retry_at = datetime.now(timezone.utc) + timedelta(
-                seconds=int(retry_delay_seconds)
-            )
+            retry_at = datetime.now(UTC) + timedelta(seconds=int(retry_delay_seconds))
             scheduled_at = retry_at.isoformat(timespec="seconds")
         with get_connection(db_path) as conn:
             if scheduled_at is not None:
@@ -754,7 +738,7 @@ class Schedule:
                     ),
                 )
 
-    def next_run_from(self, base: Optional[datetime] = None) -> Optional[datetime]:
+    def next_run_from(self, base: datetime | None = None) -> datetime | None:
         """Próxima ejecución tras un disparo, según la recurrencia.
 
         La base nunca puede ser anterior a ``ahora``: si la aplicación estuvo
@@ -766,8 +750,8 @@ class Schedule:
             return None
         moment = base or _parse_utc(self.run_at)
         if moment.tzinfo is None:
-            moment = moment.replace(tzinfo=timezone.utc)
-        moment = max(moment, datetime.now(timezone.utc))
+            moment = moment.replace(tzinfo=UTC)
+        moment = max(moment, datetime.now(UTC))
         if self.recurrence == SCHEDULE_DAILY:
             return moment + timedelta(days=1)
         return moment + timedelta(days=7)
@@ -776,7 +760,7 @@ class Schedule:
 def _parse_utc(value: str) -> datetime:
     plan = datetime.fromisoformat(value)
     if plan.tzinfo is None:
-        plan = plan.replace(tzinfo=timezone.utc)
+        plan = plan.replace(tzinfo=UTC)
     return plan
 
 
@@ -817,7 +801,7 @@ class ApprovalRequest:
         keys = row.keys() if hasattr(row, "keys") else ()
         self.payload = json.loads((row["payload"] if "payload" in keys else "") or "{}")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "task_id": self.task_id,
@@ -835,7 +819,7 @@ class ApprovalRequest:
         start = _parse_utc(self.requested_at)
         return (start + timedelta(hours=ttl_hours)).isoformat(timespec="seconds")
 
-    def approved_deadline(self, ttl_minutes: float) -> Optional[str]:
+    def approved_deadline(self, ttl_minutes: float) -> str | None:
         """Momento hasta el que una aprobación se puede ejecutar."""
         if not self.decided_at:
             return None
@@ -843,11 +827,11 @@ class ApprovalRequest:
         return (start + timedelta(minutes=ttl_minutes)).isoformat(timespec="seconds")
 
     @classmethod
-    def _by_row(cls, row) -> Optional["ApprovalRequest"]:
+    def _by_row(cls, row) -> ApprovalRequest | None:
         return cls(row) if row is not None else None
 
     @classmethod
-    def get(cls, request_id: int, db_path: str = None) -> Optional["ApprovalRequest"]:
+    def get(cls, request_id: int, db_path: str | None = None) -> ApprovalRequest | None:
         if db_path is None:
             db_path = _default_db_path()
         with get_connection(db_path) as conn:
@@ -858,8 +842,8 @@ class ApprovalRequest:
 
     @classmethod
     def list_status(
-        cls, status: str, limit: int = 100, db_path: str = None
-    ) -> List["ApprovalRequest"]:
+        cls, status: str, limit: int = 100, db_path: str | None = None
+    ) -> list[ApprovalRequest]:
         if db_path is None:
             db_path = _default_db_path()
         with get_connection(db_path) as conn:
@@ -876,11 +860,11 @@ class ApprovalRequest:
     def create(
         cls,
         task_id: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         requested_by: str,
-        payload: Optional[Dict[str, Any]] = None,
-        db_path: str = None,
-    ) -> "ApprovalRequest":
+        payload: dict[str, Any] | None = None,
+        db_path: str | None = None,
+    ) -> ApprovalRequest:
         """Creamos la solicitud sin secretos (params y payload sin contraseñas)."""
         if db_path is None:
             db_path = _default_db_path()
@@ -902,17 +886,15 @@ class ApprovalRequest:
                     json.dumps(payload or {}, ensure_ascii=False),
                 ),
             )
-        got = cls.get(cursor.lastrowid, db_path=db_path)
+        got = cls.get(int(cursor.lastrowid or 0), db_path=db_path)
         if got is None:  # pragma: no cover - el INSERT acaba de ejecutarse
-            raise RuntimeError(
-                f"No se pudo recuperar la aprobación creada: {task_id}"
-            )
+            raise RuntimeError(f"No se pudo recuperar la aprobación creada: {task_id}")
         return got
 
     @classmethod
     def list_for_requester(
-        cls, username: str, limit: int = 100, db_path: str = None
-    ) -> List["ApprovalRequest"]:
+        cls, username: str, limit: int = 100, db_path: str | None = None
+    ) -> list[ApprovalRequest]:
         """Solicitudes creadas por ``username``, de la más reciente a la más antigua."""
         if db_path is None:
             db_path = _default_db_path()
@@ -930,8 +912,8 @@ class ApprovalRequest:
     def expire_stale(
         cls,
         ttl_hours: float = APPROVAL_REQUEST_TTL_HOURS,
-        ttl_minutes: Optional[float] = None,
-        db_path: str = None,
+        ttl_minutes: float | None = None,
+        db_path: str | None = None,
     ) -> int:
         """Caduca solicitudes pendientes antiguas y aprobaciones no usadas.
 
@@ -940,11 +922,11 @@ class ApprovalRequest:
         """
         if db_path is None:
             db_path = _default_db_path()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         changed = 0
-        pending_cutoff = (
-            now - timedelta(hours=ttl_hours)
-        ).isoformat(timespec="seconds")
+        pending_cutoff = (now - timedelta(hours=ttl_hours)).isoformat(
+            timespec="seconds"
+        )
         with get_connection(db_path) as conn:
             cursor = conn.execute(
                 """
@@ -961,9 +943,9 @@ class ApprovalRequest:
             )
             changed += int(cursor.rowcount or 0)
             if ttl_minutes is not None:
-                approved_cutoff = (
-                    now - timedelta(minutes=ttl_minutes)
-                ).isoformat(timespec="seconds")
+                approved_cutoff = (now - timedelta(minutes=ttl_minutes)).isoformat(
+                    timespec="seconds"
+                )
                 cursor = conn.execute(
                     """
                     UPDATE approvals
@@ -989,8 +971,8 @@ class ApprovalRequest:
         approve: bool,
         note: str = "",
         ttl_hours: float = APPROVAL_REQUEST_TTL_HOURS,
-        db_path: str = None,
-    ) -> Tuple[Optional["ApprovalRequest"], Optional[str]]:
+        db_path: str | None = None,
+    ) -> tuple[ApprovalRequest | None, str | None]:
         """Aprueba o rechaza una solicitud pendiente.
 
         Devuelve ``(solicitud, error)``.
@@ -1007,12 +989,11 @@ class ApprovalRequest:
             return None, "El aprobador es obligatorio."
         if req.requested_by and req.requested_by == approver:
             return None, (
-                "El aprobador debe ser distinto del solicitante "
-                "(two-person rule)."
+                "El aprobador debe ser distinto del solicitante " "(two-person rule)."
             )
-        cutoff = (
-            datetime.now(timezone.utc) - timedelta(hours=ttl_hours)
-        ).isoformat(timespec="seconds")
+        cutoff = (datetime.now(UTC) - timedelta(hours=ttl_hours)).isoformat(
+            timespec="seconds"
+        )
         with get_connection(db_path) as conn:
             cursor = conn.execute(
                 """
@@ -1045,13 +1026,13 @@ class ApprovalRequest:
     def reserve_if_approved(
         cls,
         task_id: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         executor: str,
         approves_by_differs: bool,
         ttl_minutes: int,
         ttl_hours: float = APPROVAL_REQUEST_TTL_HOURS,
-        db_path: str = None,
-    ) -> Tuple[Optional[int], Optional[str]]:
+        db_path: str | None = None,
+    ) -> tuple[int | None, str | None]:
         """Reserva una aprobación válida sin consumirla todavía.
 
         Devuelve ``(request_id, None)`` si la reserva se adquirió, o
@@ -1066,7 +1047,7 @@ class ApprovalRequest:
         if db_path is None:
             db_path = _default_db_path()
         wanted = params_hash(params)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         lease_cutoff = (
             now - timedelta(minutes=APPROVAL_RESERVATION_LEASE_MINUTES)
         ).isoformat(timespec="seconds")
@@ -1089,10 +1070,12 @@ class ApprovalRequest:
                 (task_id, wanted),
             ).fetchall()
 
-        best_error = "Se requiere aprobación de un administrador para ejecutar esta tarea."
-        pending_cutoff = (
-            now - timedelta(hours=ttl_hours)
-        ).isoformat(timespec="seconds")
+        best_error = (
+            "Se requiere aprobación de un administrador para ejecutar esta tarea."
+        )
+        pending_cutoff = (now - timedelta(hours=ttl_hours)).isoformat(
+            timespec="seconds"
+        )
         for row in rows:
             req = cls(row)
             if req.status != APPROVAL_APPROVED:
@@ -1108,13 +1091,9 @@ class ApprovalRequest:
                             "solicitud pendiente, espera la decisión de un admin."
                         )
                 elif req.status == APPROVAL_CONSUMED:
-                    best_error = (
-                        "La aprobación ya se usó; solicita otra."
-                    )
+                    best_error = "La aprobación ya se usó; solicita otra."
                 elif req.status == APPROVAL_EXPIRED:
-                    best_error = (
-                        "La aprobación ha caducado; solicita una nueva."
-                    )
+                    best_error = "La aprobación ha caducado; solicita una nueva."
                 continue
             if req.requested_by and req.approver == req.requested_by:
                 best_error = (
@@ -1150,17 +1129,13 @@ class ApprovalRequest:
                     ),
                 )
                 if cursor.rowcount != 1:
-                    best_error = (
-                        "La aprobación ya se usó; solicita otra."
-                    )
+                    best_error = "La aprobación ya se usó; solicita otra."
                     continue
             return int(req.id), None
         return None, best_error
 
     @classmethod
-    def confirm_reserved(
-        cls, request_id: int, db_path: str = None
-    ) -> bool:
+    def confirm_reserved(cls, request_id: int, db_path: str | None = None) -> bool:
         """Convierte una reserva en consumo definitivo (un solo uso)."""
         if db_path is None:
             db_path = _default_db_path()
@@ -1181,9 +1156,7 @@ class ApprovalRequest:
             return int(cursor.rowcount or 0) == 1
 
     @classmethod
-    def release_reserved(
-        cls, request_id: int, db_path: str = None
-    ) -> bool:
+    def release_reserved(cls, request_id: int, db_path: str | None = None) -> bool:
         """Devuelve una reserva a ``approved`` si el envío no llegó a encolarse."""
         if db_path is None:
             db_path = _default_db_path()
@@ -1202,12 +1175,12 @@ class ApprovalRequest:
     def consume_if_approved(
         cls,
         task_id: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         executor: str,
         approves_by_differs: bool,
         ttl_minutes: int,
-        db_path: str = None,
-    ) -> Tuple[bool, Optional[str]]:
+        db_path: str | None = None,
+    ) -> tuple[bool, str | None]:
         """Reserva y consume una aprobación válida en una sola llamada.
 
         Se conserva como API compatible para los flujos que no necesitan

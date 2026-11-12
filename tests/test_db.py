@@ -45,9 +45,7 @@ def test_init_schema_sets_version_and_wal(db_path):
 
 def test_init_schema_is_idempotent_and_preserves_data(db_path):
     init_schema(db_path)
-    created = PasswordRecord.store_password(
-        "secreto", "manual", db_path=db_path
-    )
+    created = PasswordRecord.store_password("secreto", "manual", db_path=db_path)
 
     # Reinicializar varias veces no debe borrar ni duplicar datos.
     init_schema(db_path)
@@ -63,8 +61,7 @@ def test_migrates_legacy_v0_database(db_path):
     """Un esquema antiguo (sin versión ni columnas nuevas) se migra sin pérdida."""
     conn = sqlite3.connect(db_path)
     try:
-        conn.executescript(
-            """
+        conn.executescript("""
             CREATE TABLE executions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT NOT NULL,
@@ -85,8 +82,7 @@ def test_migrates_legacy_v0_database(db_path):
             INSERT INTO execution_summaries
                 (execution_id, host_count, success_count, failure_count)
             VALUES (1, 1, 1, 0), (1, 1, 1, 0);
-            """
-        )
+            """)
         conn.commit()
     finally:
         conn.close()
@@ -117,8 +113,7 @@ def test_init_schema_repairs_missing_tables(db_path):
     """Una base parcial (p. ej. truncada) se completa sin perder executions."""
     conn = sqlite3.connect(db_path)
     try:
-        conn.executescript(
-            """
+        conn.executescript("""
             CREATE TABLE executions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT NOT NULL,
@@ -133,8 +128,7 @@ def test_init_schema_repairs_missing_tables(db_path):
                 (timestamp, action, value, host, result)
             VALUES ('2024-01-01T00:00:00+00:00', 'TZ', 'UTC', '10.0.0.9', 'success');
             PRAGMA user_version = 2;
-            """
-        )
+            """)
         conn.commit()
     finally:
         conn.close()
@@ -335,9 +329,7 @@ def test_preview_failures_do_not_contaminate_real_stats(db_path):
         error="Sin conexión",
         db_path=db_path,
     )
-    ExecutionBatch.finish_batch(
-        "preview-error", status="preview", db_path=db_path
-    )
+    ExecutionBatch.finish_batch("preview-error", status="preview", db_path=db_path)
 
     stats = ExecutionBatch.get_stats(db_path=db_path)
     assert stats["error"] == 0
@@ -372,8 +364,7 @@ def test_migrates_v3_batches_to_dry_run_column(db_path):
     """Los lotes creados antes de P4.1 quedan como ejecuciones reales."""
     conn = sqlite3.connect(db_path)
     try:
-        conn.executescript(
-            """
+        conn.executescript("""
             CREATE TABLE execution_batches (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 batch_id TEXT NOT NULL UNIQUE,
@@ -396,8 +387,7 @@ def test_migrates_v3_batches_to_dry_run_column(db_path):
             INSERT INTO execution_batches
                 (batch_id, created_at, action, value, target)
             VALUES ('legacy', '2026-01-01T00:00:00+00:00', 'TZ', 'UTC', '10.0.0.1');
-            """
-        )
+            """)
         conn.execute("PRAGMA user_version = 3")
         conn.commit()
     finally:

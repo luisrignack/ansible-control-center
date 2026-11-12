@@ -14,7 +14,8 @@ from __future__ import annotations
 import math
 import threading
 from collections import deque
-from typing import Any, Deque, Dict, Iterable, Mapping
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 
 def percentile(values: Iterable[float], pct: float) -> float:
@@ -39,9 +40,9 @@ class RequestMetrics:
     def __init__(self, window: int = 500) -> None:
         self._window = max(10, int(window))
         self._lock = threading.Lock()
-        self._samples: Dict[str, Deque[float]] = {}
-        self._counts: Dict[str, int] = {}
-        self._errors: Dict[str, int] = {}
+        self._samples: dict[str, deque[float]] = {}
+        self._counts: dict[str, int] = {}
+        self._errors: dict[str, int] = {}
 
     def record(self, endpoint: str, duration_ms: float, status: int = 200) -> None:
         """Añade una muestra. ``endpoint`` vacío se agrupa como ``desconocido``."""
@@ -60,7 +61,7 @@ class RequestMetrics:
             if int(status or 0) >= 500:
                 self._errors[key] = self._errors.get(key, 0) + 1
 
-    def snapshot(self) -> Dict[str, Dict[str, Any]]:
+    def snapshot(self) -> dict[str, dict[str, Any]]:
         """Devuelve un resumen estable ordenado por nombre de endpoint."""
         with self._lock:
             keys = sorted(self._samples)
@@ -73,7 +74,7 @@ class RequestMetrics:
                 for key in keys
             }
 
-        result: Dict[str, Dict[str, Any]] = {}
+        result: dict[str, dict[str, Any]] = {}
         for key, (samples, count, errors) in raw.items():
             if not samples:
                 continue
@@ -100,7 +101,7 @@ class RequestMetrics:
         return self._window
 
 
-def summarize(snapshot: Mapping[str, Mapping[str, Any]]) -> Dict[str, Any]:
+def summarize(snapshot: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     """Agrega el snapshot por endpoint en totales globales."""
     total = sum(int(item.get("count", 0)) for item in snapshot.values())
     errors = sum(int(item.get("errors", 0)) for item in snapshot.values())

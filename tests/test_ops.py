@@ -3,10 +3,8 @@
 # programaciones, notificaciones, doble aprobación, re-ejecutar y clave SSH.
 from __future__ import annotations
 
-import os
 import time
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -20,8 +18,7 @@ from models.ops import (
     Schedule,
 )
 from models.user import User
-from services.notifier import batch_has_issues, notify_batch_result
-from services.task_catalog import get_task
+from services.notifier import batch_has_issues
 
 
 @pytest.fixture()
@@ -137,9 +134,7 @@ def test_group_creation_and_host_roundtrip(client):
 
 def test_group_add_host_via_web(client):
     _login(client)
-    group = HostGroup.create(
-        "Grupo web", db_path=app_module.get_db_path()
-    )
+    group = HostGroup.create("Grupo web", db_path=app_module.get_db_path())
     response = _post(
         client,
         "/inventario",
@@ -238,7 +233,7 @@ def test_execution_with_empty_inventory_group_fails(operator_client, client):
 # ---------------------------------------------------------------------------
 def test_schedule_create_requires_future_run_at(client):
     db_path = app_module.get_db_path()
-    run_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    run_at = datetime.now(UTC) - timedelta(hours=1)
     with pytest.raises(ValueError):
         Schedule.create(
             "pasado",
@@ -251,7 +246,7 @@ def test_schedule_create_requires_future_run_at(client):
 
 def test_schedule_scan_once_triggers_and_advances(client, monkeypatch):
     db_path = app_module.get_db_path()
-    run_at = datetime.now(timezone.utc) - timedelta(seconds=60)
+    run_at = datetime.now(UTC) - timedelta(seconds=60)
     Schedule.create(
         "ventana",
         "zona-todas",
@@ -268,7 +263,7 @@ def test_schedule_scan_once_triggers_and_advances(client, monkeypatch):
             schedule["id"],
             batch_id="batch-x",
             error="",
-            next_run=datetime.now(timezone.utc) + timedelta(days=1),
+            next_run=datetime.now(UTC) + timedelta(days=1),
             db_path=db_path,
         )
         return True
@@ -287,7 +282,7 @@ def test_schedule_transient_error_keeps_schedule_enabled(client):
     schedule = Schedule.create(
         "cola llena",
         "zona-todas",
-        datetime.now(timezone.utc) - timedelta(seconds=60),
+        datetime.now(UTC) - timedelta(seconds=60),
         {},
         recurrence="daily",
         db_path=db_path,
@@ -306,8 +301,8 @@ def test_schedule_transient_error_keeps_schedule_enabled(client):
     assert updated.last_error == "Cola llena"
     retry_at = datetime.fromisoformat(updated.run_at)
     if retry_at.tzinfo is None:
-        retry_at = retry_at.replace(tzinfo=timezone.utc)
-    assert retry_at > datetime.now(timezone.utc)
+        retry_at = retry_at.replace(tzinfo=UTC)
+    assert retry_at > datetime.now(UTC)
 
 
 def test_schedule_permanent_error_disables(client):
@@ -315,7 +310,7 @@ def test_schedule_permanent_error_disables(client):
     schedule = Schedule.create(
         "permanente",
         "zona-todas",
-        datetime.now(timezone.utc) - timedelta(seconds=60),
+        datetime.now(UTC) - timedelta(seconds=60),
         {},
         recurrence="daily",
         db_path=db_path,
@@ -339,22 +334,20 @@ def test_schedule_next_run_after_long_downtime_is_in_the_future(client):
     schedule = Schedule.create(
         "recuperación",
         "zona-todas",
-        datetime.now(timezone.utc) - timedelta(seconds=60),
+        datetime.now(UTC) - timedelta(seconds=60),
         {},
         recurrence="daily",
         db_path=db_path,
     )
-    schedule.run_at = (
-        datetime.now(timezone.utc) - timedelta(days=3)
-    ).isoformat(timespec="seconds")
+    schedule.run_at = (datetime.now(UTC) - timedelta(days=3)).isoformat(
+        timespec="seconds"
+    )
 
     next_run = schedule.next_run_from()
 
     assert next_run is not None
-    assert next_run > datetime.now(timezone.utc)
-    assert next_run <= datetime.now(timezone.utc) + timedelta(
-        days=1, seconds=5
-    )
+    assert next_run > datetime.now(UTC)
+    assert next_run <= datetime.now(UTC) + timedelta(days=1, seconds=5)
 
 
 def test_deactivated_user_session_is_rejected(client):
@@ -362,9 +355,7 @@ def test_deactivated_user_session_is_rejected(client):
     _login(client)
     assert client.get("/").status_code == 200
 
-    User.set_active(
-        "admin", False, db_path=app_module.get_db_path()
-    )
+    User.set_active("admin", False, db_path=app_module.get_db_path())
 
     response = client.get("/", follow_redirects=False)
     assert response.status_code == 302
@@ -376,7 +367,7 @@ def test_schedule_task_not_active_disables(client):
     Schedule.create(
         "tarea muerta",
         "kaspersky",
-        datetime.now(timezone.utc) - timedelta(minutes=1),
+        datetime.now(UTC) - timedelta(minutes=1),
         {},
         db_path=db_path,
     )
@@ -410,7 +401,7 @@ class FakeBatch:
 
 def test_notifier_silent_without_smtp(monkeypatch):
     import config as config_module
-    import services.notifier as notifier
+    from services import notifier
 
     monkeypatch.setattr(config_module, "SMTP_HOST", "")
     monkeypatch.setattr(config_module, "NOTIFY_TO", ["ops@example.com"])
@@ -421,7 +412,7 @@ def test_notifier_silent_without_smtp(monkeypatch):
 
 def test_notifier_sends_failure_mail(monkeypatch):
     import config as config_module
-    import services.notifier as notifier
+    from services import notifier
 
     monkeypatch.setattr(config_module, "SMTP_HOST", "smtp.example.com")
     monkeypatch.setattr(config_module, "NOTIFY_TO", ["ops@example.com"])
@@ -433,7 +424,6 @@ def test_notifier_sends_failure_mail(monkeypatch):
     def fake_send(subject, body):
         sent["subject"] = subject
         sent["body"] = body
-        return None
 
     monkeypatch.setattr(notifier, "_send", fake_send)
     batch = FakeBatch(status="partial", failure_count=1)
@@ -453,7 +443,7 @@ def test_notifier_sends_failure_mail(monkeypatch):
 
 def test_notifier_skips_previews_unless_all(monkeypatch):
     import config as config_module
-    import services.notifier as notifier
+    from services import notifier
 
     monkeypatch.setattr(config_module, "SMTP_HOST", "smtp.example.com")
     monkeypatch.setattr(config_module, "NOTIFY_TO", ["ops@example.com"])
@@ -564,7 +554,6 @@ def test_approval_params_must_match(client):
 def test_destructive_task_requires_approval_in_web(operator_client, monkeypatch):
     client = operator_client
     _login(client)
-    db_path = app_module.get_db_path()
     # kaspersky es destructive; usemos ruta inventada: como la tarea no
     # integra playbook, solo comprobamos el gate (no el playbook).
     response = _post(
@@ -607,9 +596,7 @@ def test_batch_page_offers_rerun_when_applicable(operator_client, monkeypatch):
         status="success",
         db_path=db_path,
     )
-    ExecutionBatch.finish_batch(
-        batch_id, total_hosts=1, db_path=db_path
-    )
+    ExecutionBatch.finish_batch(batch_id, total_hosts=1, db_path=db_path)
     response = client.get(f"/batches/{batch_id}")
     body = response.get_data(as_text=True)
     assert "Re-ejecutar esta configuración" in body
@@ -650,7 +637,8 @@ def test_playbook_command_includes_private_key(tmp_path, monkeypatch):
         # El payload viaja en un fichero 0600; mientras se ejecuta sigue
         # existiendo y podemos leerlo para verificar la clave.
         vars_file = cmd[cmd.index("--extra-vars") + 1].lstrip("@")
-        captured["payload"] = open(vars_file, encoding="utf-8").read()
+        with open(vars_file, encoding="utf-8") as handle:
+            captured["payload"] = handle.read()
         return FakeCompleted()
 
     monkeypatch.setattr(runner.subprocess, "run", fake_run)
@@ -730,9 +718,7 @@ def test_group_ssh_key_used_in_execution(operator_client, monkeypatch, tmp_path)
 # ---------------------------------------------------------------------------
 # Endurecimiento de programaciones y credenciales cifradas
 # ---------------------------------------------------------------------------
-def test_scheduler_secret_roundtrip_creates_key_0600(
-    client, monkeypatch, tmp_path
-):
+def test_scheduler_secret_roundtrip_creates_key_0600(client, monkeypatch, tmp_path):
     import config as config_module
 
     secrets_dir = tmp_path / "scheduler-secrets"
@@ -748,9 +734,7 @@ def test_scheduler_secret_roundtrip_creates_key_0600(
 
 
 def _future_run_at() -> str:
-    return (datetime.now(timezone.utc) + timedelta(hours=1)).strftime(
-        "%Y-%m-%dT%H:%M"
-    )
+    return (datetime.now(UTC) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M")
 
 
 def _schedule_payload(**overrides):
@@ -832,7 +816,7 @@ def test_launch_scheduled_disables_invalid_stored_params(client):
     Schedule.create(
         "vieja",
         "zona-todas",
-        datetime.now(timezone.utc) + timedelta(hours=1),
+        datetime.now(UTC) + timedelta(hours=1),
         {
             "target": "10.42.0.51",
             "target_mode": "manual",
@@ -901,7 +885,7 @@ def test_manual_execution_forces_task_fixed_value(client, monkeypatch):
 def test_notifier_refuses_credentials_without_encryption(monkeypatch):
     """Con usuario SMTP y sin TLS no se abre conexión: la clave no viaja en claro."""
     import config as config_module
-    import services.notifier as notifier
+    from services import notifier
 
     monkeypatch.setattr(config_module, "SMTP_HOST", "smtp.example.com")
     monkeypatch.setattr(config_module, "NOTIFY_TO", ["ops@example.com"])
@@ -923,7 +907,7 @@ def test_notifier_refuses_credentials_without_encryption(monkeypatch):
 
 def test_notifier_uses_implicit_tls_with_credentials(monkeypatch):
     import config as config_module
-    import services.notifier as notifier
+    from services import notifier
 
     monkeypatch.setattr(config_module, "SMTP_HOST", "smtp.example.com")
     monkeypatch.setattr(config_module, "NOTIFY_TO", ["ops@example.com"])

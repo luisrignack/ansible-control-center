@@ -1,4 +1,5 @@
 """Pruebas de humo de la aplicación web (fases P0-P3)."""
+
 import io
 import shutil
 import time
@@ -45,9 +46,7 @@ def _post(client, url, data=None, **kwargs):
 
 
 def _login(client, password="admin-password-123"):
-    return _post(
-        client, "/login", {"username": "admin", "password": password}
-    )
+    return _post(client, "/login", {"username": "admin", "password": password})
 
 
 def test_login_page_renders(client):
@@ -72,7 +71,10 @@ def test_login_and_dashboard(client):
     assert catalog.status_code == 200
     assert "Catálogo de tareas".encode() in catalog.data
     assert b"Formulario de" not in catalog.data
-    assert 'href="mailto:luis.rignack@etecsa.cu?subject=solicitud%20de%20nueva%20tarea%20Ansible"' in catalog.get_data(as_text=True)
+    assert (
+        'href="mailto:luis.rignack@etecsa.cu?subject=solicitud%20de%20nueva%20tarea%20Ansible"'
+        in catalog.get_data(as_text=True)
+    )
 
 
 def test_task_detail_routes(client):
@@ -154,9 +156,7 @@ def test_login_rate_limit(client, monkeypatch):
         )
         assert response.status_code == 200
 
-    blocked = _post(
-        client, "/login", {"username": "admin", "password": "incorrecta"}
-    )
+    blocked = _post(client, "/login", {"username": "admin", "password": "incorrecta"})
     assert blocked.status_code == 429
     assert "Retry-After" in blocked.headers
 
@@ -375,9 +375,7 @@ def test_delete_password_updates_vault(client):
     assert payload["success"] is True, payload
     assert PasswordRecord.get_password_count(db_path=db_path) == 0
 
-    ok, _message, _entries = VaultManager.decrypt_vault_file(
-        vault_file, "master-test"
-    )
+    ok, _message, _entries = VaultManager.decrypt_vault_file(vault_file, "master-test")
     assert ok is False  # el vault vacío se elimina
 
 
@@ -411,8 +409,6 @@ def test_delete_password_with_wrong_master_keeps_data(client):
     assert response.status_code == 400
     assert PasswordRecord.get_password_count(db_path=db_path) == 1
 
-    ok, _message, entries = VaultManager.decrypt_vault_file(
-        vault_file, "master-test"
-    )
+    ok, _message, entries = VaultManager.decrypt_vault_file(vault_file, "master-test")
     assert ok is True
     assert [entry["password"] for entry in entries] == ["clave-protegida"]

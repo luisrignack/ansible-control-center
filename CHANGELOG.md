@@ -5,6 +5,28 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Correcciones QA de paralelización] — 2026-11-12
+
+### Corregido
+
+- Las funciones de lote (`_run_preview_batch` y `_run_apply_batch`) declaran
+  correctamente su retorno (`str`) y se eliminaron 90 `Optional` implícitos en
+  modelos y servicios. mypy queda sin errores.
+- Ruff y Black quedan limpios en todo el código Python (0 y 61 archivos sin
+  cambios, respectivamente). Se corrigieron variables muertas, accesos a
+  `dict.keys()`, aperturas sin contexto y retornos redundantes.
+- Bandit sin hallazgos medios ni altos: los dos `B608` de contadores de lote se
+  justificaron como falsos positivos. `pip-audit` no encuentra
+  vulnerabilidades en 72 paquetes.
+- `pytest` se actualiza a 9.0.3 y se valida la suite completa con esa versión.
+
+### Añadido
+
+- Pruebas de cancelación con un host en vuelo, deadline con workers activos,
+  liberación del cupo global tras un fallo y migración v17→v18 con datos e
+  idempotencia. Documento de hallazgos en
+  `docs/QA_2026_11_12_HALLAZGOS.md`.
+
 ## [Paralelismo acotado y prueba de carga] — 2026-11-12
 
 ### Añadido

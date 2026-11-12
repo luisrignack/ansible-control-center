@@ -7,6 +7,7 @@ segura de la contraseña candidata, CSRF, rate limiting, límites de red,
 cabeceras de seguridad y ejecución en grupo con lotes, vista previa,
 verificación e idempotencia (fases P0-P4).
 """
+
 from __future__ import annotations
 
 import atexit
@@ -22,9 +23,9 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from functools import wraps
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import quote, urlsplit
 
 import click
@@ -51,6 +52,9 @@ from flask_login import (
     logout_user,
 )
 
+import config
+import services.ansible_runner as ansible_runner_module
+import services.password_tester as password_tester_module
 from config import (
     ADMIN_PASSWORD_MIN_LENGTH,
     ADMIN_USERNAME,
@@ -77,12 +81,6 @@ from config import (
     HOST_KEY_CHECKING,
     HSTS_ENABLED,
     HSTS_MAX_AGE,
-    OS_PASSWORD_DEFAULT_USER,
-    OS_PASSWORD_MAX_LENGTH,
-    OS_PASSWORD_MIN_LENGTH,
-    SSH_HOST_KEYS_AUTO,
-    TARGET_ADMIN_USERNAME,
-    TIMEZONE_BACKUP_DIR,
     IS_PRODUCTION,
     JOB_MAX_WORKERS,
     JOB_QUEUE_SIZE,
@@ -96,37 +94,43 @@ from config import (
     MAX_HOSTS,
     MAX_MEMORY_TASKS,
     MAX_NTP_SERVERS,
-    MAX_PASSWORDS,
     MAX_PASSWORD_ATTEMPTS,
     MAX_PASSWORD_LENGTH,
+    MAX_PASSWORDS,
     MAX_TASK_STATE_ROWS,
     NTP_POLICIES,
     NTP_SETTLE_SECONDS,
-    PASSWORD_ORIGINS,
+    OS_PASSWORD_DEFAULT_USER,
+    OS_PASSWORD_MAX_LENGTH,
+    OS_PASSWORD_MIN_LENGTH,
     PASSWORD_ORIGIN_VALUES,
+    PASSWORD_ORIGINS,
     PERMANENT_SESSION_LIFETIME_SECONDS,
     PROCESS_ROLE,
     RATE_LIMIT_ENABLED,
-    REQUEST_METRICS_ENABLED,
-    REQUEST_METRICS_WINDOW,
     RECOVERY_STALE_MINUTES,
+    REMEMBER_COOKIE_DURATION_SECONDS,
     REMEMBER_COOKIE_HTTPONLY,
     REMEMBER_COOKIE_SAMESITE,
     REMEMBER_COOKIE_SECURE,
-    REMEMBER_COOKIE_DURATION_SECONDS,
+    REQUEST_METRICS_ENABLED,
+    REQUEST_METRICS_WINDOW,
     RETENTION_INTERVAL_HOURS,
     ROLES,
+    SECRETS_DIR,
     SECURITY_HEADERS_ENABLED,
     SESSION_COOKIE_HTTPONLY,
     SESSION_COOKIE_SAMESITE,
     SESSION_COOKIE_SECURE,
-    SECRETS_DIR,
     SLOW_REQUEST_MS,
+    SSH_HOST_KEYS_AUTO,
+    TARGET_ADMIN_USERNAME,
     TASK_PERSIST_INTERVAL_SECONDS,
     TASK_REQUEST_EMAIL,
     TASK_REQUEST_SUBJECT,
     TIME_REQUIRE_NTP_OFF,
     TIME_VERIFY_TOLERANCE,
+    TIMEZONE_BACKUP_DIR,
     TRUST_PROXY,
     UI_CONFIG_PANEL,
     VAULT_RATE_LIMIT,
@@ -154,15 +158,11 @@ from models.ops import (
     HostGroup,
     InventoryHost,
     Schedule,
-    SCHEDULE_RECURRENCES,
     params_hash,
 )
 from models.password import PasswordRecord
 from models.user import AuthEvent, User
-import config
-import services.ansible_runner as ansible_runner_module
-import services.ldap_auth as ldap_auth
-import services.password_tester as password_tester_module
+from services import ldap_auth, modules_panel, notifier, scheduler
 from services.ansible_runner import (
     apply_host,
     inspect_apt,
@@ -172,7 +172,6 @@ from services.ansible_runner import (
     inspect_wallpaper,
 )
 from services.csrf import csrf_protect, generate_csrf_token, rotate_csrf_token
-from services.host_resolver import pin_target, resolve_target
 from services.host_locks import (
     acquire_host_lock,
     count_active_locks,
@@ -181,6 +180,7 @@ from services.host_locks import (
     release_batch_locks,
     release_host_lock,
 )
+from services.host_resolver import pin_target, resolve_target
 from services.job_queue import JobQueue, JobQueueFull
 from services.metrics import RequestMetrics, summarize
 from services.password_tester import test_ansible_ping
@@ -195,14 +195,10 @@ from services.safety import (
     CRITICALITY_LEVELS,
     evaluate_safety,
 )
-import services.notifier as notifier
-import services.scheduler as scheduler
-from services import modules_panel
 from services.secure_temp import secure_temp_file
 from services.ssh_host_keys import ensure_host_keys
 from services.task_catalog import (
     TASK_CATALOG,
-    STATUS_ACTIVE,
     get_task,
 )
 from services.time_utils import (
@@ -215,8 +211,8 @@ from services.time_utils import (
 )
 from services.vault_manager import VaultManager
 from services.wallpaper import (
-    remove_wallpaper,
     remote_wallpaper_uri,
+    remove_wallpaper,
     save_wallpaper,
 )
 
@@ -225,21 +221,21 @@ logger = logging.getLogger("acc")
 # ---------------------------------------------------------------------------
 # Estado en memoria de las tareas (progreso SSE)
 # ---------------------------------------------------------------------------
-_tasks: Dict[str, Dict[str, Any]] = {}
+_tasks: dict[str, dict[str, Any]] = {}
 _tasks_lock = threading.Lock()
 # Evento por tarea para despertar el stream SSE en cuanto cambia su estado,
 # sin sondeo con ``time.sleep``. El evento se descarta al borrar la tarea.
-_task_events: Dict[str, threading.Event] = {}
+_task_events: dict[str, threading.Event] = {}
 # Última escritura en SQLite por tarea (tiempo monotónico) para agrupar las
 # actualizaciones frecuentes de consola/log.
-_task_persist_times: Dict[str, float] = {}
+_task_persist_times: dict[str, float] = {}
 _task_persist_lock = threading.Lock()
-_db_path_cache: Optional[str] = None
+_db_path_cache: str | None = None
 
 # Estimación de espera en cola: mediana de los últimos lotes cerrados, cacheada
 # unos segundos para no consultar SQLite en cada tick del SSE.
 _QUEUE_ETA_CACHE_SECONDS = 30
-_queue_eta_cache: Dict[str, tuple[float, Optional[float]]] = {}
+_queue_eta_cache: dict[str, tuple[float, float | None]] = {}
 _queue_eta_lock = threading.Lock()
 
 # Métricas de rendimiento por ruta (ventana acotada en memoria, sin
@@ -288,7 +284,7 @@ app = Flask(__name__)
 
 # Cola acotada de trabajos. Se crea de forma perezosa para no arrancar hilos al
 # importar el módulo (tests, CLI) y se apaga ordenadamente en ``configure_app``.
-_job_queue: Optional[JobQueue] = None
+_job_queue: JobQueue | None = None
 
 
 def get_job_queue() -> JobQueue:
@@ -305,7 +301,7 @@ def get_job_queue() -> JobQueue:
 # Semáforo global de hosts: acota los playbooks Ansible simultáneos de todos
 # los lotes del proceso. Se crea de forma perezosa para respetar la
 # configuración efectiva al arrancar.
-_host_semaphore: Optional[threading.BoundedSemaphore] = None
+_host_semaphore: threading.BoundedSemaphore | None = None
 _host_semaphore_lock = threading.Lock()
 
 
@@ -314,15 +310,12 @@ def _get_host_semaphore() -> threading.BoundedSemaphore:
     if _host_semaphore is None:
         with _host_semaphore_lock:
             if _host_semaphore is None:
-                _host_semaphore = threading.BoundedSemaphore(
-                    GLOBAL_HOST_CONCURRENCY
-                )
+                _host_semaphore = threading.BoundedSemaphore(GLOBAL_HOST_CONCURRENCY)
     return _host_semaphore
 
 
 def roles_required(*roles: str):
     """Restringe una ruta a los roles indicados (``admin`` siempre pasa)."""
-    from functools import wraps
 
     def decorator(view):
         @wraps(view)
@@ -418,13 +411,12 @@ def persist_ldap_access(enabled: bool) -> None:
 
 
 def _wants_json() -> bool:
-    return (
-        request.headers.get("X-Requested-With") == "XMLHttpRequest"
-        or "application/json" in request.headers.get("Accept", "")
-    )
+    return request.headers.get(
+        "X-Requested-With"
+    ) == "XMLHttpRequest" or "application/json" in request.headers.get("Accept", "")
 
 
-def _is_safe_redirect(target: Optional[str]) -> bool:
+def _is_safe_redirect(target: str | None) -> bool:
     """Solo permite redirecciones internas (evita open redirect).
 
     Reconoce las dos variantes que los navegadores normalizan como
@@ -450,7 +442,7 @@ def _client_ip() -> str:
     return request.remote_addr or "unknown"
 
 
-def _check_rate_limit(bucket: str, limit: int, window: int) -> Optional[int]:
+def _check_rate_limit(bucket: str, limit: int, window: int) -> int | None:
     """Devuelve los segundos de espera si se superó el límite, o ``None``."""
     if not RATE_LIMIT_ENABLED:
         return None
@@ -467,9 +459,7 @@ def _rate_limited_response(retry_after: int, message: str):
         response.status_code = 429
     else:
         response = make_response(
-            render_template(
-                "429.html", message=message, retry_after=retry_after
-            ),
+            render_template("429.html", message=message, retry_after=retry_after),
             429,
         )
     response.headers["Retry-After"] = str(retry_after)
@@ -486,7 +476,7 @@ def get_vault_file() -> str:
     return str(resolve_vault_file())
 
 
-def read_temporal_passwords(uploaded) -> tuple[list[str], Optional[str]]:
+def read_temporal_passwords(uploaded) -> tuple[list[str], str | None]:
     """Lee un .txt subido y devuelve contraseñas normalizadas o un error.
 
     El archivo se procesa en memoria: no se guarda en disco.
@@ -557,7 +547,7 @@ def _form_bool(name: str, form_data=None) -> bool:
     }
 
 
-def _fold_value(raw: str) -> Optional[int]:
+def _fold_value(raw: str) -> int | None:
     """Normaliza la desambiguación DST: ``auto``, ``0`` o ``1``."""
     value = (raw or "auto").strip().lower()
     if value in {"0", "1"}:
@@ -565,13 +555,13 @@ def _fold_value(raw: str) -> Optional[int]:
     return None
 
 
-def _parse_ntp_servers(raw: str) -> tuple[List[str], Optional[str]]:
+def _parse_ntp_servers(raw: str) -> tuple[list[str], str | None]:
     """Valida y normaliza una lista de servidores NTP.
 
     Admite IPs (v4/v6) y nombres DNS separados por comas, espacios o saltos
     de línea. Devuelve ``(servidores, error)``.
     """
-    servers: List[str] = []
+    servers: list[str] = []
     for token in re.split(r"[\s,;]+", raw or ""):
         token = token.strip()
         if not token:
@@ -590,7 +580,7 @@ def _parse_ntp_servers(raw: str) -> tuple[List[str], Optional[str]]:
     return servers, None
 
 
-def _parse_min_free_gb(raw: str) -> tuple[Optional[float], Optional[str]]:
+def _parse_min_free_gb(raw: str) -> tuple[float | None, str | None]:
     """Valida el umbral de espacio libre (GiB) de la tarjeta APT.
 
     Un valor vacío usa el umbral del servidor (``ACC_APT_MIN_FREE_GB``). Los
@@ -611,7 +601,7 @@ def _parse_min_free_gb(raw: str) -> tuple[Optional[float], Optional[str]]:
     return value, None
 
 
-def _parse_target_user(raw: str) -> tuple[str, Optional[str]]:
+def _parse_target_user(raw: str) -> tuple[str, str | None]:
     """Normaliza el usuario del sistema al que se cambiará la contraseña."""
     user = (raw or "").strip() or OS_PASSWORD_DEFAULT_USER
     if not _OS_USERNAME_RE.fullmatch(user):
@@ -625,7 +615,7 @@ def _parse_target_user(raw: str) -> tuple[str, Optional[str]]:
 _FIREWALL_STATES = {"enable", "disable"}
 
 
-def _parse_firewall_value(raw: str) -> tuple[str, Optional[str]]:
+def _parse_firewall_value(raw: str) -> tuple[str, str | None]:
     """Normaliza la operación de firewall a ``enable``, ``disable`` o
     ``allow:<ip>``.
 
@@ -665,7 +655,7 @@ def _validate_new_password(
     confirm: str,
     *,
     required: bool,
-) -> Optional[str]:
+) -> str | None:
     """Valida la contraseña nueva y su repetición sin recortar el secreto.
 
     La repetición es obligatoria para evitar errores de escritura. La
@@ -696,7 +686,7 @@ def _validate_new_password(
 
 def _validate_operation_core(
     *,
-    task: Optional[Dict[str, Any]],
+    task: dict[str, Any] | None,
     task_id: str,
     admin_user: str,
     action: str,
@@ -713,14 +703,14 @@ def _validate_operation_core(
     new_password: str = "",
     new_password_confirm: str = "",
     require_password: bool = False,
-) -> tuple[Optional[Dict[str, Any]], List[str]]:
+) -> tuple[dict[str, Any] | None, list[str]]:
     """Reglas comunes a la ejecución manual y las programaciones.
 
     Centralizar esta validación evita que una programación acepte algo que el
     panel rechaza (o al revés): tarea activa, acción admitida, valor fijo,
     plataforma del grupo, zona/hora válida, política NTP y usuario.
     """
-    errors: List[str] = []
+    errors: list[str] = []
     admin_user = (admin_user or "").strip()
     action = (action or "").strip().upper()
     value = (value or "").strip()
@@ -749,9 +739,7 @@ def _validate_operation_core(
         platforms = task.get("platforms") or []
         if platform and platforms and platform not in platforms:
             platform_label = "Windows" if platform == "windows" else "Linux"
-            objective = (
-                f"el grupo '{group_name}'" if group_name else "el objetivo"
-            )
+            objective = f"el grupo '{group_name}'" if group_name else "el objetivo"
             errors.append(
                 f"La tarea '{task.get('name', task_id)}' no está disponible "
                 f"para {objective} ({platform_label})."
@@ -762,8 +750,8 @@ def _validate_operation_core(
     if action not in VALID_ACTIONS:
         errors.append("Acción no válida.")
 
-    ntp_servers: List[str] = []
-    min_free_gb = float(APT_MIN_FREE_GB)
+    ntp_servers: list[str] = []
+    min_free_gb: float | None = float(APT_MIN_FREE_GB)
     if action in {"TZ", "TIME"}:
         if ntp_policy not in NTP_POLICIES:
             errors.append("Política NTP no válida.")
@@ -826,19 +814,11 @@ def _validate_operation_core(
             errors.append("La hora exacta es obligatoria.")
         else:
             try:
-                parsed = datetime.strptime(
-                    value.replace(" ", "T"), "%Y-%m-%dT%H:%M"
-                )
+                parsed = datetime.strptime(value.replace(" ", "T"), "%Y-%m-%dT%H:%M")
                 value = parsed.strftime("%Y-%m-%dT%H:%M")
             except ValueError:
-                errors.append(
-                    "Formato de hora inválido; use AAAA-MM-DDTHH:MM."
-                )
-        if (
-            enforce_time_ntp_off
-            and ntp_policy == "keep"
-            and TIME_REQUIRE_NTP_OFF
-        ):
+                errors.append("Formato de hora inválido; use AAAA-MM-DDTHH:MM.")
+        if enforce_time_ntp_off and ntp_policy == "keep" and TIME_REQUIRE_NTP_OFF:
             errors.append(
                 "TIME con NTP en política keep no está permitido al "
                 "ejecutar: el reloj podría revertirse. Usa off, restore o "
@@ -863,7 +843,7 @@ def _validate_operation_core(
 
 
 def _validate_scheduled_params(
-    task: Optional[Dict[str, Any]],
+    task: dict[str, Any] | None,
     admin_user: str,
     action: str,
     value: str,
@@ -872,7 +852,7 @@ def _validate_scheduled_params(
     platform: str = "",
     group_name: str = "",
     min_free_gb_raw: str = "",
-) -> tuple[Optional[Dict[str, Any]], List[str]]:
+) -> tuple[dict[str, Any] | None, list[str]]:
     """Valida una programación con las mismas reglas que la ejecución manual."""
     return _validate_operation_core(
         task=task,
@@ -895,7 +875,7 @@ def _parse_operation_form(
     default_mode: str = "execute",
     form_data=None,
     files=None,
-) -> tuple[Optional[Dict[str, Any]], List[str]]:
+) -> tuple[dict[str, Any] | None, list[str]]:
     """Valida el formulario completo de vista previa/ejecución (P4).
 
     Devuelve un diccionario normalizado o una lista de errores. La vista previa
@@ -906,9 +886,7 @@ def _parse_operation_form(
     """
     submitted = request.form if form_data is None else form_data
     uploads = request.files if files is None else files
-    target_mode = (
-        submitted.get("target_mode", "manual").strip().lower() or "manual"
-    )
+    target_mode = submitted.get("target_mode", "manual").strip().lower() or "manual"
     target_group_raw = submitted.get("target_group", "").strip()
     # Tarea del catálogo: determina permisos y si es destructiva. Para no
     # romper envíos anteriores (que no enviaban el campo oculto), si falta se
@@ -920,9 +898,7 @@ def _parse_operation_form(
     master_password = submitted.get("master_password", "").strip()
     action = submitted.get("action", "").strip().upper()
     value = submitted.get("value", "").strip()
-    mode = (
-        submitted.get("mode", default_mode).strip().lower() or default_mode
-    )
+    mode = submitted.get("mode", default_mode).strip().lower() or default_mode
     time_mode = submitted.get("time_mode", "utc").strip().lower() or "utc"
     time_zone = submitted.get("time_zone", "").strip()
     time_fold_raw = submitted.get("time_fold", "auto").strip().lower()
@@ -935,16 +911,14 @@ def _parse_operation_form(
     sync_rtc = _form_bool("sync_rtc", submitted)
     force = _form_bool("force", submitted)
 
-    errors: List[str] = []
+    errors: list[str] = []
 
     # Tarea del catálogo: determina permisos y si es destructiva. Para no
     # romper envíos anteriores (que no enviaban el campo oculto), si falta se
     # asume la tarea operativa por defecto del catálogo.
     if not task_id:
         for candidate in TASK_CATALOG:
-            if candidate.get("status") == "active" and not candidate.get(
-                "destructive"
-            ):
+            if candidate.get("status") == "active" and not candidate.get("destructive"):
                 task_id = candidate["id"]
                 break
     task = get_task(task_id) if task_id else None
@@ -954,9 +928,7 @@ def _parse_operation_form(
     if task is not None and not action:
         task_actions = task.get("actions") or ["TZ", "TIME"]
         action = (
-            str(task_actions[0]).strip().upper()
-            if len(task_actions) == 1
-            else "TZ"
+            str(task_actions[0]).strip().upper() if len(task_actions) == 1 else "TZ"
         )
     elif not action:
         action = "TZ"
@@ -974,15 +946,9 @@ def _parse_operation_form(
     wallpaper_path = ""
     wallpaper_uri = ""
     wallpaper_name = ""
-    if (
-        action == "WALLPAPER"
-        and task is not None
-        and task.get("status") == "active"
-    ):
+    if action == "WALLPAPER" and task is not None and task.get("status") == "active":
         try:
-            saved_wallpaper = save_wallpaper(
-                uploads.get("wallpaper_file")
-            )
+            saved_wallpaper = save_wallpaper(uploads.get("wallpaper_file"))
         except ValueError as exc:
             errors.append(str(exc))
         else:
@@ -996,9 +962,9 @@ def _parse_operation_form(
         errors.append("Modo de operación no válido.")
 
     # Objetivo: manual (IP literal) o grupo del inventario persistente.
-    target_group_id: Optional[int] = None
+    target_group_id: int | None = None
     group_name = ""
-    group_target_hosts: List[str] = []
+    group_target_hosts: list[str] = []
     group_os_flavor = ""
     group_connection = ""
     if target_mode not in {"manual", "group"}:
@@ -1027,9 +993,7 @@ def _parse_operation_form(
             group_target_hosts = sorted(
                 {
                     host.address
-                    for host in HostGroup.hosts_of(
-                        group.id, db_path=get_db_path()
-                    )
+                    for host in HostGroup.hosts_of(group.id, db_path=get_db_path())
                 }
             )
             if not group.host_count:
@@ -1105,11 +1069,11 @@ def _parse_operation_form(
                     time_zone,
                     fold=_fold_value(time_fold_raw),
                 )
-                if status == LOCAL_TIME_MISSING:
-                    errors.append(message)
-                elif status == LOCAL_TIME_AMBIGUOUS:
-                    errors.append(message)
-                elif status not in {"ok"}:
+                if (
+                    status == LOCAL_TIME_MISSING
+                    or status == LOCAL_TIME_AMBIGUOUS
+                    or status not in {"ok"}
+                ):
                     errors.append(message)
         else:
             # En UTC no se usa la zona del host; se calcula el instante en
@@ -1142,7 +1106,7 @@ def _parse_operation_form(
         target_epoch = None
 
     temporal_passwords: list[str] = []
-    vault_file: Optional[str] = None
+    vault_file: str | None = None
     if origin not in {"stored", "temporal"}:
         errors.append("Origen de contraseñas no válido.")
     elif origin == "stored":
@@ -1225,16 +1189,16 @@ def _state_bool(value: Any) -> bool:
 
 
 def _would_change(
-    state: Optional[Dict[str, Any]],
+    state: dict[str, Any] | None,
     action: str,
     value: str,
     time_mode: str,
     ntp_policy: str,
     force: bool,
-    ntp_servers: Optional[List[str]] = None,
-    target_epoch: Optional[int] = None,
+    ntp_servers: list[str] | None = None,
+    target_epoch: int | None = None,
     wallpaper_uri: str = "",
-) -> Optional[bool]:
+) -> bool | None:
     """Estima si hace falta cambiar algo según el estado leído (vista previa).
 
     Devuelve ``None`` si el estado no permite decidirlo (por ejemplo, un host
@@ -1308,11 +1272,7 @@ def _would_change(
         servers_match = isinstance(current_servers, list) and desired_servers.issubset(
             {str(server) for server in current_servers}
         )
-        changed = (
-            changed
-            or not _state_bool(state.get("ntp"))
-            or not servers_match
-        )
+        changed = changed or not _state_bool(state.get("ntp")) or not servers_match
     # ``restore`` devuelve NTP a su estado previo, así que no añade cambios
     # netos por sí mismo.
 
@@ -1332,8 +1292,7 @@ def _batch_message(batch: Any) -> str:
     if getattr(batch, "dry_run", False):
         prefix = "SIMULACIÓN (sin cambios reales): "
     return (
-        prefix
-        + f"Lote {batch.status}: {batch.success_count} éxito(s), "
+        prefix + f"Lote {batch.status}: {batch.success_count} éxito(s), "
         f"{batch.failure_count} fallo(s), {batch.skipped_count} omitido(s), "
         f"{batch.error_count} error(es), "
         f"{batch.attention_count} requieren atención"
@@ -1352,13 +1311,13 @@ def sse_retry(retry_ms: int) -> str:
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 _task_persist_warned = False
 
 
-def _persist_task(tid: str, task: Dict[str, Any]) -> None:
+def _persist_task(tid: str, task: dict[str, Any]) -> None:
     """Guarda una instantánea de la tarea en SQLite.
 
     El estado sigue viviendo en memoria para el SSE; SQLite es una copia de
@@ -1385,14 +1344,14 @@ def _persist_task(tid: str, task: Dict[str, Any]) -> None:
             logger.exception("No se pudo persistir el estado de la tarea")
 
 
-def _load_persisted_task(tid: str) -> Optional[Dict[str, Any]]:
+def _load_persisted_task(tid: str) -> dict[str, Any] | None:
     """Recupera una tarea de SQLite y la vuelve a cachear en memoria."""
     try:
         with get_connection(get_db_path()) as conn:
             row = conn.execute(
                 "SELECT payload FROM task_state WHERE task_id = ?", (tid,)
             ).fetchone()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
     if row is None:
         return None
@@ -1408,9 +1367,7 @@ def _load_persisted_task(tid: str) -> Optional[Dict[str, Any]]:
         return _tasks[tid]
 
 
-def _refresh_task_from_db(
-    tid: str, current: Dict[str, Any]
-) -> Dict[str, Any]:
+def _refresh_task_from_db(tid: str, current: dict[str, Any]) -> dict[str, Any]:
     """Adopta la instantánea de SQLite si otra instancia la actualizó.
 
     La copia en memoria del proceso que ejecuta la tarea puede ser más nueva
@@ -1423,7 +1380,7 @@ def _refresh_task_from_db(
             row = conn.execute(
                 "SELECT payload FROM task_state WHERE task_id = ?", (tid,)
             ).fetchone()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return current
     if row is None:
         return current
@@ -1442,9 +1399,10 @@ def _refresh_task_from_db(
 
     with _tasks_lock:
         latest = _tasks.get(tid)
-        if latest is not None and str(
-            latest.get("updated_at") or ""
-        ) > persisted_updated:
+        if (
+            latest is not None
+            and str(latest.get("updated_at") or "") > persisted_updated
+        ):
             return latest
         _tasks[tid] = persisted
         return persisted
@@ -1455,7 +1413,7 @@ def _task_viewer_actor() -> str:
     return getattr(current_user, "username", "") or str(current_user.get_id())
 
 
-def _can_view_task(task: Dict[str, Any]) -> bool:
+def _can_view_task(task: dict[str, Any]) -> bool:
     """Indica si el usuario actual puede ver la tarea completa.
 
     La tarea incluye consola, log y metadatos de ejecución, así que solo la
@@ -1469,7 +1427,7 @@ def _can_view_task(task: Dict[str, Any]) -> bool:
     return str(task.get("owner") or "") == _task_viewer_actor()
 
 
-def _queue_eta_seconds(action: Optional[str]) -> Optional[float]:
+def _queue_eta_seconds(action: str | None) -> float | None:
     """Mediana de duración de lotes recientes de la misma acción."""
     key = (action or "").strip().upper()
     now = time.monotonic()
@@ -1492,15 +1450,15 @@ def _queue_eta_seconds(action: Optional[str]) -> Optional[float]:
 
 def _format_queue_wait(seconds: float) -> str:
     """Texto corto para la estimación de espera."""
-    value = max(0, int(round(seconds)))
+    value = max(0, round(seconds))
     if value >= 120:
         return f"~{value // 60} min"
     return f"~{value} s"
 
 
-def _queue_snapshot() -> Dict[str, Any]:
+def _queue_snapshot() -> dict[str, Any]:
     """Estado de la cola para el panel de métricas y su API JSON."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     with _tasks_lock:
         tasks = list(_tasks.values())
     pending = [
@@ -1520,7 +1478,7 @@ def _queue_snapshot() -> Dict[str, Any]:
         except (TypeError, ValueError):
             continue
         if created.tzinfo is None:
-            created = created.replace(tzinfo=timezone.utc)
+            created = created.replace(tzinfo=UTC)
         oldest = max(oldest, (now - created).total_seconds())
 
     wait = (
@@ -1551,8 +1509,8 @@ def _queue_snapshot() -> Dict[str, Any]:
 
 
 def _with_queue_position(
-    tid: str, task: Optional[Dict[str, Any]]
-) -> Optional[Dict[str, Any]]:
+    tid: str, task: dict[str, Any] | None
+) -> dict[str, Any] | None:
     """Añade posición y espera estimada a una tarea que aún no arrancó.
 
     La posición cambia cuando otros trabajos arrancan, así que se calcula en
@@ -1572,12 +1530,12 @@ def _with_queue_position(
         return task
     decorated = {**task, "queue_position": position}
 
-    eta_seconds: Optional[int] = None
+    eta_seconds: int | None = None
     estimate = _queue_eta_seconds(task.get("action"))
     if estimate:
         workers = max(1, JOB_MAX_WORKERS)
         batches_ahead = (position + workers - 1) // workers
-        eta_seconds = int(round(estimate * batches_ahead))
+        eta_seconds = round(estimate * batches_ahead)
         decorated["queue_eta_seconds"] = eta_seconds
 
     if not task.get("cancellation_requested"):
@@ -1588,9 +1546,7 @@ def _with_queue_position(
     return decorated
 
 
-def _get_task(
-    tid: str, refresh: bool = False
-) -> Optional[Dict[str, Any]]:
+def _get_task(tid: str, refresh: bool = False) -> dict[str, Any] | None:
     """Devuelve una tarea, leyendo SQLite cuando no está en este proceso.
 
     ``refresh=True`` consulta la instantánea persistida para que las lecturas
@@ -1610,7 +1566,7 @@ def _delete_persisted_task(tid: str) -> None:
     try:
         with get_connection(get_db_path()) as conn:
             conn.execute("DELETE FROM task_state WHERE task_id = ?", (tid,))
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.debug("No se pudo borrar la tarea persistida %s", tid)
 
 
@@ -1650,16 +1606,12 @@ def _purge_retention() -> None:
         tasks = 0
         logger.exception("No se pudieron purgar lotes antiguos")
     try:
-        records = ExecutionRecord.purge_old(
-            HISTORY_RETENTION_DAYS, db_path=db_path
-        )
+        records = ExecutionRecord.purge_old(HISTORY_RETENTION_DAYS, db_path=db_path)
     except Exception:
         records = 0
         logger.exception("No se pudo purgar el historial heredado")
     try:
-        events = AuthEvent.purge_old(
-            AUTH_EVENT_RETENTION_DAYS, db_path=db_path
-        )
+        events = AuthEvent.purge_old(AUTH_EVENT_RETENTION_DAYS, db_path=db_path)
     except Exception:
         events = 0
         logger.exception("No se pudieron purgar eventos de autenticación")
@@ -1674,7 +1626,7 @@ def _purge_retention() -> None:
         )
 
 
-def _recover_task_state(stale_minutes: Optional[int] = None) -> None:
+def _recover_task_state(stale_minutes: int | None = None) -> None:
     """Purga tareas antiguas y cierra las que quedaron en curso.
 
     Al arrancar no puede haber ninguna tarea legítimamente en ejecución en este
@@ -1683,14 +1635,13 @@ def _recover_task_state(stale_minutes: Optional[int] = None) -> None:
     así un worker que arranca no cierra operaciones que otro worker sigue
     ejecutando.
     """
-    cutoff = (
-        datetime.now(timezone.utc) - timedelta(hours=JOB_RETENTION_HOURS)
-    ).isoformat(timespec="seconds")
+    cutoff = (datetime.now(UTC) - timedelta(hours=JOB_RETENTION_HOURS)).isoformat(
+        timespec="seconds"
+    )
     stale_cutoff = None
     if stale_minutes is not None:
         stale_cutoff = (
-            datetime.now(timezone.utc)
-            - timedelta(minutes=int(stale_minutes))
+            datetime.now(UTC) - timedelta(minutes=int(stale_minutes))
         ).isoformat(timespec="seconds")
 
     with get_connection(get_db_path()) as conn:
@@ -1767,7 +1718,7 @@ def create_task(owner: str = "") -> str:
     return task_id
 
 
-def update_task(tid: str, updates: Dict[str, Any]) -> None:
+def update_task(tid: str, updates: dict[str, Any]) -> None:
     with _tasks_lock:
         task = _tasks.get(tid)
         if task is None:
@@ -1810,7 +1761,7 @@ def remove_task(tid: str) -> None:
     _delete_persisted_task(tid)
 
 
-def _claim_operation_id(operation_id: str) -> Optional[str]:
+def _claim_operation_id(operation_id: str) -> str | None:
     """Reserva un envío idempotente en SQLite.
 
     Devuelve ``None`` si la operación es nueva. Si ya existía, devuelve el
@@ -1820,14 +1771,10 @@ def _claim_operation_id(operation_id: str) -> Optional[str]:
     if not operation_id:
         return None
 
-    now = datetime.now(timezone.utc)
-    cutoff = (
-        now - timedelta(seconds=_OPERATION_ID_TTL)
-    ).isoformat(timespec="seconds")
+    now = datetime.now(UTC)
+    cutoff = (now - timedelta(seconds=_OPERATION_ID_TTL)).isoformat(timespec="seconds")
     with get_connection(get_db_path()) as conn:
-        conn.execute(
-            "DELETE FROM operation_ids WHERE created_at < ?", (cutoff,)
-        )
+        conn.execute("DELETE FROM operation_ids WHERE created_at < ?", (cutoff,))
         cursor = conn.execute(
             """
             INSERT OR IGNORE INTO operation_ids
@@ -1839,9 +1786,7 @@ def _claim_operation_id(operation_id: str) -> Optional[str]:
         if cursor.rowcount == 1:
             # Acota la tabla sin tocar las reservas recientes.
             total = int(
-                conn.execute(
-                    "SELECT COUNT(*) FROM operation_ids"
-                ).fetchone()[0]
+                conn.execute("SELECT COUNT(*) FROM operation_ids").fetchone()[0]
             )
             if total > _MAX_OPERATION_IDS:
                 conn.execute(
@@ -1888,7 +1833,7 @@ def _release_operation_id(operation_id: str) -> None:
         )
 
 
-def _task_version(task: Dict[str, Any]) -> tuple:
+def _task_version(task: dict[str, Any]) -> tuple:
     """Huella barata para evitar serializar el estado sin cambios.
 
     Se comparan campos que cambian en cada actualización relevante; así una
@@ -1913,7 +1858,7 @@ def generate_progress_events(task_id: str):
     yield sse_retry(1500)
     start = time.time()
     max_wait = 90
-    last_version: Optional[tuple] = None
+    last_version: tuple | None = None
 
     while True:
         # Si la tarea la ejecuta otro proceso no existe evento local: se
@@ -1931,15 +1876,11 @@ def generate_progress_events(task_id: str):
 
         version = _task_version(task)
         if version != last_version:
-            yield sse_event(
-                "progress", json.dumps(task, ensure_ascii=False)
-            )
+            yield sse_event("progress", json.dumps(task, ensure_ascii=False))
             last_version = version
 
         if task.get("status") in TERMINAL_STATES or task.get("completed"):
-            yield sse_event(
-                "completed", json.dumps(task, ensure_ascii=False)
-            )
+            yield sse_event("completed", json.dumps(task, ensure_ascii=False))
             return
 
         if time.time() - start >= max_wait:
@@ -1968,7 +1909,6 @@ _METRICS_SKIP_ENDPOINTS = {"static", "healthz", "progress_sse"}
 def _metrics_before_request():
     if REQUEST_METRICS_ENABLED:
         g._acc_request_started = time.perf_counter()
-    return None
 
 
 @app.after_request
@@ -2095,7 +2035,7 @@ def healthz():
     return response
 
 
-def _finish_session_login(user: "User", client_ip: str, event: str, detail: str):
+def _finish_session_login(user: User, client_ip: str, event: str, detail: str):
     """Completa el flujo común tras validar credenciales (local o LDAPS)."""
     user.register_success(db_path=get_db_path())
     AuthEvent.record(
@@ -2113,11 +2053,13 @@ def _finish_session_login(user: "User", client_ip: str, event: str, detail: str)
     session.permanent = True
     login_user(user, remember=bool(request.form.get("remember")))
     next_url = request.args.get("next") or request.form.get("next")
-    return redirect(next_url if _is_safe_redirect(next_url) else url_for("index"))
+    return redirect(
+        next_url if next_url and _is_safe_redirect(next_url) else url_for("index")
+    )
 
 
 def _register_login_failure(
-    user: Optional["User"], username: str, client_ip: str, detail: str = ""
+    user: User | None, username: str, client_ip: str, detail: str = ""
 ) -> None:
     """Registra un intento fallido (bloqueo, evento y flash)."""
     locked = False
@@ -2150,7 +2092,7 @@ def _register_login_failure(
 
 
 def _try_ldap_login(
-    username: str, password: str, user: Optional["User"], client_ip: str
+    username: str, password: str, user: User | None, client_ip: str
 ) -> None:
     """Intenta el login corporativo LDAPS para el usuario tipeado.
 
@@ -2170,9 +2112,7 @@ def _try_ldap_login(
             "El nombre corresponde a una cuenta local; se negó el login LDAP",
             db_path=get_db_path(),
         )
-        logger.info(
-            "Login LDAP rechazado: %r es una cuenta local", username
-        )
+        logger.info("Login LDAP rechazado: %r es una cuenta local", username)
         flash("Usuario o contraseña incorrectos.", "danger")
         return
 
@@ -2295,7 +2235,9 @@ def login():
                 "Intento con cuenta bloqueada",
                 db_path=get_db_path(),
             )
-            logger.warning("Login bloqueado para usuario=%r (cuenta bloqueada)", username)
+            logger.warning(
+                "Login bloqueado para usuario=%r (cuenta bloqueada)", username
+            )
             flash(
                 "La cuenta está bloqueada temporalmente por demasiados intentos "
                 "fallidos. Inténtalo más tarde.",
@@ -2348,15 +2290,11 @@ def index():
         quote(TASK_REQUEST_SUBJECT, safe=""),
     )
     hidden_ids = (
-        modules_panel.hidden_task_ids(
-            current_user.get_id(), db_path=get_db_path()
-        )
+        modules_panel.hidden_task_ids(current_user.get_id(), db_path=get_db_path())
         if UI_CONFIG_PANEL
         else set()
     )
-    task_catalog, parked_catalog = modules_panel.split_catalog(
-        TASK_CATALOG, hidden_ids
-    )
+    task_catalog, parked_catalog = modules_panel.split_catalog(TASK_CATALOG, hidden_ids)
     return render_template(
         "tasks.html",
         task_catalog=task_catalog,
@@ -2472,8 +2410,7 @@ def task_view(task_id):
         data["safety"] = _safety_for_group(group)
         inventory_groups.append(data)
     locked_hosts = [
-        lock["host"]
-        for lock in list_active_locks(limit=20, db_path=get_db_path())
+        lock["host"] for lock in list_active_locks(limit=20, db_path=get_db_path())
     ]
     return render_template(
         "index.html",
@@ -2516,9 +2453,7 @@ def task_report_pdf(task_id: str):
         candidate = batches[0] if batches else None
         if candidate is not None and not candidate.task_id:
             batch = candidate
-            report_task_name = (
-                f"{task['name']} (última corrida general)"
-            )
+            report_task_name = f"{task['name']} (última corrida general)"
     if batch is None:
         flash(
             "Esta tarea aún no tiene ejecuciones registradas: lanza una "
@@ -2527,9 +2462,7 @@ def task_report_pdf(task_id: str):
         )
         return redirect(url_for("task_view", task_id=task_id))
 
-    host_results = ExecutionBatch.get_host_results(
-        batch.batch_id, db_path=db_path
-    )
+    host_results = ExecutionBatch.get_host_results(batch.batch_id, db_path=db_path)
     pdf_bytes = build_execution_report(
         batch,
         host_results,
@@ -2562,9 +2495,7 @@ def task_migration_pdf(task_id: str):
             "info",
         )
         return redirect(url_for("task_view", task_id=task_id))
-    host_results = ExecutionBatch.get_host_results(
-        batch.batch_id, db_path=db_path
-    )
+    host_results = ExecutionBatch.get_host_results(batch.batch_id, db_path=db_path)
     pdf_bytes = build_migration_report(
         batch,
         host_results,
@@ -2588,9 +2519,7 @@ def batch_migration_pdf(batch_id: str):
     batch = ExecutionBatch.get_batch(batch_id, db_path=get_db_path())
     if batch is None:
         abort(404)
-    host_results = ExecutionBatch.get_host_results(
-        batch_id, db_path=get_db_path()
-    )
+    host_results = ExecutionBatch.get_host_results(batch_id, db_path=get_db_path())
     pdf_bytes = build_migration_report(
         batch,
         host_results,
@@ -2683,22 +2612,26 @@ def inventario():
                 except ValueError as exc:
                     flash(str(exc), "danger")
         elif action == "delete_group":
-            group = HostGroup.get(
-                request.form.get("group_id", "0"), db_path=db_path
-            ) if request.form.get("group_id", "").isdigit() else None
+            group = (
+                HostGroup.get(request.form.get("group_id", "0"), db_path=db_path)
+                if request.form.get("group_id", "").isdigit()
+                else None
+            )
             if group is None:
                 flash("El grupo no existe.", "warning")
             else:
                 group.delete(db_path=db_path)
                 flash(f"Grupo '{group.name}' eliminado.", "success")
         elif action == "add_host":
-            group = HostGroup.get(
-                request.form.get("group_id", "0"), db_path=db_path
-            ) if request.form.get("group_id", "").isdigit() else None
+            group = (
+                HostGroup.get(request.form.get("group_id", "0"), db_path=db_path)
+                if request.form.get("group_id", "").isdigit()
+                else None
+            )
             if group is None:
                 flash("El grupo no existe.", "warning")
             else:
-                host, host_error = InventoryHost.add(
+                _host, host_error = InventoryHost.add(
                     group.id,
                     request.form.get("address", ""),
                     label=request.form.get("label", ""),
@@ -2767,17 +2700,18 @@ def inventario():
                         os.chmod(INVENTORY_KEYS_DIR, 0o700)
                     except OSError:  # pragma: no cover - permisos locales
                         INVENTORY_KEYS_DIR.mkdir(parents=True, exist_ok=True)
-                    slug = "".join(
-                        ch if ch.isalnum() or ch in "-_" else "_"
-                        for ch in group.name.lower()
-                    )[:40] or f"group-{group.id}"
+                    slug = (
+                        "".join(
+                            ch if ch.isalnum() or ch in "-_" else "_"
+                            for ch in group.name.lower()
+                        )[:40]
+                        or f"group-{group.id}"
+                    )
                     key_path = INVENTORY_KEYS_DIR / f"{slug}.pem"
                     fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
                     with os.fdopen(fd, "wb") as key_file:
                         key_file.write(raw)
-                    HostGroup.set_ssh_key(
-                        group.id, str(key_path), db_path=db_path
-                    )
+                    HostGroup.set_ssh_key(group.id, str(key_path), db_path=db_path)
                     flash(
                         "Clave SSH guardada y asociada al grupo (0600).",
                         "success",
@@ -2801,8 +2735,7 @@ def programaciones():
     tasks = {
         task["id"]: task
         for task in TASK_CATALOG
-        if task.get("status") == "active"
-        and task.get("schedulable", True)
+        if task.get("status") == "active" and task.get("schedulable", True)
     }
     if request.method == "POST":
         if not current_user.has_role("admin"):
@@ -2814,24 +2747,26 @@ def programaciones():
         # ``action="create"`` y fallaba al dispararse.
         action = request.form.get("op", "").strip()
         if action == "toggle":
-            schedule = Schedule.get(
-                request.form.get("schedule_id", "0"), db_path=db_path
-            ) if request.form.get("schedule_id", "").isdigit() else None
+            schedule = (
+                Schedule.get(request.form.get("schedule_id", "0"), db_path=db_path)
+                if request.form.get("schedule_id", "").isdigit()
+                else None
+            )
             if schedule is None:
                 flash("La programación no existe.", "warning")
             else:
-                Schedule.set_enabled(
-                    schedule.id, not schedule.enabled, db_path=db_path
-                )
+                Schedule.set_enabled(schedule.id, not schedule.enabled, db_path=db_path)
                 flash(
                     f"Programación '{schedule.name}' "
                     f"{'activada' if not schedule.enabled else 'desactivada'}.",
                     "success",
                 )
         elif action == "delete":
-            schedule = Schedule.get(
-                request.form.get("schedule_id", "0"), db_path=db_path
-            ) if request.form.get("schedule_id", "").isdigit() else None
+            schedule = (
+                Schedule.get(request.form.get("schedule_id", "0"), db_path=db_path)
+                if request.form.get("schedule_id", "").isdigit()
+                else None
+            )
             if schedule is None:
                 flash("La programación no existe.", "warning")
             else:
@@ -2847,7 +2782,7 @@ def programaciones():
                 return redirect(url_for("programaciones"))
             try:
                 run_at = datetime.strptime(run_at_raw, "%Y-%m-%dT%H:%M").replace(
-                    tzinfo=timezone.utc
+                    tzinfo=UTC
                 )
             except ValueError:
                 flash(
@@ -2865,8 +2800,7 @@ def programaciones():
                 )
                 return redirect(url_for("programaciones"))
             target_mode = (
-                request.form.get("target_mode", "manual").strip().lower()
-                or "manual"
+                request.form.get("target_mode", "manual").strip().lower() or "manual"
             )
             target_group_id = None
             schedule_group = None
@@ -2908,13 +2842,9 @@ def programaciones():
             # cae fuera de la ventana del grupo, se rechaza en vez de ejecutar
             # hosts críticos sin supervisión.
             if schedule_group is not None:
-                schedule_safety = _safety_for_group(
-                    schedule_group, now=run_at
-                )
+                schedule_safety = _safety_for_group(schedule_group, now=run_at)
             else:
-                schedule_safety = _safety_for_target(
-                    None, pinned_ip, now=run_at
-                )
+                schedule_safety = _safety_for_target(None, pinned_ip, now=run_at)
             if schedule_safety["blocked"]:
                 flash(
                     "No se puede programar fuera de la ventana de "
@@ -2987,16 +2917,12 @@ def programaciones():
         params = item.get("params") or {}
         group = groups_by_id.get(params.get("target_group_id"))
         item["group_name"] = group["name"] if group else ""
-        item["group_criticality"] = (
-            group.get("criticality_label", "") if group else ""
-        )
+        item["group_criticality"] = group.get("criticality_label", "") if group else ""
         item["group_window"] = group.get("window_label", "") if group else ""
     return render_template(
         "schedules.html",
         schedules=schedules,
-        tasks=[
-            {"id": key, "name": value["name"]} for key, value in tasks.items()
-        ],
+        tasks=[{"id": key, "name": value["name"]} for key, value in tasks.items()],
         inventory_groups=groups,
         recurrence_labels={
             "once": "Una vez",
@@ -3026,7 +2952,7 @@ def _approval_detail(req: ApprovalRequest) -> str:
     )
 
 
-def _approval_row(req: ApprovalRequest) -> Dict[str, Any]:
+def _approval_row(req: ApprovalRequest) -> dict[str, Any]:
     """Solicitud lista para plantilla, con su fecha límite y si es ejecutable."""
     data = req.to_dict()
     data.pop("payload", None)
@@ -3055,18 +2981,14 @@ def mis_solicitudes():
         "mis_solicitudes.html",
         requests=[
             _approval_row(req)
-            for req in ApprovalRequest.list_for_requester(
-                username, db_path=db_path
-            )
+            for req in ApprovalRequest.list_for_requester(username, db_path=db_path)
         ],
         request_ttl_hours=APPROVAL_REQUEST_TTL_HOURS,
         approval_ttl_minutes=APPROVAL_TTL_MINUTES,
     )
 
 
-@app.route(
-    "/mis-solicitudes/<int:request_id>/ejecutar", methods=["GET", "POST"]
-)
+@app.route("/mis-solicitudes/<int:request_id>/ejecutar", methods=["GET", "POST"])
 @roles_required("operator")
 def ejecutar_aprobacion(request_id):
     """Ejecuta una solicitud propia ya aprobada sin repetir el formulario.
@@ -3136,7 +3058,6 @@ def aprobaciones():
         if not request_id.isdigit():
             flash("Solicitud no válida.", "warning")
             return redirect(url_for("aprobaciones"))
-        req = ApprovalRequest.get(int(request_id), db_path=db_path)
         if action == "approve":
             decided, decide_error = ApprovalRequest.decide(
                 int(request_id),
@@ -3181,26 +3102,18 @@ def aprobaciones():
         request_ttl_hours=APPROVAL_REQUEST_TTL_HOURS,
         pending=[
             _approval_row(req)
-            for req in ApprovalRequest.list_status(
-                APPROVAL_PENDING, db_path=db_path
-            )
+            for req in ApprovalRequest.list_status(APPROVAL_PENDING, db_path=db_path)
         ],
         decided=[
             _approval_row(req)
-            for req in ApprovalRequest.list_status(
-                APPROVAL_APPROVED, db_path=db_path
-            )
-            + ApprovalRequest.list_status(
-                APPROVAL_REJECTED, db_path=db_path
-            )
-            + ApprovalRequest.list_status(
-                APPROVAL_EXPIRED, db_path=db_path
-            )
+            for req in ApprovalRequest.list_status(APPROVAL_APPROVED, db_path=db_path)
+            + ApprovalRequest.list_status(APPROVAL_REJECTED, db_path=db_path)
+            + ApprovalRequest.list_status(APPROVAL_EXPIRED, db_path=db_path)
         ],
     )
 
 
-def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
+def launch_scheduled(schedule, params: dict[str, Any]) -> bool:
     """Dispara una programación vencida purando la cola de trabajos normal.
 
     ``params`` lleva los parámetros guardados (sin secretos en claro) y la
@@ -3208,9 +3121,7 @@ def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
     ejecución según la recurrencia (una vez se desactiva tras el disparo).
     """
     db_path = get_db_path()
-    master_password = scheduler.decrypt_secret(
-        params.get("master_password_enc", "")
-    )
+    master_password = scheduler.decrypt_secret(params.get("master_password_enc", ""))
     if not master_password:
         Schedule.mark_run(
             schedule["id"],
@@ -3225,12 +3136,11 @@ def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
     # saltarse las reglas que la ejecución manual aplica. La plataforma se
     # resuelve con el grupo actual: si cambió, el disparo se rechaza.
     target_group = None
-    if params.get("target_mode") == "group" and params.get(
-        "target_group_id"
-    ) is not None:
-        target_group = HostGroup.get(
-            params["target_group_id"], db_path=db_path
-        )
+    if (
+        params.get("target_mode") == "group"
+        and params.get("target_group_id") is not None
+    ):
+        target_group = HostGroup.get(params["target_group_id"], db_path=db_path)
     validated, errors = _validate_scheduled_params(
         get_task(schedule["task_id"]),
         params.get("admin_user", ""),
@@ -3274,9 +3184,7 @@ def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
         next_open = schedule_safety.get("next_open")
         if next_open:
             try:
-                delta = datetime.fromisoformat(next_open) - datetime.now(
-                    timezone.utc
-                )
+                delta = datetime.fromisoformat(next_open) - datetime.now(UTC)
                 delay = max(60, int(delta.total_seconds()))
             except ValueError:
                 pass
@@ -3340,9 +3248,7 @@ def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
         return False
 
     schedule_row = Schedule.get(schedule["id"], db_path=db_path)
-    next_run = (
-        schedule_row.next_run_from() if schedule_row else None
-    )
+    next_run = schedule_row.next_run_from() if schedule_row else None
     Schedule.mark_run(
         schedule["id"],
         batch_id="",
@@ -3423,7 +3329,7 @@ def _safety_for_target(target_group_id, target, now=None):
     return result
 
 
-def _safety_gate(form: Dict[str, Any], operator: str, mode: str):
+def _safety_gate(form: dict[str, Any], operator: str, mode: str):
     """Aplica criticidad y ventana antes de encolar una ejecución real.
 
     La vista previa nunca se bloquea (no modifica nada). Una ejecución real
@@ -3475,9 +3381,7 @@ def _safety_gate(form: Dict[str, Any], operator: str, mode: str):
                     jsonify(
                         {
                             "status": "blocked",
-                            "errors": [
-                                "Se requiere rol admin para la excepción."
-                            ],
+                            "errors": ["Se requiere rol admin para la excepción."],
                         }
                     ),
                     403,
@@ -3528,7 +3432,7 @@ def _safety_gate(form: Dict[str, Any], operator: str, mode: str):
     return None
 
 
-def _approval_params(form: Dict[str, Any]) -> Dict[str, Any]:
+def _approval_params(form: dict[str, Any]) -> dict[str, Any]:
     """Parámetros estables de una ejecución, sin secretos, para aprobaciones.
 
     La nueva contraseña de la tarjeta ``PASSWORD`` tampoco se guarda: la
@@ -3547,7 +3451,7 @@ def _approval_params(form: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _approval_payload(form) -> Dict[str, Any]:
+def _approval_payload(form) -> dict[str, Any]:
     """Formulario original de la solicitud, apto para reejecutarla.
 
     Se guardan los campos tal cual llegaron (para reproducir el mismo hash de
@@ -3562,7 +3466,7 @@ def _approval_payload(form) -> Dict[str, Any]:
         "new_password_confirm",
         "password_file",
     }
-    payload: Dict[str, Any] = {}
+    payload: dict[str, Any] = {}
     for key, value in form.items():
         if key in skip or not isinstance(value, str):
             continue
@@ -3570,9 +3474,7 @@ def _approval_payload(form) -> Dict[str, Any]:
     return payload
 
 
-def handle_execution(
-    default_mode: str = "execute", form_data=None, files=None
-):
+def handle_execution(default_mode: str = "execute", form_data=None, files=None):
     """Valida y lanza una ejecución desde el formulario o desde una aprobación.
 
     ``form_data`` permite reenviar los parámetros guardados en una solicitud de
@@ -3625,10 +3527,13 @@ def handle_execution(
 
     # Gate por tarea: rol mínimo y doble aprobación para tareas destructivas.
     task = get_task(form["task_id"])
-    if task is not None and task.get("min_role") == "admin":
-        if not current_user.has_role("admin"):
-            discard_wallpaper()
-            abort(403)
+    if (
+        task is not None
+        and task.get("min_role") == "admin"
+        and not current_user.has_role("admin")
+    ):
+        discard_wallpaper()
+        abort(403)
     # Criticidad y ventana de mantenimiento: se aplican antes de consumir la
     # idempotencia o una aprobación de un solo uso.
     blocked_response = _safety_gate(form, operator, form["mode"])
@@ -3660,7 +3565,7 @@ def handle_execution(
         flash(message, "warning")
         return redirect(url_for("index"))
 
-    approval_request_id: Optional[int] = None
+    approval_request_id: int | None = None
     if task is not None and task.get("destructive") and form["mode"] == "execute":
         # Reserva sin consumir: si el encolado falla (cola llena, excepción),
         # la aprobación vuelve a ``approved`` y no se pierde.
@@ -3677,7 +3582,11 @@ def handle_execution(
             _release_operation_id(operation_id)
             discard_wallpaper()
             message = approval_error or "Se requiere doble aprobación para esta tarea."
-            if "pendiente" not in message and "ha expirado" not in message and "ya se usó" not in message:
+            if (
+                "pendiente" not in message
+                and "ha expirado" not in message
+                and "ya se usó" not in message
+            ):
                 approval_params = _approval_params(form)
                 pending = [
                     req
@@ -3761,9 +3670,7 @@ def handle_execution(
         _release_operation_id(operation_id)
         discard_wallpaper()
         if approval_request_id is not None:
-            ApprovalRequest.release_reserved(
-                approval_request_id, db_path=get_db_path()
-            )
+            ApprovalRequest.release_reserved(approval_request_id, db_path=get_db_path())
         message = (
             "El servicio está ocupado con demasiadas operaciones. "
             "Espera a que termine alguna e inténtalo de nuevo."
@@ -3779,15 +3686,11 @@ def handle_execution(
         _release_operation_id(operation_id)
         discard_wallpaper()
         if approval_request_id is not None:
-            ApprovalRequest.release_reserved(
-                approval_request_id, db_path=get_db_path()
-            )
+            ApprovalRequest.release_reserved(approval_request_id, db_path=get_db_path())
         raise
     else:
         if approval_request_id is not None:
-            ApprovalRequest.confirm_reserved(
-                approval_request_id, db_path=get_db_path()
-            )
+            ApprovalRequest.confirm_reserved(approval_request_id, db_path=get_db_path())
 
     if _wants_json():
         return jsonify(
@@ -3807,7 +3710,7 @@ def handle_execution(
 _batch_console_lock = threading.RLock()
 
 
-def _append_log(lines: List[str], message: str, limit: int = 200) -> None:
+def _append_log(lines: list[str], message: str, limit: int = 200) -> None:
     """Añade una línea al log de progreso manteniendo un tamaño acotado."""
     with _batch_console_lock:
         lines.append(message)
@@ -3823,7 +3726,7 @@ _STATE_B64_RE = re.compile(r"(?:HORA|TAPIZ|APT)_[A-Z_]+_B64=")
 _STATE_JSON_STATE_RE = re.compile(r"(?:HORA|TAPIZ|APT)_(?:STATE|BEFORE)=\{")
 
 
-def _sanitize_console_line(line: str, secrets: List[str]) -> str:
+def _sanitize_console_line(line: str, secrets: list[str]) -> str:
     """Normaliza una línea de Ansible y oculta secretos conocidos.
 
     También compacta los marcadores base64 de estado, que son muy largos y no
@@ -3842,14 +3745,12 @@ def _sanitize_console_line(line: str, secrets: List[str]) -> str:
     return text
 
 
-def _trim_console(console: List[str]) -> None:
+def _trim_console(console: list[str]) -> None:
     if len(console) > _CONSOLE_MAX_LINES:
         del console[: len(console) - _CONSOLE_MAX_LINES]
 
 
-def _append_console(
-    console: List[str], tid: str, message: str, host: str = ""
-) -> None:
+def _append_console(console: list[str], tid: str, message: str, host: str = "") -> None:
     """Añade una línea de resumen a la consola y actualiza la tarea."""
     text = f"[{host}] {message}" if host else message
     with _batch_console_lock:
@@ -3859,9 +3760,7 @@ def _append_console(
     update_task(tid, {"console": snapshot})
 
 
-def _make_console_callback(
-    tid: str, host: str, console: List[str], secrets: List[str]
-):
+def _make_console_callback(tid: str, host: str, console: list[str], secrets: list[str]):
     """Crea el callback que recibe la salida de Ansible en tiempo real."""
     last_update = [0.0]
 
@@ -3892,10 +3791,10 @@ def _progress_for(index: int, total: int, start: int = 12, span: int = 85) -> in
 def _skip_remaining_hosts(
     tid: str,
     batch_id: str,
-    hosts: List[str],
+    hosts: list[str],
     db_path: str,
-    log_lines: List[str],
-    console_lines: List[str],
+    log_lines: list[str],
+    console_lines: list[str],
     reason: str = "Presupuesto de tiempo del lote agotado.",
 ) -> None:
     """Registra como omitidos los hosts que no se llegaron a procesar.
@@ -3916,9 +3815,7 @@ def _skip_remaining_hosts(
     update_task(tid, {"log": list(log_lines), "console": list(console_lines)})
 
 
-def _ntp_keep_warning(
-    action: str, ntp_policy: str, state: Any
-) -> str:
+def _ntp_keep_warning(action: str, ntp_policy: str, state: Any) -> str:
     """Aviso cuando ``TIME`` se aplica con NTP activo y política ``keep``."""
     if (
         action == "TIME"
@@ -3936,33 +3833,33 @@ def _ntp_keep_warning(
 def _run_preview_batch(
     tid: str,
     batch_id: str,
-    hosts: List[str],
+    hosts: list[str],
     admin_user: str,
-    candidates: List[str],
+    candidates: list[str],
     action: str,
     value: str,
     password_origin: str,
     time_mode: str,
     ntp_policy: str,
-    ntp_servers: List[str],
+    ntp_servers: list[str],
     force: bool,
     deadline: float,
     db_path: str,
-    log_lines: List[str],
-    target_epoch: Optional[int] = None,
-    cancel_event: Optional[threading.Event] = None,
+    log_lines: list[str],
+    target_epoch: int | None = None,
+    cancel_event: threading.Event | None = None,
     private_key: str = "",
     connection: str = "ssh",
     wallpaper_uri: str = "",
-    min_free_gb: Optional[float] = None,
-) -> None:
+    min_free_gb: float | None = None,
+) -> str:
     """Inspecciona todos los hosts sin cambiar nada y registra el lote.
 
     Devuelve ``completed``, ``incomplete`` (presupuesto agotado) o
     ``cancelled`` (cancelación solicitada por el usuario).
     """
     total = len(hosts)
-    console_lines: List[str] = []
+    console_lines: list[str] = []
     outcome = "completed"
     for index, host in enumerate(hosts, start=1):
         if cancel_event is not None and cancel_event.is_set():
@@ -3990,16 +3887,12 @@ def _run_preview_batch(
             break
 
         started = time.monotonic()
-        state: Optional[Dict[str, Any]] = None
+        state: dict[str, Any] | None = None
         used_hash = ""
         last_error = ""
         inspected = False
-        _append_console(
-            console_lines, tid, f"=== {host} ({index}/{total}) ==="
-        )
-        line_callback = _make_console_callback(
-            tid, host, console_lines, candidates
-        )
+        _append_console(console_lines, tid, f"=== {host} ({index}/{total}) ===")
+        line_callback = _make_console_callback(tid, host, console_lines, candidates)
 
         attempts = 0
         for candidate in candidates:
@@ -4064,7 +3957,7 @@ def _run_preview_batch(
                         private_key=private_key or None,
                         connection=connection or "ssh",
                     )
-            except Exception as exc:  # pragma: no cover - salvaguarda
+            except Exception as exc:  # noqa: BLE001  # pragma: no cover - salvaguarda
                 last_error = str(exc)
                 continue
 
@@ -4079,9 +3972,7 @@ def _run_preview_batch(
         progress = _progress_for(index, total)
 
         if inspected:
-            attention = bool(
-                isinstance(state, dict) and state.get("attention")
-            )
+            attention = bool(isinstance(state, dict) and state.get("attention"))
             attention_kind = (
                 str(state.get("attention_kind") or "")
                 if isinstance(state, dict)
@@ -4199,34 +4090,34 @@ def _run_preview_batch(
 def _run_apply_batch(
     tid: str,
     batch_id: str,
-    hosts: List[str],
+    hosts: list[str],
     admin_user: str,
-    candidates: List[str],
+    candidates: list[str],
     action: str,
     value: str,
     password_origin: str,
     time_mode: str,
     ntp_policy: str,
-    ntp_servers: List[str],
+    ntp_servers: list[str],
     sync_rtc: bool,
     force: bool,
     deadline: float,
     db_path: str,
-    log_lines: List[str],
-    target_epoch: Optional[int] = None,
-    local_fold: Optional[int] = None,
+    log_lines: list[str],
+    target_epoch: int | None = None,
+    local_fold: int | None = None,
     time_zone: str = "",
     ntp_settle: int = 0,
     requiere_ntp_off: bool = True,
-    cancel_event: Optional[threading.Event] = None,
+    cancel_event: threading.Event | None = None,
     private_key: str = "",
     connection: str = "ssh",
     wallpaper_path: str = "",
     wallpaper_uri: str = "",
-    min_free_gb: Optional[float] = None,
+    min_free_gb: float | None = None,
     new_password: str = "",
-    dry_run: Optional[bool] = None,
-) -> None:
+    dry_run: bool | None = None,
+) -> str:
     """Aplica el cambio en todos los hosts (best-effort) y registra cada uno.
 
     Si una contraseña autentica pero el playbook falla, se prueban las
@@ -4238,7 +4129,7 @@ def _run_apply_batch(
     ``cancelled`` (cancelación solicitada por el usuario).
     """
     total = len(hosts)
-    console_lines: List[str] = []
+    console_lines: list[str] = []
     outcome = "completed"
     state_lock = threading.Lock()
     completed_hosts = 0
@@ -4330,9 +4221,7 @@ def _run_apply_batch(
                 attention = False
                 attention_kind = ""
                 attention_reason = ""
-                _append_console(
-                    console_lines, tid, f"=== {host} ({index}/{total}) ==="
-                )
+                _append_console(console_lines, tid, f"=== {host} ({index}/{total}) ===")
                 console_secrets = list(candidates)
                 if new_password:
                     console_secrets.append(new_password)
@@ -4372,7 +4261,7 @@ def _run_apply_batch(
                             private_key=private_key or None,
                             connection=connection or "ssh",
                         )
-                    except Exception as exc:  # pragma: no cover - salvaguarda
+                    except Exception as exc:  # noqa: BLE001  # salvaguarda
                         last_auth_error = str(exc)
                         _append_console(
                             console_lines,
@@ -4441,7 +4330,7 @@ def _run_apply_batch(
                             new_password=new_password,
                             dry_run=dry_run,
                         )
-                    except Exception as exc:  # pragma: no cover - salvaguarda
+                    except Exception as exc:  # noqa: BLE001  # salvaguarda
                         last_apply_error = str(exc)
                         _append_log(
                             log_lines,
@@ -4462,7 +4351,7 @@ def _run_apply_batch(
                     if result.get("after_state") is not None:
                         after_state = result.get("after_state")
                     if result.get("warnings"):
-                        warnings = result.get("warnings")
+                        warnings = str(result.get("warnings"))
                     if result.get("attention"):
                         attention = True
                         attention_kind = str(result.get("attention_kind") or "")
@@ -4640,9 +4529,7 @@ def _run_apply_batch(
                     db_path=db_path,
                 )
                 _append_log(log_lines, f"FALLO {host}: error interno")
-                _append_console(
-                    console_lines, tid, "FALLO: error interno", host=host
-                )
+                _append_console(console_lines, tid, "FALLO: error interno", host=host)
             finally:
                 release_host_lock(host, batch_id, db_path=db_path)
         finally:
@@ -4661,9 +4548,7 @@ def _run_apply_batch(
             try:
                 future.result()
             except Exception:  # pragma: no cover - salvaguarda
-                logger.exception(
-                    "Fallo inesperado en un host del lote %s", batch_id
-                )
+                logger.exception("Fallo inesperado en un host del lote %s", batch_id)
 
     if cancelled:
         outcome = "cancelled"
@@ -4681,25 +4566,25 @@ def execute_with_progress(
     mpw: str,
     ac: str,
     vl: str,
-    temporal_passwords: Optional[list[str]] = None,
+    temporal_passwords: list[str] | None = None,
     *,
     mode: str = "execute",
     time_mode: str = "utc",
     time_zone: str = "",
-    time_fold: Optional[int] = None,
-    target_epoch: Optional[int] = None,
+    time_fold: int | None = None,
+    target_epoch: int | None = None,
     ntp_policy: str = "keep",
-    ntp_servers: Optional[List[str]] = None,
+    ntp_servers: list[str] | None = None,
     sync_rtc: bool = False,
     force: bool = False,
     operator: str = "",
     task_id: str = "",
-    cancel_event: Optional[threading.Event] = None,
-    target_hosts: Optional[List[str]] = None,
+    cancel_event: threading.Event | None = None,
+    target_hosts: list[str] | None = None,
     wallpaper_path: str = "",
     wallpaper_uri: str = "",
     wallpaper_name: str = "",
-    min_free_gb: Optional[float] = None,
+    min_free_gb: float | None = None,
     new_password: str = "",
 ) -> None:
     """Ejecuta una vista previa o un lote completo sobre todos los hosts.
@@ -4712,7 +4597,6 @@ def execute_with_progress(
         cancel_event = get_job_queue().cancel_event(tid)
     batch_id = ""
     db_path = get_db_path()
-    cancelled = False
     # El modo se captura al arrancar el lote: aunque el interruptor global
     # cambie, esta ejecución mantiene un único comportamiento de principio a
     # fin y no mezcla hosts simulados con hosts reales.
@@ -4738,7 +4622,7 @@ def execute_with_progress(
         # configurada, autentica todas las conexiones del lote.
         private_key = ""
         target_display = ti
-        inv_errors: List[str] = []
+        inv_errors: list[str] = []
         connection = "ssh"
         if ti.startswith("inventory:"):
             try:
@@ -4776,16 +4660,13 @@ def execute_with_progress(
             else:
                 candidates = [
                     inv_host.address
-                    for inv_host in HostGroup.hosts_of(
-                        inv_group.id, db_path=db_path
-                    )
+                    for inv_host in HostGroup.hosts_of(inv_group.id, db_path=db_path)
                 ]
             for address in candidates:
                 pinned_inv, inv_error = pin_target(address)
                 if inv_error or not pinned_inv:
                     inv_errors.append(
-                        f"Descartado {address}: "
-                        + (inv_error or "dirección inválida")
+                        f"Descartado {address}: " + (inv_error or "dirección inválida")
                     )
                     continue
                 hosts.append(pinned_inv)
@@ -4843,16 +4724,10 @@ def execute_with_progress(
                     "fichero existente."
                 )
             else:
-                missing = sorted(
-                    host for host, ok in key_status.items() if not ok
-                )
+                missing = sorted(host for host, ok in key_status.items() if not ok)
                 if missing:
                     preview = ", ".join(missing[:5])
-                    extra = (
-                        f" y {len(missing) - 5} más"
-                        if len(missing) > 5
-                        else ""
-                    )
+                    extra = f" y {len(missing) - 5} más" if len(missing) > 5 else ""
                     inv_errors.append(
                         f"Aviso: sin huella SSH para {preview}{extra}; Ansible "
                         "fallará si el host no está ya en known_hosts."
@@ -4868,9 +4743,7 @@ def execute_with_progress(
                 "progress": 10,
                 "message": f"Objetivo: {', '.join(hosts[:3])}"
                 + (f" +{len(hosts) - 3} más" if len(hosts) > 3 else ""),
-                "log": [
-                    f"{target_display} -> {len(hosts)} host(s)"
-                ] + inv_errors,
+                "log": [f"{target_display} -> {len(hosts)} host(s)"] + inv_errors,
             },
         )
 
@@ -4965,7 +4838,7 @@ def execute_with_progress(
             },
         )
 
-        log_lines: List[str] = [f"Lote {batch_id}"]
+        log_lines: list[str] = [f"Lote {batch_id}"]
         deadline = time.monotonic() + BATCH_TIME_BUDGET_SECONDS
         if mode == "preview":
             outcome = _run_preview_batch(
@@ -5125,9 +4998,7 @@ def progress_page(task_id: str):
     if task is None or not _can_view_task(task):
         abort(404)
     actor = _task_viewer_actor()
-    can_cancel = current_user.has_role("admin") or str(
-        task.get("owner") or ""
-    ) == actor
+    can_cancel = current_user.has_role("admin") or str(task.get("owner") or "") == actor
     return render_template(
         "progress.html", task_id=task_id, task=task, can_cancel=can_cancel
     )
@@ -5221,17 +5092,18 @@ def cancel_task(task_id: str):
         f"tarea={task_id} dueño={owner or '(ninguno)'}",
         db_path=get_db_path(),
     )
-    logger.info(
-        "Cancelación solicitada para la tarea %s por %s", task_id, actor
-    )
+    logger.info("Cancelación solicitada para la tarea %s por %s", task_id, actor)
     if _wants_json():
-        return jsonify(
-            {
-                "success": True,
-                "status": "cancelling",
-                "message": "Cancelación solicitada.",
-            }
-        ), 202
+        return (
+            jsonify(
+                {
+                    "success": True,
+                    "status": "cancelling",
+                    "message": "Cancelación solicitada.",
+                }
+            ),
+            202,
+        )
     flash("Cancelación solicitada.", "info")
     return redirect(url_for("progress_page", task_id=task_id))
 
@@ -5245,12 +5117,8 @@ def batch_detail(batch_id: str):
     batch = ExecutionBatch.get_batch(batch_id, db_path=get_db_path())
     if batch is None:
         abort(404)
-    host_results = ExecutionBatch.get_host_results(
-        batch_id, db_path=get_db_path()
-    )
-    duration_stats = ExecutionBatch.get_duration_stats(
-        batch_id, db_path=get_db_path()
-    )
+    host_results = ExecutionBatch.get_host_results(batch_id, db_path=get_db_path())
+    duration_stats = ExecutionBatch.get_duration_stats(batch_id, db_path=get_db_path())
     return render_template(
         "batch.html",
         batch=batch,
@@ -5332,9 +5200,7 @@ def passwords():
             except (TypeError, ValueError):
                 return _password_response(False, "ID de contraseña no válido.", 400)
 
-            hash_full = PasswordRecord.get_hash_full(
-                password_id, db_path=get_db_path()
-            )
+            hash_full = PasswordRecord.get_hash_full(password_id, db_path=get_db_path())
             if hash_full is None:
                 return _password_response(False, "La contraseña no existe.", 400)
 
@@ -5356,21 +5222,23 @@ def passwords():
                 if not removed:
                     return _password_response(False, message, 400)
 
-            deleted = PasswordRecord.delete_password(
-                password_id, db_path=get_db_path()
-            )
+            deleted = PasswordRecord.delete_password(password_id, db_path=get_db_path())
             return _password_response(
                 deleted,
-                "Contraseña eliminada del vault y de la base de datos."
-                if deleted
-                else "No se pudo eliminar de la base de datos.",
+                (
+                    "Contraseña eliminada del vault y de la base de datos."
+                    if deleted
+                    else "No se pudo eliminar de la base de datos."
+                ),
                 200 if deleted else 400,
             )
 
         if action == "load_file":
             uploaded = request.files.get("password_file")
             if uploaded is None or not uploaded.filename:
-                return _password_response(False, "No se seleccionó ningún archivo.", 400)
+                return _password_response(
+                    False, "No se seleccionó ningún archivo.", 400
+                )
 
             extension = os.path.splitext(uploaded.filename)[1].lower()
             if extension not in ALLOWED_PASSWORD_EXTENSIONS:
@@ -5473,9 +5341,7 @@ def history():
 @login_required
 def acerca_de():
     """Página institucional con la fecha del host (hora local del servidor)."""
-    host_date = format_spanish_datetime(
-        datetime.now(timezone.utc), with_time=True
-    )
+    host_date = format_spanish_datetime(datetime.now(UTC), with_time=True)
     return render_template("about.html", host_date=host_date)
 
 
@@ -5538,9 +5404,9 @@ def usuarios():
     ldap_on = load_ldap_access_setting()
     users = User.all(db_path=get_db_path())
     last_events = AuthEvent.recent(limit=200, db_path=get_db_path())
-    last_login: Dict[str, str] = {}
+    last_login: dict[str, str] = {}
     for event in last_events:
-        event_kind = (event["event"] or "")
+        event_kind = event["event"] or ""
         if event_kind in ("login_success", "ldap_first_login"):
             last_login.setdefault(event["username"], event["timestamp"])
     return render_template(
@@ -5637,9 +5503,7 @@ def usuarios_rol():
         and target.is_active
         and target.auth_source == "local"
         and new_role != "admin"
-        and User.count_active_local_admins_excluding(
-            username, db_path=get_db_path()
-        )
+        and User.count_active_local_admins_excluding(username, db_path=get_db_path())
         == 0
     ):
         flash(
@@ -5664,8 +5528,7 @@ def usuarios_rol():
     )
     flash(f"Rol de '{username}' actualizado.", "success")
     return redirect(
-        url_for("usuarios")
-        + (f"#{next_username}" if next_username else "")
+        url_for("usuarios") + (f"#{next_username}" if next_username else "")
     )
 
 
@@ -5675,7 +5538,12 @@ def usuarios_estado():
     """Activa o desactiva una cuenta (bloquea el acceso, sin borrar datos)."""
     username = (request.form.get("username") or "").strip()
     is_active = (request.form.get("active") or "").strip().lower() in {
-        "1", "true", "si", "sí", "yes", "on"
+        "1",
+        "true",
+        "si",
+        "sí",
+        "yes",
+        "on",
     }
     if not username:
         flash("Nombre de usuario no indicado.", "danger")
@@ -5697,9 +5565,7 @@ def usuarios_estado():
         and target.is_admin
         and target.is_active
         and target.auth_source == "local"
-        and User.count_active_local_admins_excluding(
-            username, db_path=get_db_path()
-        )
+        and User.count_active_local_admins_excluding(username, db_path=get_db_path())
         == 0
     ):
         flash(
@@ -5877,9 +5743,7 @@ def register_cli(flask_app: Flask) -> None:
                 f"La contraseña debe tener al menos {ADMIN_PASSWORD_MIN_LENGTH} caracteres."
             )
         db_path = get_db_path()
-        user = User.create_or_update(
-            username, password, db_path=db_path, role=role
-        )
+        user = User.create_or_update(username, password, db_path=db_path, role=role)
         # ``create_or_update`` no cambia el rol de una cuenta existente para
         # no degradar roles de forma implícita (p. ej. en el primer login
         # LDAPS). El CLI sí es una acción explícita del operador: aplica el
@@ -5891,9 +5755,7 @@ def register_cli(flask_app: Flask) -> None:
                 f"'{user.role}' a '{role}'."
             )
         else:
-            click.echo(
-                f"Usuario '{username}' creado/actualizado con rol '{role}'."
-            )
+            click.echo(f"Usuario '{username}' creado/actualizado con rol '{role}'.")
 
     @flask_app.cli.command("scheduler")
     @click.option(
@@ -5951,9 +5813,7 @@ def register_cli(flask_app: Flask) -> None:
         for group in HostGroup.all(db_path=db_path):
             if (group.connection or "ssh") != "ssh":
                 continue
-            for inv_host in HostGroup.hosts_of(
-                group.id, db_path=db_path
-            ):
+            for inv_host in HostGroup.hosts_of(group.id, db_path=db_path):
                 hosts.append(inv_host.address)
         hosts = sorted(set(hosts))
         if not hosts:
@@ -5968,9 +5828,7 @@ def register_cli(flask_app: Flask) -> None:
             click.echo("Sin huella (host caído o SSH no accesible):")
             for host in missing:
                 click.echo(f"  - {host}")
-            raise click.ClickException(
-                "No se pudieron obtener todas las huellas SSH."
-            )
+            raise click.ClickException("No se pudieron obtener todas las huellas SSH.")
 
 
 # ---------------------------------------------------------------------------
@@ -5990,9 +5848,7 @@ def _is_cli_invocation() -> bool:
     programa = os.path.basename(argv[0])
     if programa in {"flask", "flask.exe"}:
         return True
-    if len(argv) >= 3 and argv[1] == "-m" and argv[2] == "flask":
-        return True
-    return False
+    return len(argv) >= 3 and argv[1] == "-m" and argv[2] == "flask"
 
 
 def configure_app(flask_app: Flask) -> Flask:
@@ -6008,9 +5864,7 @@ def configure_app(flask_app: Flask) -> Flask:
         REMEMBER_COOKIE_HTTPONLY=REMEMBER_COOKIE_HTTPONLY,
         REMEMBER_COOKIE_SAMESITE=REMEMBER_COOKIE_SAMESITE,
         REMEMBER_COOKIE_SECURE=REMEMBER_COOKIE_SECURE,
-        REMEMBER_COOKIE_DURATION=timedelta(
-            seconds=REMEMBER_COOKIE_DURATION_SECONDS
-        ),
+        REMEMBER_COOKIE_DURATION=timedelta(seconds=REMEMBER_COOKIE_DURATION_SECONDS),
         PERMANENT_SESSION_LIFETIME=timedelta(
             seconds=PERMANENT_SESSION_LIFETIME_SECONDS
         ),
@@ -6022,7 +5876,8 @@ def configure_app(flask_app: Flask) -> Flask:
     if TRUST_PROXY:
         from werkzeug.middleware.proxy_fix import ProxyFix
 
-        flask_app.wsgi_app = ProxyFix(
+        # Flask tipa ``wsgi_app`` como método; ProxyFix es el envoltorio oficial.
+        flask_app.wsgi_app = ProxyFix(  # type: ignore[method-assign]
             flask_app.wsgi_app, x_for=1, x_proto=1, x_host=0, x_port=0, x_prefix=0
         )
 

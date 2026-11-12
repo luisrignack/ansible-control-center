@@ -4,7 +4,6 @@ import ipaddress
 import logging
 import re
 import socket
-from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +22,7 @@ _IPV4_RANGE_RE = re.compile(
 
 def _parse_ipv4_range(
     value: str,
-) -> Optional[Tuple[ipaddress.IPv4Address, ipaddress.IPv4Address]]:
+) -> tuple[ipaddress.IPv4Address, ipaddress.IPv4Address] | None:
     """Devuelve los extremos de un rango IPv4 ``inicio-fin``.
 
     No exige que ``inicio <= fin`` para que el llamador pueda distinguir un
@@ -46,7 +45,7 @@ def _looks_like_ipv4_range(value: str) -> bool:
     return bool(_IPV4_RANGE_RE.fullmatch(value or ""))
 
 
-def _split_target_list(value: str) -> List[str]:
+def _split_target_list(value: str) -> list[str]:
     """Divide un objetivo con varias entradas separadas por comas.
 
     Se ignoran los espacios alrededor de cada entrada y las comas sobrantes,
@@ -69,9 +68,7 @@ def _pinned_host_count(pinned: str) -> int:
     return 1
 
 
-def _effective_limits(
-    max_hosts: Optional[int], min_prefix: Optional[int]
-) -> Tuple[int, int]:
+def _effective_limits(max_hosts: int | None, min_prefix: int | None) -> tuple[int, int]:
     """Completa los límites con los valores de configuración."""
     if max_hosts is None or min_prefix is None:
         from config import MAX_HOSTS, MIN_CIDR_PREFIX
@@ -114,9 +111,8 @@ def _is_blocked(
         if not network.overlaps(blocked):
             continue
         # Loopback solo se permite en desarrollo y con opt-in explícito.
-        if blocked.is_loopback:
-            if _loopback_allowed() and not IS_PRODUCTION:
-                continue
+        if blocked.is_loopback and _loopback_allowed() and not IS_PRODUCTION:
+            continue
         return True
     return False
 
@@ -158,7 +154,7 @@ def _network_allowed(
     return False
 
 
-def resolve_single_ip(ip_str: str) -> Optional[str]:
+def resolve_single_ip(ip_str: str) -> str | None:
     """Validar y devolver una dirección IP única.
 
     Args:
@@ -176,7 +172,7 @@ def resolve_single_ip(ip_str: str) -> Optional[str]:
         return addresses[0] if addresses else None
 
 
-def resolve_hostname(hostname: str) -> List[str]:
+def resolve_hostname(hostname: str) -> list[str]:
     """Resuelve un hostname a todas sus direcciones IPv4 conocidas.
 
     Se resuelve una sola vez y se devuelven direcciones literales para que
@@ -188,7 +184,7 @@ def resolve_hostname(hostname: str) -> List[str]:
         _name, _aliases, addresses = socket.gethostbyname_ex(hostname)
     except (socket.gaierror, UnicodeError, OSError):
         return []
-    unique: List[str] = []
+    unique: list[str] = []
     for address in addresses:
         try:
             normalized = str(ipaddress.ip_address(address))
@@ -201,9 +197,9 @@ def resolve_hostname(hostname: str) -> List[str]:
 
 def resolve_cidr_range(
     cidr_str: str,
-    max_hosts: Optional[int] = None,
-    min_prefix: Optional[int] = None,
-) -> List[str]:
+    max_hosts: int | None = None,
+    min_prefix: int | None = None,
+) -> list[str]:
     """Resolver un rango CIDR a una lista acotada de direcciones.
 
     El rango se rechaza antes de enumerarlo si supera el prefijo mínimo o el
@@ -251,7 +247,7 @@ def resolve_cidr_range(
         )
         return []
 
-    hosts: List[str] = []
+    hosts: list[str] = []
     for host in network.hosts():
         hosts.append(str(host))
         if len(hosts) >= max_hosts:
@@ -262,9 +258,9 @@ def resolve_cidr_range(
 
 def resolve_ipv4_range(
     range_str: str,
-    max_hosts: Optional[int] = None,
-    min_prefix: Optional[int] = None,
-) -> List[str]:
+    max_hosts: int | None = None,
+    min_prefix: int | None = None,
+) -> list[str]:
     """Expande un rango IPv4 inclusivo ``inicio-fin``.
 
     El rango se rechaza si está invertido, si supera ``max_hosts`` o si alguna
@@ -291,7 +287,7 @@ def resolve_ipv4_range(
         )
         return []
 
-    hosts: List[str] = []
+    hosts: list[str] = []
     for offset in range(count):
         ip = str(ipaddress.IPv4Address(int(start) + offset))
         if not _ip_allowed(ip):
@@ -307,9 +303,9 @@ def resolve_ipv4_range(
 
 def resolve_target(
     target: str,
-    max_hosts: Optional[int] = None,
-    min_prefix: Optional[int] = None,
-) -> List[str]:
+    max_hosts: int | None = None,
+    min_prefix: int | None = None,
+) -> list[str]:
     """Resolver un objetivo que puede ser IP única, hostname, CIDR o rango.
 
     Args:
@@ -363,19 +359,17 @@ def resolve_target(
     ip = resolve_single_ip(target)
     if ip:
         if not _ip_allowed(ip):
-            logger.warning(
-                "Host rechazado %s: fuera de ACC_ALLOWED_NETWORKS", ip
-            )
+            logger.warning("Host rechazado %s: fuera de ACC_ALLOWED_NETWORKS", ip)
             return []
         return [ip]
     return []
 
 
 def _resolve_target_list(
-    pieces: List[str],
-    max_hosts: Optional[int],
-    min_prefix: Optional[int],
-) -> List[str]:
+    pieces: list[str],
+    max_hosts: int | None,
+    min_prefix: int | None,
+) -> list[str]:
     """Resuelve un objetivo con varias entradas separadas por comas.
 
     Cada entrada se valida con las mismas restricciones que un objetivo
@@ -383,7 +377,7 @@ def _resolve_target_list(
     supera ``max_hosts`` se rechaza el objetivo completo en lugar de truncarlo.
     """
     max_hosts, _ = _effective_limits(max_hosts, min_prefix)
-    hosts: List[str] = []
+    hosts: list[str] = []
     for piece in pieces:
         for host in resolve_target(piece, max_hosts, min_prefix):
             if host not in hosts:
@@ -430,9 +424,9 @@ def validate_ip_format(ip_str: str) -> bool:
 
 def pin_target(
     target: str,
-    max_hosts: Optional[int] = None,
-    min_prefix: Optional[int] = None,
-) -> Tuple[Optional[str], Optional[str]]:
+    max_hosts: int | None = None,
+    min_prefix: int | None = None,
+) -> tuple[str | None, str | None]:
     """Valida un objetivo y devuelve una forma ya resuelta y fijada.
 
     Para un hostname se resuelve **una sola vez** y se devuelve la primera IP
@@ -477,7 +471,7 @@ def pin_target(
             return (
                 None,
                 f"El rango incluye {host_count} hosts; el máximo permitido "
-                f"es {max_hosts}.",
+                + f"es {max_hosts}.",
             )
         for offset in range(host_count):
             ip = str(ipaddress.IPv4Address(int(start) + offset))
@@ -485,14 +479,14 @@ def pin_target(
                 return (
                     None,
                     f"El rango contiene la IP {ip}, fuera de las redes "
-                    "permitidas.",
+                    + "permitidas.",
                 )
         return f"{start}-{end}", None
     if _looks_like_ipv4_range(value):
         return (
             None,
             "Rango de IP inválido. Usa inicio-fin, por ejemplo "
-            "172.17.128.118-172.17.128.235.",
+            + "172.17.128.118-172.17.128.235.",
         )
 
     if not validate_ip_format(value):
@@ -535,8 +529,8 @@ def pin_target(
     if network.version == 4 and network.prefixlen < min_prefix:
         return (
             None,
-            f"Rango demasiado grande: el prefijo mínimo permitido es "
-            f"/{min_prefix}.",
+            "Rango demasiado grande: el prefijo mínimo permitido es "
+            + f"/{min_prefix}.",
         )
 
     host_count = max(network.num_addresses - 2, 1)
@@ -544,16 +538,16 @@ def pin_target(
         return (
             None,
             f"El rango incluye {host_count} hosts; el máximo permitido es "
-            f"{max_hosts}.",
+            + f"{max_hosts}.",
         )
     return str(network), None
 
 
 def _pin_target_list(
-    pieces: List[str],
-    max_hosts: Optional[int],
-    min_prefix: Optional[int],
-) -> Tuple[Optional[str], Optional[str]]:
+    pieces: list[str],
+    max_hosts: int | None,
+    min_prefix: int | None,
+) -> tuple[str | None, str | None]:
     """Fija un objetivo con varias entradas separadas por comas.
 
     Devuelve las entradas normalizadas unidas por comas. El máximo de hosts se
@@ -561,7 +555,7 @@ def _pin_target_list(
     """
     max_hosts, min_prefix = _effective_limits(max_hosts, min_prefix)
     remaining = max_hosts
-    pinned_parts: List[str] = []
+    pinned_parts: list[str] = []
     for piece in pieces:
         if remaining <= 0:
             return None, (
@@ -582,9 +576,9 @@ def _pin_target_list(
 
 def validate_target(
     target: str,
-    max_hosts: Optional[int] = None,
-    min_prefix: Optional[int] = None,
-) -> Optional[str]:
+    max_hosts: int | None = None,
+    min_prefix: int | None = None,
+) -> str | None:
     """Valida un objetivo y devuelve un mensaje de error o ``None``.
 
     Se usa antes de lanzar la ejecución para rechazar rangos excesivos sin

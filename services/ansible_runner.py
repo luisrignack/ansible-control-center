@@ -20,8 +20,9 @@ import subprocess
 import threading
 import time
 from collections import deque
-from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from config import (
     ANSIBLE_CFG,
@@ -42,13 +43,13 @@ from config import (
     PLAYBOOK_FILE,
     PLAYBOOK_TIMEOUT,
     TIME_VERIFY_TOLERANCE,
-    WINRM_PORT,
-    WINRM_SERVER_CERT_VALIDATION,
-    WINRM_TRANSPORT,
     WALLPAPER_APPLY_PLAYBOOK_FILE,
     WALLPAPER_INSPECT_PLAYBOOK_FILE,
     WINDOWS_APPLY_PLAYBOOK_FILE,
     WINDOWS_INSPECT_PLAYBOOK_FILE,
+    WINRM_PORT,
+    WINRM_SERVER_CERT_VALIDATION,
+    WINRM_TRANSPORT,
 )
 from services.job_queue import JobCancelled
 from services.secure_temp import secure_temp_file
@@ -61,8 +62,8 @@ _STATE_JSON_RE = re.compile(r"HORA_STATE=(\{.*\})")
 _BEFORE_JSON_RE = re.compile(r"HORA_BEFORE=(\{.*\})")
 
 
-def _result(host: str, success: bool, **extra: Any) -> Dict[str, Any]:
-    result: Dict[str, Any] = {
+def _result(host: str, success: bool, **extra: Any) -> dict[str, Any]:
+    result: dict[str, Any] = {
         "success": success,
         "host": host,
         "output": "",
@@ -76,9 +77,7 @@ def _result(host: str, success: bool, **extra: Any) -> Dict[str, Any]:
     return result
 
 
-def _emit_line(
-    callback: Optional[Callable[[str], None]], message: str
-) -> None:
+def _emit_line(callback: Callable[[str], None] | None, message: str) -> None:
     """Entrega una línea a la consola sin dejar que un fallo tumbe el flujo."""
     if callback is None:
         return
@@ -88,7 +87,7 @@ def _emit_line(
         logger.exception("Error en el callback de salida de Ansible")
 
 
-def ansible_environment() -> Dict[str, str]:
+def ansible_environment() -> dict[str, str]:
     """Entorno mínimo para las llamadas a Ansible, sin secretos.
 
     No se hereda ``os.environ`` completo: variables como la clave de sesión,
@@ -115,8 +114,7 @@ def ansible_environment() -> Dict[str, str]:
         key: value
         for key, value in os.environ.items()
         if key in allowed
-        or key.startswith("ANSIBLE_")
-        or key.startswith("LC_")
+        or key.startswith(("ANSIBLE_", "LC_"))
         or key in {"http_proxy", "https_proxy", "no_proxy"}
     }
     env["ANSIBLE_CONFIG"] = str(ANSIBLE_CFG)
@@ -129,14 +127,14 @@ def ansible_environment() -> Dict[str, str]:
 def _invoke_playbook(
     host: str,
     user: str,
-    password: Optional[str],
+    password: str | None,
     playbook_path: str,
-    extra_vars: Dict[str, Any],
-    timeout: Optional[int] = None,
-    line_callback: Optional[Callable[[str], None]] = None,
-    cancel_event: Optional[threading.Event] = None,
-    private_key: Optional[str] = None,
-    connection: Optional[str] = None,
+    extra_vars: dict[str, Any],
+    timeout: int | None = None,
+    line_callback: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
+    private_key: str | None = None,
+    connection: str | None = None,
 ) -> subprocess.CompletedProcess:
     """Ejecuta ``ansible-playbook`` con las credenciales en un fichero 0600.
 
@@ -159,9 +157,7 @@ def _invoke_playbook(
         payload["ansible_connection"] = "winrm"
         payload["ansible_port"] = str(WINRM_PORT)
         payload["ansible_winrm_transport"] = WINRM_TRANSPORT
-        payload["ansible_winrm_server_cert_validation"] = (
-            WINRM_SERVER_CERT_VALIDATION
-        )
+        payload["ansible_winrm_server_cert_validation"] = WINRM_SERVER_CERT_VALIDATION
 
     with secure_temp_file(
         json.dumps(payload), prefix=".ansible-vars-", suffix=".json"
@@ -186,18 +182,17 @@ def _invoke_playbook(
                 text=True,
                 timeout=timeout or PLAYBOOK_TIMEOUT,
                 env=env,
+                check=False,
             )
-        return _run_streaming(
-            cmd, env, timeout, line_callback, cancel_event
-        )
+        return _run_streaming(cmd, env, timeout, line_callback, cancel_event)
 
 
 def _run_streaming(
-    cmd: List[str],
-    env: Dict[str, str],
-    timeout: Optional[int],
-    line_callback: Optional[Callable[[str], None]],
-    cancel_event: Optional[threading.Event] = None,
+    cmd: list[str],
+    env: dict[str, str],
+    timeout: int | None,
+    line_callback: Callable[[str], None] | None,
+    cancel_event: threading.Event | None = None,
 ) -> subprocess.CompletedProcess:
     """Ejecuta un proceso y entrega su salida línea a línea.
 
@@ -236,14 +231,12 @@ def _run_streaming(
             except OSError:  # pragma: no cover - cierre defensivo
                 pass
 
-    reader = threading.Thread(
-        target=_reader, name="ansible-output", daemon=True
-    )
+    reader = threading.Thread(target=_reader, name="ansible-output", daemon=True)
     reader.start()
 
     limit = timeout or PLAYBOOK_TIMEOUT
     deadline = time.monotonic() + limit
-    returncode: Optional[int] = None
+    returncode: int | None = None
     while returncode is None:
         try:
             returncode = process.wait(timeout=0.2)
@@ -265,7 +258,7 @@ def _run_streaming(
     )
 
 
-def _decode_b64_marker(output: str, marker: str) -> Optional[Dict[str, Any]]:
+def _decode_b64_marker(output: str, marker: str) -> dict[str, Any] | None:
     """Decodifica un marcador ``<marker>_B64=<base64-json>``."""
     match = re.search(rf"{re.escape(marker)}_B64=([A-Za-z0-9+/=]+)", output)
     if not match:
@@ -278,7 +271,7 @@ def _decode_b64_marker(output: str, marker: str) -> Optional[Dict[str, Any]]:
     return value if isinstance(value, dict) else None
 
 
-def _decode_json_marker(output: str, marker: str) -> Optional[Dict[str, Any]]:
+def _decode_json_marker(output: str, marker: str) -> dict[str, Any] | None:
     """Compatibilidad con salida no codificada: ``<marker>={json}``."""
     match = re.search(rf"{re.escape(marker)}=(\{{.*\}})", output)
     if not match:
@@ -291,11 +284,9 @@ def _decode_json_marker(output: str, marker: str) -> Optional[Dict[str, Any]]:
     return value if isinstance(value, dict) else None
 
 
-def _decode_state(output: str, marker: str) -> Optional[Dict[str, Any]]:
+def _decode_state(output: str, marker: str) -> dict[str, Any] | None:
     """Lee un estado publicado por el playbook (base64 o JSON plano)."""
-    return _decode_b64_marker(output, marker) or _decode_json_marker(
-        output, marker
-    )
+    return _decode_b64_marker(output, marker) or _decode_json_marker(output, marker)
 
 
 def _decode_text_marker(output: str, marker: str) -> str:
@@ -313,7 +304,7 @@ def _decode_text_marker(output: str, marker: str) -> str:
     return text_match.group(1).strip() if text_match else ""
 
 
-def _decode_bool_marker(output: str, marker: str) -> Optional[bool]:
+def _decode_bool_marker(output: str, marker: str) -> bool | None:
     text = _decode_text_marker(output, marker).strip().lower()
     if text in {"true", "yes", "1"}:
         return True
@@ -335,10 +326,10 @@ def _epoch_for(value: str, time_mode: str) -> int:
         parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M")
     except (TypeError, ValueError):
         return 0
-    return int(parsed.replace(tzinfo=timezone.utc).timestamp())
+    return int(parsed.replace(tzinfo=UTC).timestamp())
 
 
-def _missing_playbook(host: str, path: str) -> Dict[str, Any]:
+def _missing_playbook(host: str, path: str) -> dict[str, Any]:
     logger.error("Playbook not found: %s", path)
     return _result(
         host,
@@ -348,14 +339,8 @@ def _missing_playbook(host: str, path: str) -> Dict[str, Any]:
     )
 
 
-def _playbook_error(
-    host: str, path: str, process: subprocess.CompletedProcess
-) -> str:
-    return (
-        process.stderr.strip()
-        or process.stdout.strip()
-        or "El playbook falló."
-    )
+def _playbook_error(host: str, path: str, process: subprocess.CompletedProcess) -> str:
+    return process.stderr.strip() or process.stdout.strip() or "El playbook falló."
 
 
 def run_ansible_playbook(
@@ -363,14 +348,14 @@ def run_ansible_playbook(
     user: str,
     action: str,
     value: str,
-    password: Optional[str] = None,
-    playbook_path: str = None,
-    timeout: int = None,
-    line_callback: Optional[Callable[[str], None]] = None,
-    cancel_event: Optional[threading.Event] = None,
-    private_key: Optional[str] = None,
-    connection: Optional[str] = None,
-) -> Dict[str, Any]:
+    password: str | None = None,
+    playbook_path: str | None = None,
+    timeout: int | None = None,
+    line_callback: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
+    private_key: str | None = None,
+    connection: str | None = None,
+) -> dict[str, Any]:
     """Ejecuta el playbook de configuración de hora contra un host.
 
     Se conserva por compatibilidad con el flujo anterior. En modo ``DRY_RUN``
@@ -477,10 +462,7 @@ def run_ansible_playbook(
             or "La verificación posterior no coincide con el objetivo."
         )
     elif verified is None:
-        error = (
-            "El playbook no devolvió el resultado de verificación "
-            "HORA_VERIFIED."
-        )
+        error = "El playbook no devolvió el resultado de verificación " "HORA_VERIFIED."
 
     return _result(
         host,
@@ -494,14 +476,14 @@ def run_ansible_playbook(
 def inspect_host(
     host: str,
     user: str,
-    password: Optional[str] = None,
-    timeout: int = None,
-    line_callback: Optional[Callable[[str], None]] = None,
+    password: str | None = None,
+    timeout: int | None = None,
+    line_callback: Callable[[str], None] | None = None,
     force_real: bool = False,
-    cancel_event: Optional[threading.Event] = None,
-    private_key: Optional[str] = None,
-    connection: Optional[str] = None,
-) -> Dict[str, Any]:
+    cancel_event: threading.Event | None = None,
+    private_key: str | None = None,
+    connection: str | None = None,
+) -> dict[str, Any]:
     """Lee el estado de hora/zona horaria/NTP de un host sin cambiar nada.
 
     Devuelve ``state`` con el diccionario publicado por el playbook o ``None``
@@ -525,9 +507,7 @@ def inspect_host(
 
     if DRY_RUN and not force_real:
         logger.info("DRY RUN: se omite la inspección de %s", host)
-        _emit_line(
-            line_callback, f"[DRY RUN] Se habría inspeccionado {host}"
-        )
+        _emit_line(line_callback, f"[DRY RUN] Se habría inspeccionado {host}")
         return _result(
             host,
             True,
@@ -604,12 +584,12 @@ def inspect_host(
 def inspect_wallpaper(
     host: str,
     user: str,
-    password: Optional[str] = None,
-    timeout: int = None,
-    line_callback: Optional[Callable[[str], None]] = None,
-    cancel_event: Optional[threading.Event] = None,
-    private_key: Optional[str] = None,
-) -> Dict[str, Any]:
+    password: str | None = None,
+    timeout: int | None = None,
+    line_callback: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
+    private_key: str | None = None,
+) -> dict[str, Any]:
     """Lee el tapiz configurado en un host Linux/GNOME sin cambiar nada.
 
     La inspección es de solo lectura: se ejecuta de verdad incluso en
@@ -687,13 +667,13 @@ def inspect_wallpaper(
 def inspect_apt(
     host: str,
     user: str,
-    password: Optional[str] = None,
-    min_free_gb: Optional[float] = None,
-    timeout: int = None,
-    line_callback: Optional[Callable[[str], None]] = None,
-    cancel_event: Optional[threading.Event] = None,
-    private_key: Optional[str] = None,
-) -> Dict[str, Any]:
+    password: str | None = None,
+    min_free_gb: float | None = None,
+    timeout: int | None = None,
+    line_callback: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
+    private_key: str | None = None,
+) -> dict[str, Any]:
     """Lee el estado de actualización de un host con apt sin cambiar nada.
 
     No ejecuta ``apt-get update`` ni modifica paquetes: solo recolecta el
@@ -779,13 +759,13 @@ def inspect_apt(
 def inspect_password(
     host: str,
     user: str,
-    password: Optional[str] = None,
+    password: str | None = None,
     target_user: str = "ladmin",
-    timeout: int = None,
-    line_callback: Optional[Callable[[str], None]] = None,
-    cancel_event: Optional[threading.Event] = None,
-    private_key: Optional[str] = None,
-) -> Dict[str, Any]:
+    timeout: int | None = None,
+    line_callback: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
+    private_key: str | None = None,
+) -> dict[str, Any]:
     """Comprueba el usuario objetivo sin cambiar su contraseña.
 
     La inspección es de solo lectura y se ejecuta de verdad incluso en
@@ -864,12 +844,12 @@ def inspect_password(
 def inspect_firewall(
     host: str,
     user: str,
-    password: Optional[str] = None,
-    timeout: int = None,
-    line_callback: Optional[Callable[[str], None]] = None,
-    cancel_event: Optional[threading.Event] = None,
-    private_key: Optional[str] = None,
-) -> Dict[str, Any]:
+    password: str | None = None,
+    timeout: int | None = None,
+    line_callback: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
+    private_key: str | None = None,
+) -> dict[str, Any]:
     """Lee el estado del firewall sin cambiar nada.
 
     Publica ``FIREWALL_STATE`` con el gestor detectado (``ufw``,
@@ -933,9 +913,7 @@ def inspect_firewall(
     if process.returncode != 0:
         error = _playbook_error(host, path, process)
     elif state is None:
-        error = (
-            "El playbook de inspección no devolvió el estado FIREWALL_STATE."
-        )
+        error = "El playbook de inspección no devolvió el estado FIREWALL_STATE."
 
     return _result(
         host,
@@ -952,30 +930,30 @@ def apply_host(
     user: str,
     action: str,
     value: str,
-    password: Optional[str] = None,
+    password: str | None = None,
     time_mode: str = "utc",
-    private_key: Optional[str] = None,
+    private_key: str | None = None,
     ntp_policy: str = "keep",
-    ntp_servers: Optional[List[str]] = None,
+    ntp_servers: list[str] | None = None,
     sync_rtc: bool = False,
     force: bool = False,
-    tolerance: Optional[int] = None,
-    timeout: int = None,
-    line_callback: Optional[Callable[[str], None]] = None,
-    local_fold: Optional[int] = None,
+    tolerance: int | None = None,
+    timeout: int | None = None,
+    line_callback: Callable[[str], None] | None = None,
+    local_fold: int | None = None,
     time_zone: str = "",
     requiere_ntp_off: bool = True,
     ntp_settle: int = 0,
-    target_epoch: Optional[int] = None,
-    cancel_event: Optional[threading.Event] = None,
-    connection: Optional[str] = None,
-    backup_dir: Optional[str] = None,
-    wallpaper_path: Optional[str] = None,
+    target_epoch: int | None = None,
+    cancel_event: threading.Event | None = None,
+    connection: str | None = None,
+    backup_dir: str | None = None,
+    wallpaper_path: str | None = None,
     wallpaper_uri: str = "",
-    min_free_gb: Optional[float] = None,
+    min_free_gb: float | None = None,
     new_password: str = "",
-    dry_run: Optional[bool] = None,
-) -> Dict[str, Any]:
+    dry_run: bool | None = None,
+) -> dict[str, Any]:
     """Aplica el cambio en un host y verifica el resultado.
 
     Devuelve, además del éxito, ``before_state``, ``after_state``, ``changed``,
@@ -1118,9 +1096,11 @@ def apply_host(
             "accion": action,
             "valor": value,
             "modo_hora": time_mode,
-            "valor_epoch": int(target_epoch)
-            if target_epoch is not None
-            else _epoch_for(value, time_mode),
+            "valor_epoch": (
+                int(target_epoch)
+                if target_epoch is not None
+                else _epoch_for(value, time_mode)
+            ),
             "ntp_policy": ntp_policy,
             "ntp_servers": list(ntp_servers or []),
             "sync_rtc": bool(sync_rtc),
@@ -1134,12 +1114,11 @@ def apply_host(
             "requiere_ntp_off": bool(requiere_ntp_off),
             "ntp_settle": max(0, int(ntp_settle or 0)),
         }
-    if backup_dir and not is_wallpaper and not is_apt:
+    if backup_dir and not is_wallpaper and not is_apt and connection != "winrm":
         # Solo Linux: el playbook hace fetch de /etc/timezone.bak. En Windows
         # no existe ese archivo (el estado previo queda en la base de datos).
-        if connection != "winrm":
-            os.makedirs(backup_dir, exist_ok=True)
-            extra_vars["acc_backup_dir"] = backup_dir
+        os.makedirs(backup_dir, exist_ok=True)
+        extra_vars["acc_backup_dir"] = backup_dir
 
     try:
         process = _invoke_playbook(
@@ -1196,24 +1175,18 @@ def apply_host(
         after_state = _decode_state(process.stdout, "APT_STATE")
         changed = _decode_bool_marker(process.stdout, "APT_CHANGED")
         verified = _decode_bool_marker(process.stdout, "APT_VERIFIED")
-        policy_skipped = (
-            _decode_bool_marker(process.stdout, "APT_SKIP") is True
-        )
+        policy_skipped = _decode_bool_marker(process.stdout, "APT_SKIP") is True
         errors = ""
         warnings = ""
         deviation = None
         attention = bool((after_state or {}).get("attention"))
         attention_kind = str((after_state or {}).get("attention_kind") or "")
-        attention_reason = str(
-            (after_state or {}).get("attention_reason") or ""
-        )
+        attention_reason = str((after_state or {}).get("attention_reason") or "")
         if not attention and policy_skipped:
             # Respaldo si el estado final no llegó a incluir la clasificación.
             attention = True
             attention_kind = "migration"
-            attention_reason = (
-                "La estación requiere atención antes de actualizar."
-            )
+            attention_reason = "La estación requiere atención antes de actualizar."
     elif is_password:
         before_state = _decode_state(process.stdout, "PASSWORD_BEFORE")
         after_state = _decode_state(process.stdout, "PASSWORD_STATE")
@@ -1257,8 +1230,10 @@ def apply_host(
     if process.returncode != 0:
         error = _playbook_error(host, path, process)
     elif verified is False:
-        error = errors or attention_reason or (
-            "La verificación posterior no coincide con el objetivo."
+        error = (
+            errors
+            or attention_reason
+            or ("La verificación posterior no coincide con el objetivo.")
         )
     elif verified is None:
         marker = (
@@ -1270,18 +1245,11 @@ def apply_host(
                 else (
                     "PASSWORD_VERIFIED"
                     if is_password
-                    else (
-                        "FIREWALL_VERIFIED"
-                        if is_firewall
-                        else "HORA_VERIFIED"
-                    )
+                    else ("FIREWALL_VERIFIED" if is_firewall else "HORA_VERIFIED")
                 )
             )
         )
-        error = (
-            "El playbook no devolvió el resultado de verificación "
-            f"{marker}."
-        )
+        error = "El playbook no devolvió el resultado de verificación " f"{marker}."
 
     return _result(
         host,
@@ -1306,8 +1274,8 @@ def run_playbook_simple(
     host: str,
     user: str,
     vault_password: str,
-    playbook_path: str = None,
-) -> Dict[str, Any]:
+    playbook_path: str | None = None,
+) -> dict[str, Any]:
     """Ejecución simplificada (mantenida por compatibilidad)."""
     return run_ansible_playbook(
         host=host,

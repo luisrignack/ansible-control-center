@@ -15,6 +15,7 @@ Uso:
 El resultado es orientativo. Para una prueba real, ejecuta lotes contra un
 inventario de laboratorio y compara con ``/metricas``.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -87,8 +88,9 @@ def main() -> int:
         app_module._host_semaphore = None
 
         probe = Probe(args.latency)
-        app_module.test_ansible_ping = probe.ping
-        app_module.apply_host = probe.apply
+        # Las sondas aceptan **kwargs para imitar la firma amplia del backend.
+        app_module.test_ansible_ping = probe.ping  # type: ignore[assignment]
+        app_module.apply_host = probe.apply  # type: ignore[assignment]
 
         queue = JobQueue(
             max_workers=args.job_workers,
@@ -100,8 +102,13 @@ def main() -> int:
         errors: list[str] = []
         lock = threading.Lock()
 
-        def run_batch(operator: str, batch_id: str, task_id: str, hosts: list[str],
-                      submitted_at: float) -> None:
+        def run_batch(
+            operator: str,
+            batch_id: str,
+            task_id: str,
+            hosts: list[str],
+            submitted_at: float,
+        ) -> None:
             started_at = time.monotonic()
             with lock:
                 waits.append(started_at - submitted_at)
@@ -127,7 +134,7 @@ def main() -> int:
                 ExecutionBatch.finish_batch(batch_id=batch_id, db_path=db_path)
                 with lock:
                     outcomes.append(outcome)
-            except Exception as exc:  # pragma: no cover - diagnóstico
+            except Exception as exc:  # noqa: BLE001  # pragma: no cover - diagnóstico
                 with lock:
                     errors.append(f"{operator}: {exc}")
             finally:
@@ -139,10 +146,7 @@ def main() -> int:
                 operator = f"operador-{index}"
                 batch_id = f"carga-{uuid.uuid4().hex[:8]}-{index}"
                 task_id = app_module.create_task(owner=operator)
-                hosts = [
-                    f"10.20.{index}.{host}"
-                    for host in range(1, args.hosts + 1)
-                ]
+                hosts = [f"10.20.{index}.{host}" for host in range(1, args.hosts + 1)]
                 ExecutionBatch.create_batch(
                     batch_id=batch_id,
                     operator=operator,
@@ -156,8 +160,7 @@ def main() -> int:
                 submitted_at = time.monotonic()
                 queue.submit(
                     task_id,
-                    lambda cancel_event, operator=operator, batch_id=batch_id,
-                    task_id=task_id, hosts=hosts, submitted_at=submitted_at: run_batch(
+                    lambda cancel_event, operator=operator, batch_id=batch_id, task_id=task_id, hosts=hosts, submitted_at=submitted_at: run_batch(
                         operator, batch_id, task_id, hosts, submitted_at
                     ),
                 )

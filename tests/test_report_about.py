@@ -7,13 +7,14 @@
 # cp1252 y buscar las frases).
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 import app as app_module
 from models.batch import ExecutionBatch
-from services.pdf_report import classify_failure_reason
 from models.user import User
-from pathlib import Path
+from services.pdf_report import classify_failure_reason
 
 
 @pytest.fixture()
@@ -51,9 +52,15 @@ def _login(client):
     return response
 
 
-def _create_batch(task_id: str = "zona-todas", operator: str = "admin", target: str = "10.42.0.10",
-                  status: str = "partial", dry_run: bool = False) -> str:
+def _create_batch(
+    task_id: str = "zona-todas",
+    operator: str = "admin",
+    target: str = "10.42.0.10",
+    status: str = "partial",
+    dry_run: bool = False,
+) -> str:
     import uuid
+
     batch = ExecutionBatch.create_batch(
         batch_id=f"b-{task_id or 'legacy'}-{uuid.uuid4().hex[:8]}",
         operator=operator,
@@ -68,8 +75,9 @@ def _create_batch(task_id: str = "zona-todas", operator: str = "admin", target: 
         task_id=task_id,
         db_path=app_module.get_db_path(),
     )
-    ExecutionBatch.finish_batch(batch.batch_id, status=status,
-                                db_path=app_module.get_db_path())
+    ExecutionBatch.finish_batch(
+        batch.batch_id, status=status, db_path=app_module.get_db_path()
+    )
     return batch.batch_id
 
 
@@ -89,9 +97,12 @@ def _add_results(batch_id: str) -> None:
 # Clasificación de motivos
 # ---------------------------------------------------------------------------
 def test_classify_reason_connection_failure():
-    assert classify_failure_reason(
-        "UNREACHABLE! => Failed to connect to the host via ssh."
-    ) == "Estación apagada o sin conexión"
+    assert (
+        classify_failure_reason(
+            "UNREACHABLE! => Failed to connect to the host via ssh."
+        )
+        == "Estación apagada o sin conexión"
+    )
 
 
 def test_classify_reason_password():
@@ -127,7 +138,7 @@ def test_ping_failure_error_prefers_host_line_over_warnings(monkeypatch):
             cmd,
             1,
             # stdout: el host prueba una conexión fallida real.
-            "10.42.0.9 | UNREACHABLE! => {\"changed\": false}",
+            '10.42.0.9 | UNREACHABLE! => {"changed": false}',
             # stderr: solo avisos de configuración.
             "[WARNING]: Deprecation warnings can be disabled.",
         )
@@ -177,15 +188,23 @@ def test_report_uses_task_batch_not_global(client):
     _login(client)
     viejo_id = _create_batch(task_id="zona-todas", target="10.42.0.10")
     ExecutionBatch.add_host_result(
-        viejo_id, "10.42.0.10", "failure",
-        error="UNREACHABLE", db_path=app_module.get_db_path(),
+        viejo_id,
+        "10.42.0.10",
+        "failure",
+        error="UNREACHABLE",
+        db_path=app_module.get_db_path(),
     )
     nuevo_id = _create_batch(task_id="zona-todas", target="Inventario: Estaciones")
     ExecutionBatch.add_host_result(
-        nuevo_id, "10.42.0.90", "failure",
-        error="Permission denied.", db_path=app_module.get_db_path(),
+        nuevo_id,
+        "10.42.0.90",
+        "failure",
+        error="Permission denied.",
+        db_path=app_module.get_db_path(),
     )
-    text = client.get("/tarea/zona-todas/informe.pdf").data.decode("cp1252", errors="replace")
+    text = client.get("/tarea/zona-todas/informe.pdf").data.decode(
+        "cp1252", errors="replace"
+    )
     # El informe de la tarea refleja su ÚLTIMA corrida (la nueva), no la previa.
     assert "10.42.0.90" in text
     assert "10.42.0.10" not in text
@@ -213,9 +232,7 @@ def test_report_does_not_use_another_tasks_batch(client):
         otra_id, "10.77.0.7", "success", db_path=app_module.get_db_path()
     )
 
-    response = client.get(
-        "/tarea/zona-todas/informe.pdf", follow_redirects=True
-    )
+    response = client.get("/tarea/zona-todas/informe.pdf", follow_redirects=True)
     assert response.status_code == 200
     body = response.get_data(as_text=True)
     assert "aún no tiene ejecuciones registradas" in body
@@ -317,8 +334,12 @@ def test_apply_host_linux_sends_backup_dir(tmp_path, monkeypatch):
 
     backup_dir = tmp_path / "timezone_backups" / "batch-1"
     result = runner.apply_host(
-        "10.42.0.7", "admin", "TZ", "America/Caracas",
-        password="clave", connection="ssh",
+        "10.42.0.7",
+        "admin",
+        "TZ",
+        "America/Caracas",
+        password="clave",
+        connection="ssh",
         backup_dir=str(backup_dir),
     )
     assert result["success"], result
@@ -349,8 +370,12 @@ def test_apply_host_windows_has_no_backup_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "DRY_RUN", False)
 
     result = runner.apply_host(
-        "10.42.0.7", "admin", "TZ", "America/Caracas",
-        password="clave", connection="winrm",
+        "10.42.0.7",
+        "admin",
+        "TZ",
+        "America/Caracas",
+        password="clave",
+        connection="winrm",
         backup_dir=str(tmp_path / "timezone_backups"),
     )
     assert result["success"], result
@@ -376,8 +401,6 @@ def test_linux_playbook_fetches_backup_and_checks_persistence():
     assert "acc_backup_dir" in (fetch_task["when"][0] + fetch_task["when"][1])
     assert fetch_task["ansible.builtin.fetch"]["src"] == "/etc/timezone.bak"
 
-    persist_task = next(
-        t for t in tasks if "/etc/timezone persiste" in t["name"]
-    )
+    persist_task = next(t for t in tasks if "/etc/timezone persiste" in t["name"])
     assert "failed_when" in persist_task
     assert persist_task["when"][-1] == "_hora_tz_file.stat.exists"
