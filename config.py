@@ -566,6 +566,12 @@ JOB_QUEUE_SIZE = _env_int("ACC_JOB_QUEUE_SIZE", 50, minimum=1)
 JOB_SHUTDOWN_GRACE_SECONDS = _env_int(
     "ACC_JOB_SHUTDOWN_GRACE", 10, minimum=0, maximum=300
 )
+# Reserva por host: evita que dos lotes apliquen playbooks a la vez sobre el
+# mismo equipo. Se renueva antes de cada intento de credencial y caduca sola
+# si el proceso muere, para no bloquear el host indefinidamente.
+HOST_LOCK_TTL_SECONDS = _env_int(
+    "ACC_HOST_LOCK_TTL", 1800, minimum=60, maximum=86400
+)
 
 # Bloqueo progresivo de cuentas tras intentos fallidos de login.
 LOGIN_LOCKOUT_THRESHOLD = _env_int(

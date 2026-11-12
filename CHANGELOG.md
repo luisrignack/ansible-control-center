@@ -5,6 +5,27 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Concurrencia entre operadores] — 2026-11-12
+
+### Añadido
+
+- **Reserva por host (`host_locks`, esquema v17)**: antes de aplicar un
+  cambio, el lote reserva la IP. Si otro lote está trabajando en ella, el host
+  se registra como `skipped` («Otra operación en curso sobre el host») en vez
+  de que dos playbooks compitan y ambos registren éxito. La reserva se libera
+  al terminar el host, se renueva antes de cada intento de credencial y caduca
+  con `ACC_HOST_LOCK_TTL` (30 min por defecto) si el proceso muere. Las vistas
+  previas no reservan porque no modifican nada.
+- **Estado real de cola**: una tarea encolada ya no aparece como «en curso».
+  Se muestra «En cola» con su posición (1-based), que se actualiza al arrancar
+  los trabajos anteriores y no se persiste en SQLite.
+
+### Cambiado
+
+- `ACC_GUNICORN_THREADS` pasa de 4 a 8 por defecto. Cada stream SSE ocupa un
+  hilo hasta 90 s; con cuatro operadores mirando el progreso, cuatro hilos
+  dejaban la web sin margen para cargar páginas o cancelar.
+
 ## [Doble aprobación con 24 h y ejecución desde la solicitud] — 2026-11-11
 
 ### Añadido

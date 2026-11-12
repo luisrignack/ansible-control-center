@@ -51,6 +51,10 @@ class JobQueue:
         )
         self._lock = threading.Lock()
         self._jobs: Dict[str, _Job] = {}
+        # Orden FIFO de los trabajos que aún esperan (los que ya están en
+        # ejecución salen de esta lista). Permite mostrar la posición en la
+        # cola sin inspeccionar las estructuras internas de ``queue.Queue``.
+        self._pending_order: list[str] = []
         self._threads = []
         self._stopping = False
         for index in range(self.max_workers):
@@ -86,11 +90,16 @@ class JobQueue:
             if len(self._jobs) >= self.max_queue + self.max_workers:
                 raise JobQueueFull("Hay demasiados trabajos en curso.")
             self._jobs[task_id] = job
+            self._pending_order.append(task_id)
         try:
             self._queue.put_nowait(job)
         except queue.Full as exc:
             with self._lock:
                 self._jobs.pop(task_id, None)
+                try:
+                    self._pending_order.remove(task_id)
+                except ValueError:
+                    pass
             raise JobQueueFull("La cola de trabajos está llena.") from exc
 
     def cancel(self, task_id: str) -> bool:
@@ -121,6 +130,11 @@ class JobQueue:
             if item is None:
                 self._queue.task_done()
                 return
+            with self._lock:
+                try:
+                    self._pending_order.remove(item.task_id)
+                except ValueError:
+                    pass
             try:
                 item.func(*item.args, **item.kwargs)
             except JobCancelled:
@@ -152,6 +166,14 @@ class JobQueue:
         if wait:
             for thread in self._threads:
                 thread.join(timeout=self.shutdown_grace)
+
+    def position(self, task_id: str) -> Optional[int]:
+        """Posición 1-based en la cola, o ``None`` si ya no espera."""
+        with self._lock:
+            try:
+                return self._pending_order.index(task_id) + 1
+            except ValueError:
+                return None
 
     @property
     def pending(self) -> int:

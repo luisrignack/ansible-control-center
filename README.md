@@ -420,6 +420,7 @@ una `ACC_SECRET_KEY` aleatoria.
 | `ACC_MAX_NTP_SERVERS` | `8` | Máximo de servidores NTP |
 | `ACC_JOB_WORKERS` | `2` | Trabajos concurrentes de la cola |
 | `ACC_JOB_QUEUE_SIZE` | `50` | Trabajos en espera antes de rechazar con error |
+| `ACC_HOST_LOCK_TTL` | `1800` | Vigencia de la reserva por host (s) |
 | `ACC_JOB_SHUTDOWN_GRACE` | `10` | Espera de apagado ordenado (s) |
 | `ACC_MAX_MEMORY_TASKS` | `200` | Instantáneas de tarea en memoria |
 | `ACC_MAX_TASK_STATE_ROWS` | `500` | Filas máximas de `task_state` |
@@ -529,7 +530,7 @@ Estas variables las lee `gunicorn.conf.py`, no `config.py`:
 | `ACC_BIND` | `127.0.0.1:5000` | Dirección de escucha |
 | `ACC_WORKERS` | `1` | Workers web; subirlo es seguro para lecturas y SSE, pero la ejecución/cancelación sigue siendo por proceso |
 | `ACC_GUNICORN_WORKER_CLASS` | `gthread` | Clase de worker (`gthread` evita bloquear con SSE) |
-| `ACC_GUNICORN_THREADS` | `4` | Hilos por worker con `gthread` |
+| `ACC_GUNICORN_THREADS` | `8` | Hilos por worker con `gthread` |
 | `ACC_GUNICORN_TIMEOUT` | `330` | Timeout del worker (s), mayor que el SSE |
 | `ACC_GUNICORN_GRACEFUL_TIMEOUT` | `30` | Espera de parada ordenada (s) |
 
@@ -854,6 +855,11 @@ nada y se ejecuta también en `DRY_RUN` y en la vista previa.
 - **Ejecución secuencial dentro de cada lote**: los hosts se procesan uno a
   uno. La cola limita cuántos lotes corren a la vez (`ACC_JOB_WORKERS`)
   y permite cancelar; no hay reintento selectivo de fallidos.
+- **Reserva por host**: antes de aplicar un cambio se toma una reserva en
+  `host_locks` (vigencia `ACC_HOST_LOCK_TTL`). Si otro lote está trabajando en
+  la misma IP, el host se registra como `skipped` en vez de competir por el
+  mismo estado final. Las vistas previas no toman la reserva porque no
+  modifican nada.
 - **Sin MFA**: hay roles, doble aprobación y auditoría de acceso, pero no un
   segundo factor. La allowlist de red es global.
 - **Inventario manual**: los grupos y hosts se mantienen desde la web; no hay

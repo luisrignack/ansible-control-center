@@ -131,6 +131,9 @@ La contraseña nunca se pasa por `argv`: se escribe en un fichero temporal
 - Si el SSE falla de forma repetida o expira, la página cae a polling de
   `/api/task-status/<task_id>`.
 - Los hosts se procesan secuencialmente.
+- Antes de aplicar un cambio se reserva el host en `host_locks`; si otro lote
+  lo tiene, el host queda `skipped`. La reserva se renueva antes de cada
+  intento y caduca con `ACC_HOST_LOCK_TTL`.
 - SQLite usa WAL y `busy_timeout` para tolerar escrituras concurrentes.
 - El scheduler se protege con un lock `flock` y un *claim* atómico por fila
   (`schedules.claimed_at`); `ACC_ROLE=web|worker|cli` permite separarlo del

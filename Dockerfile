@@ -10,7 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     ACC_BIND=0.0.0.0:8000 \
     ACC_WORKERS=1 \
     ACC_GUNICORN_WORKER_CLASS=gthread \
-    ACC_GUNICORN_THREADS=4 \
+    ACC_GUNICORN_THREADS=8 \
     ACC_GUNICORN_TIMEOUT=330
 
 # sshpass y openssh-client son necesarios para la autenticación por contraseña

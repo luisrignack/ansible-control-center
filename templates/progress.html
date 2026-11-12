@@ -11,7 +11,8 @@
     </div>
     <div class="head-actions">
         <span id="dryRunBadge" class="badge bg-warning text-dark d-none">DRY RUN</span>
-        <span id="statusBadge" class="badge bg-secondary">Pendiente</span>
+        <span id="queueBadge" class="badge bg-info text-dark d-none">En cola</span>
+        <span id="statusBadge" class="badge bg-secondary">En cola</span>
         <a href="{{ url_for('index') }}" class="btn btn-secondary">
             <i class="bi bi-arrow-left" aria-hidden="true"></i> Volver
         </a>
@@ -100,6 +101,7 @@
     const batchLink = document.getElementById('batchLink');
     const batchLinkAnchor = batchLink.querySelector('a');
     const statusBadge = document.getElementById('statusBadge');
+    const queueBadge = document.getElementById('queueBadge');
     const dryRunBadge = document.getElementById('dryRunBadge');
     const metaMode = document.getElementById('metaMode');
     const metaOperator = document.getElementById('metaOperator');
@@ -114,7 +116,7 @@
     const canCancel = {{ can_cancel | tojson }};
 
     const STATUS_LABELS = {
-        pending: ['Pendiente', 'bg-secondary'],
+        pending: ['En cola', 'bg-secondary'],
         running: ['En curso', 'bg-info text-dark'],
         preview: ['Vista previa', 'bg-info text-dark'],
         success: ['Completado', 'bg-success'],
@@ -150,6 +152,11 @@
         progressMessage.textContent = task.message || '';
         setStatus(task);
         dryRunBadge.classList.toggle('d-none', !task.dry_run);
+        const queuePosition = Number(task.queue_position || 0);
+        queueBadge.classList.toggle('d-none', queuePosition <= 0);
+        if (queuePosition > 0) {
+            queueBadge.textContent = 'En cola: ' + queuePosition;
+        }
 
         metaMode.textContent = (task.mode === 'preview' ? 'Vista previa' : 'Ejecución')
             + (task.dry_run ? ' (simulación)' : '');
@@ -233,7 +240,7 @@
     });
 
     source.addEventListener('timeout', (event) => {
-        // El stream SSE está acotado a 5 minutos, pero un lote puede durar
+        // El stream SSE está acotado a 90 segundos, pero un lote puede durar
         // hasta una hora. Al cerrarse el stream se sigue consultando el
         // estado persistido en lugar de dejar la página congelada.
         renderTask(JSON.parse(event.data));

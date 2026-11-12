@@ -54,6 +54,15 @@ presupuesto total de `ACC_BATCH_TIME_BUDGET` segundos (3600 por
 defecto); al agotarse, los hosts pendientes se registran como `skipped` y el
 lote cierra en vez de quedar abierto durante horas.
 
+Antes de tocar un host, el lote toma una reserva en `host_locks`
+(`ACC_HOST_LOCK_TTL`, 30 min por defecto). Si otro lote ya está trabajando en
+la misma IP, este host se registra como `skipped` con el motivo «Otra
+operación en curso sobre el host» y el lote continúa con el siguiente. La
+reserva se libera al terminar el host, se renueva antes de cada intento de
+credencial y caduca sola si el proceso muere. Las vistas previas no reservan
+porque no modifican el equipo; un lote encolado muestra su posición en la
+página de progreso.
+
 ### 1.3. Cierre
 
 `finish_batch` recalcula contadores desde `execution_hosts`, fija `finished_at`

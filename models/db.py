@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 
 
 def _secure_sqlite_files(path: str) -> None:
@@ -557,6 +557,31 @@ def _migrate_v16(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v17(conn: sqlite3.Connection) -> None:
+    """Reserva por host para impedir playbooks simultáneos sobre el mismo equipo.
+
+    Dos operadores podían lanzar lotes distintos contra la misma IP: ambos
+    autenticaban y aplicaban el cambio, el último ganaba y los dos registraban
+    éxito. La reserva se toma antes de tocar cada host, se renueva durante los
+    intentos de credencial y caduca sola si el proceso muere, para que un
+    despliegue caído no bloquee el host para siempre.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS host_locks (
+            host TEXT PRIMARY KEY,
+            batch_id TEXT NOT NULL,
+            owner TEXT NOT NULL DEFAULT '',
+            acquired_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_host_locks_expires_at
+            ON host_locks (expires_at);
+        """
+    )
+
+
 def init_schema(db_path: str) -> None:
     """Crea o migra el esquema de forma idempotente y no destructiva.
 
@@ -592,6 +617,7 @@ def init_schema(db_path: str) -> None:
         _migrate_v14(conn)
         _migrate_v15(conn)
         _migrate_v16(conn)
+        _migrate_v17(conn)
         # No se rebaja la versión de una base creada por una versión más nueva.
         if version < SCHEMA_VERSION:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

@@ -154,6 +154,7 @@ flask --app app init-admin
 | `ACC_BATCH_TIME_BUDGET` | `3600` | Presupuesto de tiempo del lote (s) |
 | `ACC_JOB_WORKERS` | `2` | Lotes concurrentes |
 | `ACC_JOB_QUEUE_SIZE` | `50` | Tamaño máximo de la cola |
+| `ACC_HOST_LOCK_TTL` | `1800` | Vigencia de la reserva por host (s) |
 | `ACC_JOB_SHUTDOWN_GRACE` | `10` | Espera de apagado ordenado (s) |
 | `ACC_MAX_MEMORY_TASKS` | `200` | Instantáneas de tarea en memoria |
 | `ACC_MAX_TASK_STATE_ROWS` | `500` | Filas máximas de `task_state` |
@@ -188,7 +189,7 @@ Variables específicas de Gunicorn (`gunicorn.conf.py`, no de `config.py`):
 | `ACC_BIND` | `127.0.0.1:5000` | Dirección de escucha |
 | `ACC_WORKERS` | `1` | Workers (el estado SSE es por proceso) |
 | `ACC_GUNICORN_WORKER_CLASS` | `gthread` | Clase de worker |
-| `ACC_GUNICORN_THREADS` | `4` | Hilos por worker |
+| `ACC_GUNICORN_THREADS` | `8` | Hilos por worker |
 | `ACC_GUNICORN_TIMEOUT` | `330` | Timeout del worker (s) |
 | `ACC_GUNICORN_GRACEFUL_TIMEOUT` | `30` | Parada ordenada (s) |
 
@@ -565,6 +566,11 @@ Prueba la restauración periódicamente. El procedimiento completo está en
   - `restore` deja NTP como estaba: solo lo reactiva si estaba activo antes.
   - Tras reactivar NTP se espera `ACC_NTP_SETTLE_SECONDS` antes de la
     verificación final para detectar reversiones.
+- **Reserva por host:** antes de tocar cada host se toma una reserva en
+  `host_locks` con vigencia `ACC_HOST_LOCK_TTL`. Si otro lote está trabajando
+  en esa IP, el host queda `skipped` («Otra operación en curso»); las vistas
+  previas no reservan porque solo leen. La reserva caduca sola si el proceso
+  muere y se renueva antes de cada intento de credencial.
 - **Cola y cancelación:** los lotes se encolan con concurrencia acotada
   (`ACC_JOB_WORKERS`, `ACC_JOB_QUEUE_SIZE`). Si la cola está
   llena se devuelve un error claro; cada lote se puede cancelar y el proceso

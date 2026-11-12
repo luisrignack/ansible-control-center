@@ -13,7 +13,10 @@ import os
 bind = os.environ.get("ACC_BIND", "127.0.0.1:5000")
 workers = int(os.environ.get("ACC_WORKERS", "1"))
 worker_class = os.environ.get("ACC_GUNICORN_WORKER_CLASS", "gthread")
-threads = int(os.environ.get("ACC_GUNICORN_THREADS", "4"))
+# Cada conexión SSE ocupa un hilo mientras dura el stream (90 s). Con 4
+# usuarios mirando el progreso a la vez, 4 hilos dejaban la web sin margen
+# para cargar páginas o cancelar; 8 da holgura sin multiplicar la memoria.
+threads = int(os.environ.get("ACC_GUNICORN_THREADS", "8"))
 # El SSE espera como máximo 300 s; el timeout debe superarlo para no matar al
 # worker en mitad de un stream o de un lote largo.
 timeout = int(os.environ.get("ACC_GUNICORN_TIMEOUT", "330"))

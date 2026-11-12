@@ -169,6 +169,12 @@ from services.ansible_runner import (
 )
 from services.csrf import csrf_protect, generate_csrf_token, rotate_csrf_token
 from services.host_resolver import pin_target, resolve_target
+from services.host_locks import (
+    acquire_host_lock,
+    refresh_host_lock,
+    release_batch_locks,
+    release_host_lock,
+)
 from services.job_queue import JobQueue, JobQueueFull
 from services.metrics import RequestMetrics, summarize
 from services.password_tester import test_ansible_ping
@@ -1433,6 +1439,30 @@ def _can_view_task(task: Dict[str, Any]) -> bool:
     return str(task.get("owner") or "") == _task_viewer_actor()
 
 
+def _with_queue_position(
+    tid: str, task: Optional[Dict[str, Any]]
+) -> Optional[Dict[str, Any]]:
+    """Añade la posición en cola a una tarea que todavía espera turno.
+
+    La posición cambia cuando otros trabajos arrancan, así que se calcula en
+    cada lectura y no se persiste en SQLite.
+    """
+    if (
+        not task
+        or task.get("completed")
+        or task.get("status") != "pending"
+        or _job_queue is None
+    ):
+        return task
+    position = _job_queue.position(tid)
+    if position is None:
+        return task
+    decorated = {**task, "queue_position": position}
+    if not task.get("cancellation_requested"):
+        decorated["message"] = f"En cola (posición {position})…"
+    return decorated
+
+
 def _get_task(
     tid: str, refresh: bool = False
 ) -> Optional[Dict[str, Any]]:
@@ -1445,10 +1475,10 @@ def _get_task(
     with _tasks_lock:
         task = _tasks.get(tid)
     if task is None:
-        return _load_persisted_task(tid)
-    if refresh:
-        return _refresh_task_from_db(tid, task)
-    return task
+        task = _load_persisted_task(tid)
+    elif refresh:
+        task = _refresh_task_from_db(tid, task)
+    return _with_queue_position(tid, task)
 
 
 def _delete_persisted_task(tid: str) -> None:
@@ -1578,7 +1608,7 @@ def create_task(owner: str = "") -> str:
     task = {
         "status": "pending",
         "progress": 0,
-        "message": "Proceso iniciado",
+        "message": "En cola…",
         "log": [],
         "console": [],
         "host": "",
@@ -3135,9 +3165,9 @@ def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
     update_task(
         tid,
         {
-            "status": "running",
+            "status": "pending",
             "progress": 0,
-            "message": "Lanzada por programación…",
+            "message": "Lanzada por programación; en cola…",
             "mode": "execute",
             "completed": False,
         },
@@ -3557,9 +3587,9 @@ def handle_execution(
     update_task(
         tid,
         {
-            "status": "running",
+            "status": "pending",
             "progress": 0,
-            "message": "Iniciando…",
+            "message": "En cola…",
             "mode": form["mode"],
             "completed": False,
         },
@@ -4091,6 +4121,32 @@ def _run_apply_batch(
             )
             break
 
+        # Reserva del host: dos lotes distintos pueden apuntar a la misma IP.
+        # El segundo se omite en vez de competir por el mismo estado final.
+        if not acquire_host_lock(host, batch_id, db_path=db_path):
+            reason = "Otra operación en curso sobre el host."
+            ExecutionBatch.add_host_result(
+                batch_id=batch_id,
+                host=host,
+                result="skipped",
+                error=reason,
+                db_path=db_path,
+            )
+            _append_log(log_lines, f"OMITIDO {host}: {reason}")
+            _append_console(
+                console_lines, tid, f"OMITIDO: {reason}", host=host
+            )
+            update_task(
+                tid,
+                {
+                    "progress": _progress_for(index, total),
+                    "message": f"Procesados {index}/{total} hosts",
+                    "log": list(log_lines),
+                    "console": list(console_lines),
+                },
+            )
+            continue
+
         started = time.monotonic()
         success = False
         before_state: Any = None
@@ -4131,6 +4187,9 @@ def _run_apply_batch(
                 )
                 break
             attempts += 1
+            # Un host con varias candidatas puede tardar más que el TTL
+            # inicial; se renueva antes de cada intento.
+            refresh_host_lock(host, batch_id, db_path=db_path)
             candidate_hash = PasswordRecord.hash_short(candidate)
             try:
                 ping = test_ansible_ping(
@@ -4405,6 +4464,7 @@ def _run_apply_batch(
                 "console": list(console_lines),
             },
         )
+        release_host_lock(host, batch_id, db_path=db_path)
 
     update_task(tid, {"console": list(console_lines)})
     return outcome
@@ -4455,6 +4515,7 @@ def execute_with_progress(
             tid,
             {
                 "status": "running",
+                "queue_position": 0,
                 "progress": 5,
                 "message": "Resolviendo hosts…",
                 "log": ["Iniciando"],
@@ -4838,6 +4899,10 @@ def execute_with_progress(
             },
         )
     finally:
+        # Salvaguarda: si una excepción escapó del bucle, no dejar reservas
+        # de host hasta que caduquen.
+        if batch_id:
+            release_batch_locks(batch_id, db_path=db_path)
         # La imagen solo vive lo que dura el lote. Se borra incluso si la
         # ejecución falla antes de crear el lote o durante la aplicación.
         if ac == "WALLPAPER" and wallpaper_path:
