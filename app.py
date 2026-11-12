@@ -2285,6 +2285,8 @@ def logout():
 @login_required
 def index():
     if request.method == "POST":
+        if request.form.get("mode", "").strip().lower() == "schedule":
+            return _handle_schedule_from_task_form()
         return handle_execution()
 
     # La portada es el catálogo: solo tarjetas. Cada tarjeta enlaza a
@@ -2574,11 +2576,11 @@ def _inventario_group_and_hosts():
 @app.route("/inventario", methods=["GET", "POST"])
 @login_required
 def inventario():
+    db_path = get_db_path()
     if request.method == "POST":
         if not current_user.has_role("admin"):
             abort(403)
         action = request.form.get("action", "").strip()
-        db_path = get_db_path()
         if action == "create_group":
             try:
                 HostGroup.create(
@@ -2726,23 +2728,224 @@ def inventario():
             flash("Acción de inventario no válida.", "warning")
         return redirect(url_for("inventario"))
 
+    schedule_counts: dict[int, int] = {}
+    for schedule in Schedule.all(db_path=db_path):
+        raw_group_id = (schedule.params or {}).get("target_group_id")
+        try:
+            group_id = int(raw_group_id)
+        except (TypeError, ValueError):
+            continue
+        schedule_counts[group_id] = schedule_counts.get(group_id, 0) + 1
     return render_template(
         "inventory.html",
         groups=_inventario_group_and_hosts(),
         criticality_levels=CRITICALITY_LEVELS,
         criticality_labels=CRITICALITY_LABELS,
+        schedule_counts=schedule_counts,
     )
+
+
+def _schedulable_tasks() -> dict[str, dict[str, Any]]:
+    """Tareas activas que admiten ejecución desatendida."""
+    return {
+        task["id"]: task
+        for task in TASK_CATALOG
+        if task.get("status") == "active" and task.get("schedulable", True)
+    }
+
+
+def _create_schedule_from_form(
+    tasks: dict[str, dict[str, Any]],
+    db_path: str,
+    form,
+) -> tuple[str | None, list[str], list[str]]:
+    """Valida y crea una programación desde un formulario.
+
+    Devuelve ``(nombre_creado, errores, avisos)``. No redirige ni escribe
+    flashes para que lo puedan usar tanto ``/programaciones`` como el modo
+    "Programar" del formulario de ejecución, sin duplicar validaciones.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+    name = form.get("name", "").strip()
+    task_id = form.get("task_id", "").strip()
+    run_at_raw = form.get("run_at", "").strip()
+    recurrence = form.get("recurrence", "once").strip().lower() or "once"
+    if task_id not in tasks:
+        return None, ["Selecciona una tarea activa del catálogo."], warnings
+    try:
+        run_at = datetime.strptime(run_at_raw, "%Y-%m-%dT%H:%M").replace(tzinfo=UTC)
+    except ValueError:
+        return (
+            None,
+            [
+                (
+                    "Fecha/hora inválida; usa el selector o el formato "
+                    "AAAA-MM-DDTHH:MM (hora UTC)."
+                )
+            ],
+            warnings,
+        )
+    master_password = form.get("master_password", "")
+    if not master_password:
+        return (
+            None,
+            [
+                (
+                    "La contraseña maestra del vault es obligatoria para operar "
+                    "desatendidamente."
+                )
+            ],
+            warnings,
+        )
+    target_mode = form.get("target_mode", "manual").strip().lower() or "manual"
+    target_group_id = None
+    schedule_group = None
+    pinned_ip = None
+    if target_mode == "group":
+        gid = form.get("target_group", "").strip()
+        if gid.isdigit():
+            schedule_group = HostGroup.get(gid, db_path=db_path)
+        if schedule_group is None:
+            return None, ["Selecciona un grupo del inventario válido."], warnings
+        target_group_id = int(gid)
+    else:
+        pinned_ip, ip_error = pin_target(form.get("target_ip", "").strip())
+        if ip_error or not pinned_ip:
+            return None, [ip_error or "IP objetivo no válida."], warnings
+    # Mismas reglas que la ejecución manual: una programación no puede
+    # saltarse la política de hora/NTP, usar una acción que la tarea no admite
+    # ni apuntar a un grupo con otra plataforma.
+    validated, schedule_errors = _validate_scheduled_params(
+        tasks[task_id],
+        form.get("admin_user", ""),
+        form.get("action", "TZ"),
+        form.get("value", ""),
+        form.get("ntp_policy", "keep"),
+        form.get("ntp_servers", ""),
+        platform=schedule_group.os_flavor if schedule_group else "",
+        group_name=schedule_group.name if schedule_group else "",
+        min_free_gb_raw=form.get("min_free_gb", ""),
+    )
+    if schedule_errors or validated is None:
+        return (
+            None,
+            schedule_errors or ["No se pudo validar la programación."],
+            warnings,
+        )
+    # Las programaciones no admiten excepción: si el horario elegido cae
+    # fuera de la ventana del grupo, se rechaza en vez de ejecutar hosts
+    # críticos sin supervisión.
+    if schedule_group is not None:
+        schedule_safety = _safety_for_group(schedule_group, now=run_at)
+    else:
+        schedule_safety = _safety_for_target(None, pinned_ip, now=run_at)
+    if schedule_safety["blocked"]:
+        return (
+            None,
+            [
+                "No se puede programar fuera de la ventana de mantenimiento: "
+                + schedule_safety["reasons"][0]
+            ],
+            warnings,
+        )
+    warnings.extend(schedule_safety["warnings"])
+    schedule_params = _approval_params(
+        {
+            "target": (
+                f"inventory:{target_group_id}"
+                if target_mode == "group"
+                else pinned_ip
+            ),
+            "target_mode": target_mode,
+            "target_group_id": target_group_id,
+            "task_id": task_id,
+            "task_name": tasks[task_id]["name"],
+            "admin_user": validated["admin_user"],
+            "origin": "stored",
+            "action": validated["action"],
+            "value": validated["value"],
+            "time_mode": "utc",
+            "time_zone": "",
+            "time_fold": None,
+            "ntp_policy": validated["ntp_policy"],
+            "ntp_servers": validated["ntp_servers"],
+            "sync_rtc": _form_bool("sync_rtc", form),
+            "force": _form_bool("force", form),
+            "min_free_gb": validated["min_free_gb"],
+        }
+    )
+    try:
+        Schedule.create(
+            name,
+            task_id,
+            run_at,
+            {
+                **schedule_params,
+                "master_password_enc": scheduler.encrypt_secret(master_password),
+            },
+            recurrence=recurrence,
+            created_by=getattr(current_user, "username", "") or "",
+            db_path=db_path,
+        )
+    except ValueError as exc:
+        return None, [str(exc)], warnings
+    return name, errors, warnings
+
+
+def _handle_schedule_from_task_form():
+    """Crea una programación desde el modo «Programar» del formulario."""
+    if not current_user.has_role("admin"):
+        abort(403)
+    form = request.form
+    task_id = form.get("task", "").strip()
+    if form.get("password_origin", "stored").strip() != "stored":
+        flash(
+            "Las programaciones usan credenciales guardadas. Cambia el origen "
+            "de contraseñas a «Contraseñas guardadas en el sistema».",
+            "danger",
+        )
+        return redirect(url_for("task_view", task_id=task_id))
+    schedule_form = {
+        "name": form.get("schedule_name", "").strip(),
+        "task_id": task_id,
+        "run_at": form.get("run_at", "").strip(),
+        "recurrence": form.get("recurrence", "once").strip().lower(),
+        "target_mode": form.get("target_mode", "manual"),
+        "target_group": form.get("target_group", ""),
+        "target_ip": form.get("target_ip", ""),
+        "admin_user": form.get("admin_user", ""),
+        "master_password": form.get("master_password", ""),
+        "action": form.get("action", ""),
+        "value": form.get("value", ""),
+        "ntp_policy": form.get("ntp_policy", "keep"),
+        "ntp_servers": form.get("ntp_servers", ""),
+        "min_free_gb": form.get("min_free_gb", ""),
+        "sync_rtc": form.get("sync_rtc", ""),
+        "force": form.get("force", ""),
+    }
+    created, errors, warnings = _create_schedule_from_form(
+        _schedulable_tasks(), get_db_path(), schedule_form
+    )
+    for error in errors:
+        flash(error, "danger")
+    for warning in warnings:
+        flash(warning, "warning")
+    if created is None:
+        return redirect(url_for("task_view", task_id=task_id))
+    flash(
+        f"Programación '{created}' creada. Se ejecutará sola (UTC) mientras "
+        "esté activa.",
+        "success",
+    )
+    return redirect(url_for("programaciones"))
 
 
 @app.route("/programaciones", methods=["GET", "POST"])
 @login_required
 def programaciones():
     db_path = get_db_path()
-    tasks = {
-        task["id"]: task
-        for task in TASK_CATALOG
-        if task.get("status") == "active" and task.get("schedulable", True)
-    }
+    tasks = _schedulable_tasks()
     if request.method == "POST":
         if not current_user.has_role("admin"):
             abort(403)
@@ -2779,134 +2982,19 @@ def programaciones():
                 Schedule.delete(schedule.id, db_path=db_path)
                 flash(f"Programación '{schedule.name}' eliminada.", "success")
         elif action == "create":
-            name = request.form.get("name", "").strip()
-            task_id = request.form.get("task_id", "").strip()
-            run_at_raw = request.form.get("run_at", "").strip()
-            recurrence = request.form.get("recurrence", "once").strip().lower()
-            if task_id not in tasks:
-                flash("Selecciona una tarea activa del catálogo.", "danger")
-                return redirect(url_for("programaciones"))
-            try:
-                run_at = datetime.strptime(run_at_raw, "%Y-%m-%dT%H:%M").replace(
-                    tzinfo=UTC
-                )
-            except ValueError:
-                flash(
-                    "Fecha/hora inválida; usa el selector o el formato "
-                    "AAAA-MM-DDTHH:MM (hora UTC).",
-                    "danger",
-                )
-                return redirect(url_for("programaciones"))
-            master_password = request.form.get("master_password", "")
-            if not master_password:
-                flash(
-                    "La contraseña maestra del vault es obligatoria para "
-                    "operar desatendidamente.",
-                    "danger",
-                )
-                return redirect(url_for("programaciones"))
-            target_mode = (
-                request.form.get("target_mode", "manual").strip().lower() or "manual"
+            created, errors, warnings = _create_schedule_from_form(
+                tasks, db_path, request.form
             )
-            target_group_id = None
-            schedule_group = None
-            pinned_ip = None
-            if target_mode == "group":
-                gid = request.form.get("target_group", "").strip()
-                if gid.isdigit():
-                    schedule_group = HostGroup.get(gid, db_path=db_path)
-                if schedule_group is None:
-                    flash("Selecciona un grupo del inventario válido.", "danger")
-                    return redirect(url_for("programaciones"))
-                target_group_id = int(gid)
-            else:
-                pinned_ip, ip_error = pin_target(
-                    request.form.get("target_ip", "").strip()
-                )
-                if ip_error or not pinned_ip:
-                    flash(ip_error or "IP objetivo no válida.", "danger")
-                    return redirect(url_for("programaciones"))
-            # Mismas reglas que la ejecución manual: una programación no
-            # puede saltarse la política de hora/NTP, usar una acción que la
-            # tarea no admite ni apuntar a un grupo con otra plataforma.
-            validated, schedule_errors = _validate_scheduled_params(
-                tasks[task_id],
-                request.form.get("admin_user", ""),
-                request.form.get("action", "TZ"),
-                request.form.get("value", ""),
-                request.form.get("ntp_policy", "keep"),
-                request.form.get("ntp_servers", ""),
-                platform=schedule_group.os_flavor if schedule_group else "",
-                group_name=schedule_group.name if schedule_group else "",
-                min_free_gb_raw=request.form.get("min_free_gb", ""),
-            )
-            if schedule_errors or validated is None:
-                for error in schedule_errors:
-                    flash(error, "danger")
-                return redirect(url_for("programaciones"))
-            # Las programaciones no admiten excepción: si el horario elegido
-            # cae fuera de la ventana del grupo, se rechaza en vez de ejecutar
-            # hosts críticos sin supervisión.
-            if schedule_group is not None:
-                schedule_safety = _safety_for_group(schedule_group, now=run_at)
-            else:
-                schedule_safety = _safety_for_target(None, pinned_ip, now=run_at)
-            if schedule_safety["blocked"]:
-                flash(
-                    "No se puede programar fuera de la ventana de "
-                    "mantenimiento: " + schedule_safety["reasons"][0],
-                    "danger",
-                )
-                return redirect(url_for("programaciones"))
-            for warning in schedule_safety["warnings"]:
+            for error in errors:
+                flash(error, "danger")
+            for warning in warnings:
                 flash(warning, "warning")
-            schedule_params = _approval_params(
-                {
-                    "target": (
-                        f"inventory:{target_group_id}"
-                        if target_mode == "group"
-                        else pinned_ip
-                    ),
-                    "target_mode": target_mode,
-                    "target_group_id": target_group_id,
-                    "task_id": task_id,
-                    "task_name": tasks[task_id]["name"],
-                    "admin_user": validated["admin_user"],
-                    "origin": "stored",
-                    "action": validated["action"],
-                    "value": validated["value"],
-                    "time_mode": "utc",
-                    "time_zone": "",
-                    "time_fold": None,
-                    "ntp_policy": validated["ntp_policy"],
-                    "ntp_servers": validated["ntp_servers"],
-                    "sync_rtc": _form_bool("sync_rtc"),
-                    "force": _form_bool("force"),
-                    "min_free_gb": validated["min_free_gb"],
-                }
-            )
-            try:
-                Schedule.create(
-                    name,
-                    task_id,
-                    run_at,
-                    {
-                        **schedule_params,
-                        "master_password_enc": scheduler.encrypt_secret(
-                            master_password
-                        ),
-                    },
-                    recurrence=recurrence,
-                    created_by=getattr(current_user, "username", "") or "",
-                    db_path=db_path,
-                )
+            if created is not None:
                 flash(
-                    f"Programación '{name}' creada. Se ejecutará sola (UTC) "
+                    f"Programación '{created}' creada. Se ejecutará sola (UTC) "
                     "mientras esté activa.",
                     "success",
                 )
-            except ValueError as exc:
-                flash(str(exc), "danger")
         else:
             flash("Acción de programación no válida.", "warning")
         return redirect(url_for("programaciones"))
@@ -2925,11 +3013,34 @@ def programaciones():
         item["group_name"] = group["name"] if group else ""
         item["group_criticality"] = group.get("criticality_label", "") if group else ""
         item["group_window"] = group.get("window_label", "") if group else ""
+
+    filter_group_raw = request.args.get("group", "").strip()
+    filter_group_id = int(filter_group_raw) if filter_group_raw.isdigit() else None
+    filter_group_name = ""
+    if filter_group_id is not None:
+        filter_group = groups_by_id.get(filter_group_id)
+        filter_group_name = filter_group["name"] if filter_group else ""
+        schedules = [
+            item
+            for item in schedules
+            if str((item.get("params") or {}).get("target_group_id") or "")
+            == str(filter_group_id)
+        ]
+
     return render_template(
         "schedules.html",
         schedules=schedules,
         tasks=[{"id": key, "name": value["name"]} for key, value in tasks.items()],
         inventory_groups=groups,
+        filter_group_id=filter_group_id,
+        filter_group_name=filter_group_name,
+        prefill={
+            "target_mode": "group" if filter_group_id is not None else "manual",
+            "target_group": str(filter_group_id) if filter_group_id is not None else "",
+            "task_id": request.args.get("task_id", "").strip(),
+            "action": request.args.get("action", "").strip().upper(),
+            "value": request.args.get("value", "").strip(),
+        },
         recurrence_labels={
             "once": "Una vez",
             "daily": "Diaria",

@@ -6,6 +6,18 @@
 
 {% block content %}
 {% include "_config_tabs.html" %}
+{% if filter_group_name %}
+<div class="banner banner-info mb-3" role="status">
+    <div class="banner-icon" aria-hidden="true"><i class="bi bi-funnel"></i></div>
+    <div>
+        <div class="banner-title">Filtrado por grupo</div>
+        <div class="banner-text">
+            Mostrando las programaciones de <strong>{{ filter_group_name }}</strong>.
+            <a href="{{ url_for('programaciones') }}">Quitar filtro</a>.
+        </div>
+    </div>
+</div>
+{% endif %}
 <div class="page-head">
     <div>
         <div class="eyebrow">Operación</div>
@@ -33,7 +45,7 @@
                 <label for="scheduleTask" class="form-label fw-medium">Tarea</label>
                 <select class="form-select" id="scheduleTask" name="task_id" required>
                     {% for task in tasks %}
-                    <option value="{{ task.id }}">{{ task.name }}</option>
+                    <option value="{{ task.id }}" {% if prefill.task_id == task.id %}selected{% endif %}>{{ task.name }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -55,12 +67,12 @@
                 <div class="d-flex gap-2 mb-2">
                     <div class="form-check">
                         <input class="form-check-input" type="radio" name="target_mode" id="scheduleTargetManual"
-                            value="manual" checked>
+                            value="manual" {% if prefill.target_mode != 'group' %}checked{% endif %}>
                         <label class="form-check-label" for="scheduleTargetManual">IP manual</label>
                     </div>
                     <div class="form-check">
                         <input class="form-check-input" type="radio" name="target_mode" id="scheduleTargetGroup"
-                            value="group">
+                            value="group" {% if prefill.target_mode == 'group' %}checked{% endif %}>
                         <label class="form-check-label" for="scheduleTargetGroup">Grupo</label>
                     </div>
                 </div>
@@ -69,7 +81,7 @@
                 <select class="form-select d-none" id="scheduleTargetGroupSelect" name="target_group">
                     <option value="">Selecciona un grupo…</option>
                     {% for group in inventory_groups %}
-                    <option value="{{ group.id }}">{{ group.name }} · {{ group.host_count }} host(s){% if group.window_label %} · {{ group.window_label }}{% endif %}</option>
+                    <option value="{{ group.id }}" {% if prefill.target_group == group.id|string %}selected{% endif %}>{{ group.name }} · {{ group.host_count }} host(s){% if group.window_label %} · {{ group.window_label }}{% endif %}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -89,14 +101,15 @@
             <div class="col-md-3">
                 <label for="scheduleAction" class="form-label fw-medium">Acción</label>
                 <select class="form-select" id="scheduleAction" name="action">
-                    <option value="TZ">Zona Horaria (TZ)</option>
-                    <option value="TIME">Hora Exacta (TIME)</option>
-                    <option value="APT">Actualización segura del sistema (APT)</option>
+                    <option value="TZ" {% if prefill.action == 'TZ' or not prefill.action %}selected{% endif %}>Zona Horaria (TZ)</option>
+                    <option value="TIME" {% if prefill.action == 'TIME' %}selected{% endif %}>Hora Exacta (TIME)</option>
+                    <option value="APT" {% if prefill.action == 'APT' %}selected{% endif %}>Actualización segura del sistema (APT)</option>
                 </select>
             </div>
             <div class="col-md-5">
                 <label for="scheduleValue" class="form-label fw-medium">Valor</label>
                 <input type="text" class="form-control" id="scheduleValue" name="value"
+                    value="{{ prefill.value }}"
                     placeholder="America/Caracas o 2026-01-01T05:00">
             </div>
             <div class="col-md-4">

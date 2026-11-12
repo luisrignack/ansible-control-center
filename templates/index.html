@@ -95,6 +95,70 @@
                 <input type="hidden" name="operation_id" value="{{ prefill.get('operation_id', '') }}">
                 <input type="hidden" name="task" value="{{ selected_task.id }}">
                 <div class="row g-3">
+                    <!-- Momento de ejecución: ahora o programado -->
+                    {% if current_user.has_role('admin') and selected_task.schedulable|default(true) %}
+                    <div class="col-12">
+                        <label class="form-label fw-medium d-block">
+                            <i class="bi bi-clock-history me-2"></i> ¿Cuándo ejecutar?
+                        </label>
+                        <div class="d-flex flex-wrap gap-2" role="radiogroup" aria-label="Momento de ejecución">
+                            <input type="radio" class="btn-check" name="schedule_intent"
+                                id="intentNow" value="now" checked>
+                            <label class="btn btn-outline-secondary" for="intentNow">
+                                <i class="bi bi-play-circle me-1" aria-hidden="true"></i> Ejecutar ahora
+                            </label>
+                            <input type="radio" class="btn-check" name="schedule_intent"
+                                id="intentSchedule" value="schedule">
+                            <label class="btn btn-outline-secondary" for="intentSchedule">
+                                <i class="bi bi-calendar2-plus me-1" aria-hidden="true"></i> Programar
+                            </label>
+                        </div>
+                        <div class="form-text">
+                            «Programar» guarda esta misma operación para que se ejecute
+                            sola, una vez o de forma diaria/semanal.
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if current_user.has_role('admin') and selected_task.schedulable|default(true) %}
+                    <div class="col-12 d-none" id="scheduleFields">
+                        <div class="row g-3 border rounded-3 p-3 mx-0">
+                            <div class="col-md-4">
+                                <label for="scheduleName" class="form-label fw-medium">
+                                    Nombre de la programación
+                                </label>
+                                <input type="text" class="form-control" id="scheduleName"
+                                    name="schedule_name" maxlength="80"
+                                    placeholder="ej. Ventana domingo">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="scheduleRunAt" class="form-label fw-medium">
+                                    Primera ejecución (UTC)
+                                </label>
+                                <input type="datetime-local" class="form-control"
+                                    id="scheduleRunAt" name="run_at">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="scheduleRecurrence" class="form-label fw-medium">
+                                    Repetir
+                                </label>
+                                <select class="form-select" id="scheduleRecurrence" name="recurrence">
+                                    <option value="once">Una vez</option>
+                                    <option value="daily">Diaria (24 h)</option>
+                                    <option value="weekly">Semanal (7 días)</option>
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <div class="form-text">
+                                    Se usa la contraseña maestra del vault indicada arriba y queda
+                                    cifrada. La programación se valida contra la ventana de
+                                    mantenimiento del grupo al crearla y al ejecutarla.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
                     <!-- Campo: Objetivo (manual o grupo del inventario) -->
                     <div class="col-12">
                         <label class="form-label fw-medium d-block">
@@ -564,7 +628,7 @@
 
                     <!-- Botones -->
                     <div class="col-12">
-                        <div class="d-flex flex-column flex-md-row gap-2">
+                        <div class="d-flex flex-column flex-md-row gap-2" id="nowActions">
                             <button type="submit" name="mode" value="preview"
                                 class="btn btn-outline-info w-100 py-3 fw-bold" id="previewButton">
                                 <i class="bi bi-search me-2"></i> Vista previa (no cambia nada)
@@ -574,15 +638,51 @@
                                 <i class="bi bi-play-circle me-2"></i> Ejecutar en todos los hosts
                             </button>
                         </div>
-                        <div class="form-text mt-2">
+                        <div class="form-text mt-2" id="nowHelp">
                             La vista previa inspecciona cada host y muestra su estado actual
                             antes de aplicar el cambio.
+                        </div>
+                        <div class="d-none" id="scheduleActions">
+                            <button type="submit" name="mode" value="schedule"
+                                class="btn btn-acento w-100 py-3 fw-bold" id="scheduleButton">
+                                <i class="bi bi-calendar2-check me-2"></i> Crear programación
+                            </button>
+                            <div class="form-text mt-2">
+                                La operación se ejecutará sola a la hora indicada (UTC).
+                                Requiere rol de administrador.
+                            </div>
                         </div>
                     </div>
                 </div>
             </form>
         </div>
     </div>
+
+    {% if current_user.has_role('admin') and selected_task.schedulable|default(true) %}
+    <aside class="card summary fade-in" aria-label="Programación de la operación">
+        <div class="summary-head">
+            <strong><i class="bi bi-calendar2-plus" aria-hidden="true"></i> Programación</strong>
+            <span class="badge bg-secondary">Opcional</span>
+        </div>
+        <div class="summary-body">
+            <div class="sum-note">
+                <strong>Ejecútalo más tarde</strong>
+                Guarda esta misma operación para que se ejecute sola, una vez o de
+                forma diaria/semanal. Se valida contra la ventana de mantenimiento
+                del grupo.
+            </div>
+        </div>
+        <div class="sum-actions">
+            <button type="button" class="btn btn-secondary" id="planificarBtn">
+                <i class="bi bi-calendar2-plus" aria-hidden="true"></i>
+                Planificar esta operación
+            </button>
+            <a class="btn btn-secondary" href="{{ url_for('programaciones') }}">
+                <i class="bi bi-list-check" aria-hidden="true"></i> Ver programaciones
+            </a>
+        </div>
+    </aside>
+    {% endif %}
 
     <aside class="card summary fade-in" aria-label="Resumen de la operación">
         <div class="summary-head">
@@ -669,6 +769,45 @@ const dryRunEnabled = {{ dry_run | tojson }};
 const maxHosts = {{ max_hosts | tojson }};
 const maxUploadBytes = {{ max_upload_bytes | tojson }};
 const osPasswordMinLength = {{ os_password_min_length | tojson }};
+
+// Modo «Ejecutar ahora» / «Programar»: oculta los botones de ejecución y
+// muestra los campos de programación sin duplicar el formulario.
+(function () {
+    const intentSchedule = document.getElementById('intentSchedule');
+    const intentNow = document.getElementById('intentNow');
+    const scheduleFields = document.getElementById('scheduleFields');
+    const nowActions = document.getElementById('nowActions');
+    const scheduleActions = document.getElementById('scheduleActions');
+    const nowHelp = document.getElementById('nowHelp');
+    if (!scheduleFields || !nowActions || !scheduleActions) return;
+
+    function syncIntent() {
+        const scheduling = Boolean(intentSchedule && intentSchedule.checked);
+        scheduleFields.classList.toggle('d-none', !scheduling);
+        nowActions.classList.toggle('d-none', scheduling);
+        scheduleActions.classList.toggle('d-none', !scheduling);
+        if (nowHelp) nowHelp.classList.toggle('d-none', scheduling);
+        ['scheduleName', 'scheduleRunAt'].forEach(function (id) {
+            const field = document.getElementById(id);
+            if (field) field.required = scheduling;
+        });
+    }
+
+    if (intentNow) intentNow.addEventListener('change', syncIntent);
+    if (intentSchedule) intentSchedule.addEventListener('change', syncIntent);
+
+    const planificarBtn = document.getElementById('planificarBtn');
+    if (planificarBtn && intentSchedule) {
+        planificarBtn.addEventListener('click', function () {
+            intentSchedule.checked = true;
+            syncIntent();
+            scheduleFields.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const nameField = document.getElementById('scheduleName');
+            if (nameField) nameField.focus();
+        });
+    }
+    syncIntent();
+})();
 
 function splitTargetList(value) {
     return (value || '').split(',').map((piece) => piece.trim()).filter(Boolean);

@@ -23,12 +23,15 @@
         <form method="post" action="{{ url_for('inventario') }}" class="row g-3 align-items-end">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="create_group">
-            <div class="col-md-3">
+            <div class="col-12">
+                <h3 class="h6 text-secondary mb-0">Datos del grupo</h3>
+            </div>
+            <div class="col-md-4">
                 <label for="groupName" class="form-label fw-medium">Nombre del grupo</label>
                 <input type="text" class="form-control" id="groupName" name="name"
                     placeholder="ej. Oficina Central" maxlength="80" required>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-5">
                 <label for="groupDescription" class="form-label fw-medium">Descripción</label>
                 <input type="text" class="form-control" id="groupDescription" name="description"
                     placeholder="opcional" maxlength="300">
@@ -40,7 +43,7 @@
                     <option value="windows">Windows · WinRM</option>
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-md-3">
                 <label for="groupCriticality" class="form-label fw-medium">Criticidad</label>
                 <select class="form-select" id="groupCriticality" name="criticality">
                     {% for level in criticality_levels %}
@@ -48,27 +51,42 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-2">
-                <button type="submit" class="btn btn-acento w-100">Crear grupo</button>
+            <div class="col-12"><hr class="my-1"></div>
+            <div class="col-12">
+                <h3 class="h6 text-secondary mb-0">
+                    Política de mantenimiento
+                    <span class="badge bg-secondary">Opcional</span>
+                </h3>
+                <div class="form-text">
+                    Define <strong>cuándo se puede intervenir</strong> este grupo.
+                    Solo bloquea ejecuciones reales sobre hosts <strong>críticos</strong>
+                    fuera de la ventana; los hosts de criticidad alta generan un aviso.
+                    Se aplica tanto a ejecuciones manuales como a programaciones.
+                </div>
             </div>
             <div class="col-md-3">
-                <label for="groupWindowDays" class="form-label fw-medium">Ventana UTC · días</label>
+                <label for="groupWindowDays" class="form-label fw-medium">Días permitidos (UTC)</label>
                 <input type="text" class="form-control" id="groupWindowDays" name="window_days"
                     placeholder="1,2,3,4,5">
-                <div class="form-text">1=lun … 7=dom</div>
+                <div class="form-text">1=lunes … 7=domingo</div>
             </div>
             <div class="col-md-2">
-                <label for="groupWindowStart" class="form-label fw-medium">Inicio</label>
+                <label for="groupWindowStart" class="form-label fw-medium">Inicio (UTC)</label>
                 <input type="time" class="form-control" id="groupWindowStart" name="window_start">
             </div>
             <div class="col-md-2">
-                <label for="groupWindowEnd" class="form-label fw-medium">Fin</label>
+                <label for="groupWindowEnd" class="form-label fw-medium">Fin (UTC)</label>
                 <input type="time" class="form-control" id="groupWindowEnd" name="window_end">
+                <div class="form-text">Inicio &gt; fin cruza medianoche.</div>
             </div>
             <div class="col-md-5">
                 <label for="groupWindowNote" class="form-label fw-medium">Nota de la ventana</label>
                 <input type="text" class="form-control" id="groupWindowNote" name="window_note"
                     placeholder="opcional (ej. requiere aprobación del cliente)" maxlength="200">
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-acento">Crear grupo</button>
+                <span class="form-text ms-2">Puedes dejar la ventana vacía y configurarla después.</span>
             </div>
         </form>
     </div>
@@ -85,6 +103,17 @@
                 <small class="text-secondary">{{ 'Windows (WinRM)' if group.os_flavor == 'windows' else 'Linux (SSH)' }}{% if group.description %} · {{ group.description }}{% endif %}</small>
             </h2>
             <div class="d-flex flex-wrap gap-2 align-items-center justify-content-end">
+                {% set schedule_count = schedule_counts.get(group.id, 0) %}
+                <a class="btn btn-sm btn-secondary"
+                   href="{{ url_for('programaciones', group=group.id) }}"
+                   title="Planificar una tarea para este grupo">
+                    <i class="bi bi-calendar2-plus" aria-hidden="true"></i> Planificar
+                </a>
+                <a class="badge {% if schedule_count %}badge-accent{% else %}bg-secondary{% endif %}"
+                   href="{{ url_for('programaciones', group=group.id) }}"
+                   title="Ver las programaciones de este grupo">
+                    {{ schedule_count }} programación(es)
+                </a>
                 <span class="badge {% if group.ssh_key_path %}badge-accent{% else %}bg-secondary{% endif %}">{{ group.hosts | length }} host(s)</span>
                 <span class="badge {% if group.criticality == 'critical' %}bg-danger{% elif group.criticality == 'high' %}bg-warning text-dark{% elif group.criticality == 'low' %}bg-secondary{% else %}bg-info text-dark{% endif %}">
                     Criticidad: {{ group.criticality_label }}
@@ -172,7 +201,7 @@
                     <hr class="my-2">
                 </div>
                 <div class="col-12">
-                    <h3 class="h6 text-secondary mb-2">Criticidad y ventana de mantenimiento</h3>
+                    <h3 class="h6 text-secondary mb-2">Criticidad y ventana de mantenimiento (UTC)</h3>
                     <form method="post" action="{{ url_for('inventario') }}" class="row g-2 align-items-end">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="action" value="update_group_safety">
@@ -186,17 +215,17 @@
                             </select>
                         </div>
                         <div class="col-6 col-md-2">
-                            <label class="form-label small mb-1" for="groupDays{{ group.id }}">Días (UTC)</label>
+                            <label class="form-label small mb-1" for="groupDays{{ group.id }}">Días permitidos (UTC)</label>
                             <input type="text" class="form-control form-control-sm" id="groupDays{{ group.id }}"
                                 name="window_days" value="{{ group.window_days }}" placeholder="1,2,3,4,5">
                         </div>
                         <div class="col-6 col-md-2">
-                            <label class="form-label small mb-1" for="groupStart{{ group.id }}">Inicio</label>
+                            <label class="form-label small mb-1" for="groupStart{{ group.id }}">Inicio (UTC)</label>
                             <input type="time" class="form-control form-control-sm" id="groupStart{{ group.id }}"
                                 name="window_start" value="{{ group.window_start }}">
                         </div>
                         <div class="col-6 col-md-2">
-                            <label class="form-label small mb-1" for="groupEnd{{ group.id }}">Fin</label>
+                            <label class="form-label small mb-1" for="groupEnd{{ group.id }}">Fin (UTC)</label>
                             <input type="time" class="form-control form-control-sm" id="groupEnd{{ group.id }}"
                                 name="window_end" value="{{ group.window_end }}">
                         </div>

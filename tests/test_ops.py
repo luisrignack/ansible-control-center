@@ -811,6 +811,171 @@ def test_schedule_create_rejects_unknown_timezone(client, monkeypatch):
     assert Schedule.all(db_path=app_module.get_db_path()) == []
 
 
+# ---------------------------------------------------------------------------
+# UX: programar desde la tarjeta y accesos contextuales al inventario
+# ---------------------------------------------------------------------------
+def _task_schedule_payload(**overrides):
+    data = {
+        "mode": "schedule",
+        "schedule_intent": "schedule",
+        "task": "zona-todas",
+        "schedule_name": "desde la tarjeta",
+        "run_at": _future_run_at(),
+        "recurrence": "once",
+        "target_mode": "manual",
+        "target_ip": "10.42.0.50",
+        "admin_user": "root",
+        "master_password": "clave-maestra",
+        "password_origin": "stored",
+        "action": "TZ",
+        "value": "Europe/Madrid",
+        "ntp_policy": "keep",
+    }
+    data.update(overrides)
+    return data
+
+
+def test_schedule_can_be_created_from_task_form(client):
+    db_path = app_module.get_db_path()
+    group = HostGroup.create("Aulas", db_path=db_path)
+    _login(client)
+
+    response = _post(
+        client,
+        "/",
+        _task_schedule_payload(
+            target_mode="group",
+            target_group=str(group.id),
+        ),
+        follow_redirects=True,
+    )
+
+    assert "Programación &#39;desde la tarjeta&#39; creada" in response.get_data(
+        as_text=True
+    )
+    schedule = Schedule.all(db_path=db_path)[0]
+    assert schedule.task_id == "zona-todas"
+    assert schedule.params["target_mode"] == "group"
+    assert schedule.params["target_group_id"] == group.id
+    assert schedule.params["value"] == "America/Caracas"
+    assert schedule.params["master_password_enc"]
+    assert "clave-maestra" not in str(schedule.params)
+
+
+def test_schedule_from_task_form_requires_admin(client):
+    User.create_or_update(
+        "operador",
+        "operador-clave-456",
+        role="operator",
+        db_path=app_module.get_db_path(),
+    )
+    _login(client, "operador", "operador-clave-456")
+
+    response = _post(client, "/", _task_schedule_payload())
+
+    assert response.status_code == 403
+    assert Schedule.all(db_path=app_module.get_db_path()) == []
+
+
+def test_schedule_from_task_form_rejects_temporary_passwords(client):
+    _login(client)
+
+    response = _post(
+        client,
+        "/",
+        _task_schedule_payload(password_origin="temporal"),
+        follow_redirects=True,
+    )
+
+    assert "credenciales guardadas" in response.get_data(as_text=True)
+    assert Schedule.all(db_path=app_module.get_db_path()) == []
+
+
+def test_schedules_page_filters_and_prefills_group(client):
+    db_path = app_module.get_db_path()
+    group = HostGroup.create("Sucursal", db_path=db_path)
+    other = HostGroup.create("Otra sede", db_path=db_path)
+    _login(client)
+    _post(
+        client,
+        "/programaciones",
+        _schedule_payload(
+            name="de sucursal", target_mode="group", target_group=str(group.id)
+        ),
+        follow_redirects=True,
+    )
+    _post(
+        client,
+        "/programaciones",
+        _schedule_payload(
+            name="de otra sede", target_mode="group", target_group=str(other.id)
+        ),
+        follow_redirects=True,
+    )
+
+    body = client.get(f"/programaciones?group={group.id}").get_data(as_text=True)
+
+    assert "Filtrado por grupo" in body
+    assert "de sucursal" in body
+    assert "de otra sede" not in body
+    assert f'value="{group.id}" selected' in body
+
+
+def test_inventory_shows_window_help_and_schedule_shortcut(client):
+    db_path = app_module.get_db_path()
+    group = HostGroup.create("Oficina", db_path=db_path)
+    _login(client)
+
+    body = client.get("/inventario").get_data(as_text=True)
+
+    assert "Política de mantenimiento" in body
+    assert "Días permitidos (UTC)" in body
+    assert "Inicio (UTC)" in body
+    assert "Fin (UTC)" in body
+    assert f"/programaciones?group={group.id}" in body
+    assert "0 programación(es)" in body
+
+    Schedule.create(
+        "ventana oficina",
+        "zona-todas",
+        datetime.now(UTC) + timedelta(hours=1),
+        {
+            "target": f"inventory:{group.id}",
+            "target_mode": "group",
+            "target_group_id": group.id,
+            "task_id": "zona-todas",
+            "admin_user": "root",
+            "action": "TZ",
+            "value": "America/Caracas",
+            "ntp_policy": "keep",
+        },
+        db_path=db_path,
+    )
+    body = client.get("/inventario").get_data(as_text=True)
+    assert "1 programación(es)" in body
+
+
+def test_task_page_offers_scheduling_only_to_admin_on_schedulable_tasks(client):
+    _login(client)
+    body = client.get("/tarea/zona-todas").get_data(as_text=True)
+    assert "Planificar esta operación" in body
+    assert "Crear programación" in body
+
+    body = client.get("/tarea/tapiz").get_data(as_text=True)
+    assert "Planificar esta operación" not in body
+
+    User.create_or_update(
+        "operador",
+        "operador-clave-456",
+        role="operator",
+        db_path=app_module.get_db_path(),
+    )
+    _post(client, "/logout")
+    _login(client, "operador", "operador-clave-456")
+    body = client.get("/tarea/zona-todas").get_data(as_text=True)
+    assert "Planificar esta operación" not in body
+
+
 def test_launch_scheduled_disables_invalid_stored_params(client):
     db_path = app_module.get_db_path()
     Schedule.create(
