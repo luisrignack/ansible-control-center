@@ -60,8 +60,13 @@ la misma IP, este host se registra como `skipped` con el motivo «Otra
 operación en curso sobre el host» y el lote continúa con el siguiente. La
 reserva se libera al terminar el host, se renueva antes de cada intento de
 credencial y caduca sola si el proceso muere. Las vistas previas no reservan
-porque no modifican el equipo; un lote encolado muestra su posición en la
-página de progreso.
+porque no modifican el equipo.
+
+Un lote encolado muestra `En cola` con su posición y una espera estimada
+(mediana de los últimos lotes de la misma acción, repartida entre los puestos
+de trabajo). La portada del formulario avisa de los hosts reservados en ese
+momento. El panel `/metricas` y `/api/metricas` exponen profundidad de cola,
+tareas pendientes/en ejecución, espera p50/p95 y hosts reservados.
 
 ### 1.3. Cierre
 
@@ -434,7 +439,10 @@ sudo -u ansible-control-center .venv/bin/flask --app app reconcile-batches
 
 Con `ACC_DRY_RUN=1` el resultado del cambio se simula: no se toca el
 host. El panel y el detalle muestran el badge `DRY RUN`, el lote guarda
-`dry_run` y el historial separa los hosts simulados de los reales. Aun así,
+`dry_run` y el historial separa los hosts simulados de los reales. El modo se
+captura al arrancar el lote, así que un cambio del interruptor no mezcla hosts
+simulados y reales dentro de la misma ejecución; además, el interruptor se
+rechaza con 409 mientras haya tareas en cola o en ejecución. Aun así,
 **comprueba el modo antes de dar un cambio por real**: el estado `success` de
 un lote simulado no significa que la hora se haya aplicado.
 

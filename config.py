@@ -562,7 +562,7 @@ SLOW_REQUEST_MS = _env_int("ACC_SLOW_REQUEST_MS", 1000, minimum=100, maximum=600
 
 # Cola de trabajos: concurrencia acotada y tamaño máximo de la cola.
 JOB_MAX_WORKERS = _env_int("ACC_JOB_WORKERS", 2, minimum=1, maximum=32)
-JOB_QUEUE_SIZE = _env_int("ACC_JOB_QUEUE_SIZE", 50, minimum=1)
+JOB_QUEUE_SIZE = _env_int("ACC_JOB_QUEUE_SIZE", 10, minimum=1)
 JOB_SHUTDOWN_GRACE_SECONDS = _env_int(
     "ACC_JOB_SHUTDOWN_GRACE", 10, minimum=0, maximum=300
 )

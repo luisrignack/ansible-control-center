@@ -10,7 +10,11 @@ from __future__ import annotations
 import logging
 import queue
 import threading
-from typing import Any, Callable, Dict, Optional
+import time
+from collections import deque
+from typing import Any, Callable, Deque, Dict, Optional
+
+from services.metrics import percentile
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +59,9 @@ class JobQueue:
         # ejecución salen de esta lista). Permite mostrar la posición en la
         # cola sin inspeccionar las estructuras internas de ``queue.Queue``.
         self._pending_order: list[str] = []
+        # Tiempo de espera de los trabajos que ya arrancaron, para métricas.
+        self._enqueued_at: Dict[str, float] = {}
+        self._wait_samples: Deque[float] = deque(maxlen=500)
         self._threads = []
         self._stopping = False
         for index in range(self.max_workers):
@@ -91,11 +98,13 @@ class JobQueue:
                 raise JobQueueFull("Hay demasiados trabajos en curso.")
             self._jobs[task_id] = job
             self._pending_order.append(task_id)
+            self._enqueued_at[task_id] = time.monotonic()
         try:
             self._queue.put_nowait(job)
         except queue.Full as exc:
             with self._lock:
                 self._jobs.pop(task_id, None)
+                self._enqueued_at.pop(task_id, None)
                 try:
                     self._pending_order.remove(task_id)
                 except ValueError:
@@ -135,6 +144,11 @@ class JobQueue:
                     self._pending_order.remove(item.task_id)
                 except ValueError:
                     pass
+                enqueued = self._enqueued_at.pop(item.task_id, None)
+                if enqueued is not None:
+                    self._wait_samples.append(
+                        max(0.0, time.monotonic() - enqueued)
+                    )
             try:
                 item.func(*item.args, **item.kwargs)
             except JobCancelled:
@@ -175,6 +189,31 @@ class JobQueue:
             except ValueError:
                 return None
 
+    def wait_stats(self) -> Dict[str, float]:
+        """Espera en cola de los trabajos ya arrancados (segundos)."""
+        with self._lock:
+            samples = list(self._wait_samples)
+        if not samples:
+            return {
+                "count": 0,
+                "avg_seconds": 0.0,
+                "p50_seconds": 0.0,
+                "p95_seconds": 0.0,
+                "max_seconds": 0.0,
+            }
+        return {
+            "count": len(samples),
+            "avg_seconds": round(sum(samples) / len(samples), 2),
+            "p50_seconds": percentile(samples, 50),
+            "p95_seconds": percentile(samples, 95),
+            "max_seconds": round(max(samples), 2),
+        }
+
     @property
     def pending(self) -> int:
         return self._queue.qsize()
+
+    @property
+    def running(self) -> int:
+        with self._lock:
+            return max(0, len(self._jobs) - len(self._pending_order))

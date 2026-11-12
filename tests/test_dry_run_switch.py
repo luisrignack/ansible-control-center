@@ -105,6 +105,20 @@ def test_setting_is_stored_in_database(client):
     assert get_setting("dry_run", db_path=app_module.get_db_path()) == "0"
 
 
+def test_switch_is_blocked_while_a_task_is_queued(client):
+    """El modo no puede cambiar a mitad de un lote, ni siquiera encolado."""
+    _login(client, "admin", "admin-password-123")
+    task_id = app_module.create_task(owner="admin")
+    try:
+        response = _post_mode(client, False)
+
+        assert response.status_code == 409
+        assert response.get_json()["success"] is False
+        assert app_module.is_dry_run() is True
+    finally:
+        app_module.remove_task(task_id)
+
+
 def test_operator_cannot_change_mode(client):
     _login(client, "operator", "operator-password-123")
 

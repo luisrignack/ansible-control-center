@@ -15,7 +15,7 @@ mismo criterio.
 | p95 de UI | < 500 ms | `/metricas` (endpoint `index`, `history`, …) |
 | p95 de API de estado | < 200 ms | `/metricas` (endpoint `api_task_status`) |
 | Primer evento SSE | < 1 s | Log de la app / prueba manual |
-| Espera en cola con 50 trabajos | < 30 s | Pendiente: métrica de cola (roadmap) |
+| Espera p95 en cola | < 30 s | `/metricas` (`queue.wait.p95_seconds`) |
 | Lote de 256 hosts | < 60 min | `execution_batches` + `execution_hosts` |
 | Errores 5xx | 0 en operación normal | `/metricas` (`summary.errors`) |
 
@@ -52,7 +52,22 @@ con `ExecutionBatch.get_duration_stats()`.
 
 Esta métrica sí sobrevive a reinicios y sirve para comparar lotes históricos.
 
-### 2.3. Otros datos ya disponibles
+### 2.3. Cola y reservas de host
+
+El panel y el JSON de métricas incluyen `queue` con:
+
+- `depth`: trabajos esperando ahora mismo.
+- `tasks_pending` y `tasks_running`: tareas en memoria en cada estado.
+- `oldest_pending_seconds`: antigüedad del trabajo que más lleva esperando.
+- `wait`: media, p50, p95 y máximo del tiempo de espera de los trabajos que ya
+  arrancaron (ventana de 500 muestras).
+- `active_host_locks`: hosts reservados por lotes en curso.
+
+La estimación que ve el operador en una tarea encolada usa la mediana de
+duración de los últimos lotes cerrados de la misma acción. Es una orientación,
+no una promesa: depende del número de hosts, de la red y de los reintentos.
+
+### 2.4. Otros datos ya disponibles
 
 - `execution_batches.created_at` / `finished_at`: duración total del lote.
 - `task_state.updated_at`: última actualización del progreso.

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Dict, List, Optional
 
 from config import HOST_LOCK_TTL_SECONDS, resolve_db_path
 from models.db import get_connection
@@ -118,6 +118,36 @@ def release_batch_locks(batch_id: str, db_path: Optional[str] = None) -> int:
             "DELETE FROM host_locks WHERE batch_id = ?", (batch_id,)
         )
         return int(cursor.rowcount or 0)
+
+
+def list_active_locks(
+    limit: int = 20, db_path: Optional[str] = None
+) -> List[Dict[str, str]]:
+    """Reservas vigentes ordenadas por antigüedad (para avisos y métricas)."""
+    now_iso = _iso(datetime.now(timezone.utc))
+    with get_connection(_db_path(db_path)) as conn:
+        rows = conn.execute(
+            """
+            SELECT host, batch_id, owner, acquired_at, expires_at
+            FROM host_locks
+            WHERE expires_at >= ?
+            ORDER BY acquired_at ASC
+            LIMIT ?
+            """,
+            (now_iso, max(1, int(limit))),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def count_active_locks(db_path: Optional[str] = None) -> int:
+    """Número de reservas vigentes en este momento."""
+    now_iso = _iso(datetime.now(timezone.utc))
+    with get_connection(_db_path(db_path)) as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS total FROM host_locks WHERE expires_at >= ?",
+            (now_iso,),
+        ).fetchone()
+    return int(row["total"] if row is not None else 0)
 
 
 def is_host_locked(host: str, db_path: Optional[str] = None) -> bool:

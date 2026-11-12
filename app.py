@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import secrets
+import statistics
 import sys
 import threading
 import time
@@ -171,6 +172,8 @@ from services.csrf import csrf_protect, generate_csrf_token, rotate_csrf_token
 from services.host_resolver import pin_target, resolve_target
 from services.host_locks import (
     acquire_host_lock,
+    count_active_locks,
+    list_active_locks,
     refresh_host_lock,
     release_batch_locks,
     release_host_lock,
@@ -229,6 +232,12 @@ _task_events: Dict[str, threading.Event] = {}
 _task_persist_times: Dict[str, float] = {}
 _task_persist_lock = threading.Lock()
 _db_path_cache: Optional[str] = None
+
+# Estimación de espera en cola: mediana de los últimos lotes cerrados, cacheada
+# unos segundos para no consultar SQLite en cada tick del SSE.
+_QUEUE_ETA_CACHE_SECONDS = 30
+_queue_eta_cache: Dict[str, tuple[float, Optional[float]]] = {}
+_queue_eta_lock = threading.Lock()
 
 # Métricas de rendimiento por ruta (ventana acotada en memoria, sin
 # persistencia). Se consultan desde ``/metricas`` y ``/api/metricas``.
@@ -1439,13 +1448,96 @@ def _can_view_task(task: Dict[str, Any]) -> bool:
     return str(task.get("owner") or "") == _task_viewer_actor()
 
 
+def _queue_eta_seconds(action: Optional[str]) -> Optional[float]:
+    """Mediana de duración de lotes recientes de la misma acción."""
+    key = (action or "").strip().upper()
+    now = time.monotonic()
+    with _queue_eta_lock:
+        cached = _queue_eta_cache.get(key)
+        if cached is not None and now - cached[0] < _QUEUE_ETA_CACHE_SECONDS:
+            return cached[1]
+    try:
+        durations = ExecutionBatch.recent_completed_durations(
+            action=key or None, limit=20, db_path=get_db_path()
+        )
+    except Exception:
+        logger.debug("No se pudo estimar la espera de cola", exc_info=True)
+        durations = []
+    estimate = statistics.median(durations) if durations else None
+    with _queue_eta_lock:
+        _queue_eta_cache[key] = (now, estimate)
+    return estimate
+
+
+def _format_queue_wait(seconds: float) -> str:
+    """Texto corto para la estimación de espera."""
+    value = max(0, int(round(seconds)))
+    if value >= 120:
+        return f"~{value // 60} min"
+    return f"~{value} s"
+
+
+def _queue_snapshot() -> Dict[str, Any]:
+    """Estado de la cola para el panel de métricas y su API JSON."""
+    now = datetime.now(timezone.utc)
+    with _tasks_lock:
+        tasks = list(_tasks.values())
+    pending = [
+        task
+        for task in tasks
+        if not task.get("completed") and task.get("status") == "pending"
+    ]
+    running = [
+        task
+        for task in tasks
+        if not task.get("completed") and task.get("status") == "running"
+    ]
+    oldest = 0.0
+    for task in pending:
+        try:
+            created = datetime.fromisoformat(str(task.get("created_at") or ""))
+        except (TypeError, ValueError):
+            continue
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        oldest = max(oldest, (now - created).total_seconds())
+
+    wait = (
+        _job_queue.wait_stats()
+        if _job_queue is not None
+        else {
+            "count": 0,
+            "avg_seconds": 0.0,
+            "p50_seconds": 0.0,
+            "p95_seconds": 0.0,
+            "max_seconds": 0.0,
+        }
+    )
+    try:
+        locks = count_active_locks(db_path=get_db_path())
+    except Exception:
+        logger.debug("No se pudieron contar las reservas de host", exc_info=True)
+        locks = 0
+    return {
+        "depth": _job_queue.pending if _job_queue is not None else 0,
+        "workers": JOB_MAX_WORKERS,
+        "tasks_pending": len(pending),
+        "tasks_running": len(running),
+        "oldest_pending_seconds": round(oldest, 1),
+        "active_host_locks": locks,
+        "wait": wait,
+    }
+
+
 def _with_queue_position(
     tid: str, task: Optional[Dict[str, Any]]
 ) -> Optional[Dict[str, Any]]:
-    """Añade la posición en cola a una tarea que todavía espera turno.
+    """Añade posición y espera estimada a una tarea que aún no arrancó.
 
     La posición cambia cuando otros trabajos arrancan, así que se calcula en
-    cada lectura y no se persiste en SQLite.
+    cada lectura y no se persiste en SQLite. La espera se estima con la
+    mediana de lotes recientes de la misma acción, repartida entre los puestos
+    de trabajo disponibles.
     """
     if (
         not task
@@ -1458,8 +1550,20 @@ def _with_queue_position(
     if position is None:
         return task
     decorated = {**task, "queue_position": position}
+
+    eta_seconds: Optional[int] = None
+    estimate = _queue_eta_seconds(task.get("action"))
+    if estimate:
+        workers = max(1, JOB_MAX_WORKERS)
+        batches_ahead = (position + workers - 1) // workers
+        eta_seconds = int(round(estimate * batches_ahead))
+        decorated["queue_eta_seconds"] = eta_seconds
+
     if not task.get("cancellation_requested"):
-        decorated["message"] = f"En cola (posición {position})…"
+        detail = f"posición {position}"
+        if eta_seconds:
+            detail += f", espera {_format_queue_wait(eta_seconds)}"
+        decorated["message"] = f"En cola ({detail})…"
     return decorated
 
 
@@ -2346,8 +2450,13 @@ def task_view(task_id):
         data = group.to_dict()
         data["safety"] = _safety_for_group(group)
         inventory_groups.append(data)
+    locked_hosts = [
+        lock["host"]
+        for lock in list_active_locks(limit=20, db_path=get_db_path())
+    ]
     return render_template(
         "index.html",
+        locked_hosts=locked_hosts,
         common_timezones=COMMON_TIMEZONES,
         ntp_policies=NTP_POLICIES,
         default_ntp_servers=", ".join(DEFAULT_NTP_SERVERS),
@@ -3169,6 +3278,7 @@ def launch_scheduled(schedule, params: Dict[str, Any]) -> bool:
             "progress": 0,
             "message": "Lanzada por programación; en cola…",
             "mode": "execute",
+            "action": validated["action"],
             "completed": False,
         },
     )
@@ -3591,6 +3701,7 @@ def handle_execution(
             "progress": 0,
             "message": "En cola…",
             "mode": form["mode"],
+            "action": form["action"],
             "completed": False,
         },
     )
@@ -4082,6 +4193,7 @@ def _run_apply_batch(
     wallpaper_uri: str = "",
     min_free_gb: Optional[float] = None,
     new_password: str = "",
+    dry_run: Optional[bool] = None,
 ) -> None:
     """Aplica el cambio en todos los hosts (best-effort) y registra cada uno.
 
@@ -4267,6 +4379,7 @@ def _run_apply_batch(
                     wallpaper_uri=wallpaper_uri,
                     min_free_gb=min_free_gb,
                     new_password=new_password,
+                    dry_run=dry_run,
                 )
             except Exception as exc:  # pragma: no cover - salvaguarda
                 last_apply_error = str(exc)
@@ -4510,6 +4623,10 @@ def execute_with_progress(
     batch_id = ""
     db_path = get_db_path()
     cancelled = False
+    # El modo se captura al arrancar el lote: aunque el interruptor global
+    # cambie, esta ejecución mantiene un único comportamiento de principio a
+    # fin y no mezcla hosts simulados con hosts reales.
+    batch_dry_run = is_dry_run()
     try:
         update_task(
             tid,
@@ -4520,8 +4637,9 @@ def execute_with_progress(
                 "message": "Resolviendo hosts…",
                 "log": ["Iniciando"],
                 "mode": mode,
+                "action": ac,
                 "completed": False,
-                "dry_run": is_dry_run(),
+                "dry_run": batch_dry_run,
             },
         )
         # Objetivo por grupo de inventario: ``inventory:<group_id>``. Los
@@ -4726,7 +4844,7 @@ def execute_with_progress(
             status="preview" if mode == "preview" else "running",
             # La vista previa nunca aplica cambios: no es una ejecución
             # simulada, sino una inspección real de solo lectura.
-            dry_run=is_dry_run() and mode != "preview",
+            dry_run=batch_dry_run and mode != "preview",
             admin_user=au,
             password_origin=po,
             ntp_servers=list(ntp_servers or []),
@@ -4753,7 +4871,7 @@ def execute_with_progress(
                 "operator": operator,
                 "time_mode": time_mode,
                 "ntp_policy": ntp_policy,
-                "dry_run": is_dry_run(),
+                "dry_run": batch_dry_run,
             },
         )
 
@@ -4813,6 +4931,7 @@ def execute_with_progress(
                 wallpaper_uri=wallpaper_uri,
                 min_free_gb=min_free_gb,
                 new_password=new_password,
+                dry_run=batch_dry_run,
             )
 
         if cancel_event is not None and cancel_event.is_set():
@@ -5285,6 +5404,7 @@ def metricas():
         metrics=snapshot,
         rows=rows,
         summary=summarize(snapshot),
+        queue=_queue_snapshot(),
         window=request_metrics.window,
         slow_request_ms=SLOW_REQUEST_MS,
     )
@@ -5300,6 +5420,7 @@ def api_metricas():
             "window": request_metrics.window,
             "slow_request_ms": SLOW_REQUEST_MS,
             "summary": summarize(snapshot),
+            "queue": _queue_snapshot(),
             "endpoints": snapshot,
         }
     )

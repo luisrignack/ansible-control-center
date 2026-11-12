@@ -24,6 +24,22 @@
     </div>
 </div>
 
+{% if locked_hosts %}
+<div class="banner banner-warn" role="status">
+    <div class="banner-icon" aria-hidden="true"><i class="bi bi-hdd-network"></i></div>
+    <div>
+        <div class="banner-title">Operaciones en curso sobre algunos hosts</div>
+        <div class="banner-text">
+            Ahora mismo hay lotes trabajando en
+            <strong>{{ locked_hosts|join(', ') }}</strong>.
+            Si tu objetivo incluye alguno de ellos, ese host quedará
+            <strong>omitido</strong> en este lote para no competir por el mismo
+            estado final. El resto continuará con normalidad.
+        </div>
+    </div>
+</div>
+{% endif %}
+
 {% if dry_run %}
 <div class="banner banner-warn" role="status">
     <div class="banner-icon" aria-hidden="true"><i class="bi bi-exclamation-triangle"></i></div>

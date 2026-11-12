@@ -394,6 +394,47 @@ class ExecutionBatch:
         }
 
     @staticmethod
+    def recent_completed_durations(
+        action: Optional[str] = None,
+        limit: int = 20,
+        db_path: str = None,
+    ) -> List[float]:
+        """Duración total de los últimos lotes cerrados, en segundos.
+
+        Sirve para estimar la espera de una tarea encolada. Se excluyen las
+        vistas previas y los lotes cancelados o incompletos para no mezclar
+        duraciones que no representan un trabajo completo.
+        """
+        if db_path is None:
+            db_path = _default_db_path()
+
+        sql = (
+            "SELECT (julianday(finished_at) - julianday(created_at)) * 86400.0 "
+            "AS seconds FROM execution_batches "
+            "WHERE finished_at IS NOT NULL "
+            "AND status IN ('success', 'partial', 'failure') "
+        )
+        params: List[Any] = []
+        if action:
+            sql += "AND action = ? "
+            params.append(str(action).upper())
+        sql += "ORDER BY finished_at DESC LIMIT ?"
+        params.append(max(1, int(limit)))
+
+        with get_connection(db_path) as conn:
+            rows = conn.execute(sql, params).fetchall()
+
+        durations: List[float] = []
+        for row in rows:
+            try:
+                seconds = float(row["seconds"])
+            except (TypeError, ValueError):
+                continue
+            if seconds > 0:
+                durations.append(round(seconds, 2))
+        return durations
+
+    @staticmethod
     def get_stats(db_path: str = None) -> Dict[str, Any]:
         """Estadísticas globales de lotes y hosts.
 

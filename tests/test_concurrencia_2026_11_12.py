@@ -7,11 +7,14 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import app as app_module
+import services.ansible_runner as ansible_runner
 from models.batch import ExecutionBatch
 from models.db import get_connection, init_schema
 from services.host_locks import (
     acquire_host_lock,
+    count_active_locks,
     is_host_locked,
+    list_active_locks,
     release_batch_locks,
     release_host_lock,
 )
@@ -82,9 +85,15 @@ def test_host_lock_is_exclusive_and_only_owner_releases(tmp_path):
     assert release_host_lock("10.0.0.5", "lote-b", db_path=db_path) is False
     assert is_host_locked("10.0.0.5", db_path=db_path) is True
 
+    assert count_active_locks(db_path=db_path) == 1
+    active = list_active_locks(db_path=db_path)
+    assert [lock["host"] for lock in active] == ["10.0.0.5"]
+    assert active[0]["batch_id"] == "lote-a"
+
     assert release_host_lock("10.0.0.5", "lote-a", db_path=db_path) is True
     assert acquire_host_lock("10.0.0.5", "lote-b", db_path=db_path) is True
     release_batch_locks("lote-b", db_path=db_path)
+    assert count_active_locks(db_path=db_path) == 0
 
 
 def test_only_one_concurrent_acquire_wins(tmp_path):
@@ -218,6 +227,87 @@ def test_job_queue_reports_position_while_pending(tmp_path, monkeypatch):
         time.sleep(0.01)
     assert job_queue.position("segundo") is None
     job_queue.shutdown(wait=True)
+
+
+def test_queue_eta_uses_median_of_recent_batches(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "eta.db")
+    init_schema(db_path)
+    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+
+    for index, seconds in enumerate((10, 20, 30)):
+        batch_id = f"eta-{index}"
+        ExecutionBatch.create_batch(
+            batch_id=batch_id,
+            operator="admin",
+            action="TZ",
+            value="UTC",
+            target="prueba",
+            total_hosts=1,
+            status="running",
+            db_path=db_path,
+        )
+        with get_connection(db_path) as conn:
+            conn.execute(
+                "UPDATE execution_batches SET created_at = "
+                "datetime('now', ?) WHERE batch_id = ?",
+                (f"-{seconds} seconds", batch_id),
+            )
+        ExecutionBatch.add_host_result(
+            batch_id=batch_id,
+            host="10.0.0.1",
+            result="success",
+            duration_ms=100,
+            db_path=db_path,
+        )
+        ExecutionBatch.finish_batch(batch_id=batch_id, db_path=db_path)
+
+    app_module._queue_eta_cache.clear()
+    try:
+        # La duración incluye el tiempo real transcurrido desde created_at.
+        assert 18 <= app_module._queue_eta_seconds("TZ") <= 23
+        # Sin acción concreta se usa la mediana global.
+        assert 18 <= app_module._queue_eta_seconds("") <= 23
+    finally:
+        app_module._queue_eta_cache.clear()
+
+
+def test_job_queue_records_wait_time():
+    job_queue = JobQueue(max_workers=1, max_queue=2, shutdown_grace=2)
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking(cancel_event):
+        started.set()
+        release.wait(5)
+
+    job_queue.submit("primero", blocking)
+    assert started.wait(2)
+    job_queue.submit("segundo", lambda cancel_event: None)
+    release.set()
+
+    deadline = time.monotonic() + 5
+    while job_queue.wait_stats()["count"] == 0 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    stats = job_queue.wait_stats()
+    assert stats["count"] == 1
+    assert stats["max_seconds"] >= 0
+    job_queue.shutdown(wait=True)
+
+
+def test_apply_host_respects_an_explicit_dry_run_override(monkeypatch):
+    # El lote fija el modo al arrancar; no depende del global en ese momento.
+    monkeypatch.setattr(ansible_runner, "DRY_RUN", False)
+    result = ansible_runner.apply_host(
+        host="10.0.0.1",
+        user="root",
+        action="TZ",
+        value="UTC",
+        password="clave",
+        dry_run=True,
+    )
+    assert result["success"] is True
+    assert result["dry_run"] is True
+    assert result["simulated"] is True
 
 
 def test_queue_position_is_not_added_to_running_tasks(monkeypatch):

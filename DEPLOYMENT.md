@@ -153,7 +153,7 @@ flask --app app init-admin
 | `ACC_MAX_PASSWORD_ATTEMPTS` | `3` | Candidatas máximas probadas por host |
 | `ACC_BATCH_TIME_BUDGET` | `3600` | Presupuesto de tiempo del lote (s) |
 | `ACC_JOB_WORKERS` | `2` | Lotes concurrentes |
-| `ACC_JOB_QUEUE_SIZE` | `50` | Tamaño máximo de la cola |
+| `ACC_JOB_QUEUE_SIZE` | `10` | Tamaño máximo de la cola |
 | `ACC_HOST_LOCK_TTL` | `1800` | Vigencia de la reserva por host (s) |
 | `ACC_JOB_SHUTDOWN_GRACE` | `10` | Espera de apagado ordenado (s) |
 | `ACC_MAX_MEMORY_TASKS` | `200` | Instantáneas de tarea en memoria |

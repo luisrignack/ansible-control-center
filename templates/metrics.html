@@ -40,6 +40,25 @@
     </div>
 </div>
 
+<div class="stat-grid mb-3">
+    <div class="stat">
+        <div class="stat-value">{{ queue.depth }}</div>
+        <div class="stat-label">Trabajos en cola</div>
+    </div>
+    <div class="stat">
+        <div class="stat-value">{{ queue.tasks_running }}</div>
+        <div class="stat-label">Lotes en ejecución</div>
+    </div>
+    <div class="stat">
+        <div class="stat-value">{{ queue.wait.p95_seconds }} s</div>
+        <div class="stat-label">Espera p95 ({{ queue.wait.count }} muestras)</div>
+    </div>
+    <div class="stat {% if queue.active_host_locks %}is-ok{% endif %}">
+        <div class="stat-value">{{ queue.active_host_locks }}</div>
+        <div class="stat-label">Hosts reservados</div>
+    </div>
+</div>
+
 <div class="card fade-in">
     <div class="card-header">
         <h2 class="card-title"><i class="bi bi-speedometer2" aria-hidden="true"></i> Latencia por ruta</h2>

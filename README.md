@@ -419,7 +419,7 @@ una `ACC_SECRET_KEY` aleatoria.
 | `ACC_DEFAULT_NTP_SERVERS` | `pool.ntp.org` | Servidores NTP por defecto |
 | `ACC_MAX_NTP_SERVERS` | `8` | Máximo de servidores NTP |
 | `ACC_JOB_WORKERS` | `2` | Trabajos concurrentes de la cola |
-| `ACC_JOB_QUEUE_SIZE` | `50` | Trabajos en espera antes de rechazar con error |
+| `ACC_JOB_QUEUE_SIZE` | `10` | Trabajos en espera antes de rechazar con error |
 | `ACC_HOST_LOCK_TTL` | `1800` | Vigencia de la reserva por host (s) |
 | `ACC_JOB_SHUTDOWN_GRACE` | `10` | Espera de apagado ordenado (s) |
 | `ACC_MAX_MEMORY_TASKS` | `200` | Instantáneas de tarea en memoria |

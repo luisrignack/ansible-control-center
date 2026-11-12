@@ -5,6 +5,30 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Cola y observabilidad de concurrencia] — 2026-11-12
+
+### Añadido
+
+- **Espera estimada en cola**: una tarea pendiente muestra «En cola (posición
+  N, espera ~X)» usando la mediana de duración de los últimos lotes cerrados de
+  la misma acción, repartida entre `ACC_JOB_WORKERS`. La estimación se cachea
+  30 s para no consultar SQLite en cada tick del SSE.
+- **Métricas de cola**: `/metricas` y `/api/metricas` exponen profundidad,
+  tareas pendientes/en ejecución, antigüedad del trabajo más antiguo, espera
+  media/p50/p95/máximo de los trabajos ya arrancados y hosts reservados.
+- **Aviso de hosts ocupados**: el formulario de cada tarea lista los hosts con
+  una reserva vigente y advierte de que quedarán omitidos si están en el
+  objetivo.
+- **Modo simulación por lote**: `apply_host` acepta el modo fijado al arrancar
+  la ejecución, de modo que un cambio del interruptor no mezcla hosts
+  simulados y reales a mitad de lote.
+
+### Cambiado
+
+- `ACC_JOB_QUEUE_SIZE` pasa de 50 a 10 trabajos en espera. Con lotes de hasta
+  una hora, una cola de 50 acumulaba trabajo obsoleto; es preferible rechazar
+  pronto con 503 y dejar que el operador reintente.
+
 ## [Concurrencia entre operadores] — 2026-11-12
 
 ### Añadido

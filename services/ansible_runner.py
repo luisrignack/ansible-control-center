@@ -974,6 +974,7 @@ def apply_host(
     wallpaper_uri: str = "",
     min_free_gb: Optional[float] = None,
     new_password: str = "",
+    dry_run: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Aplica el cambio en un host y verifica el resultado.
 
@@ -1025,7 +1026,11 @@ def apply_host(
             playbook_path=path,
         )
 
-    if DRY_RUN:
+    # ``dry_run`` permite fijar el modo al arrancar el lote: un cambio del
+    # interruptor global no debe mezclar hosts simulados y reales dentro de la
+    # misma ejecución. Sin el argumento se conserva el comportamiento anterior.
+    effective_dry_run = DRY_RUN if dry_run is None else bool(dry_run)
+    if effective_dry_run:
         logger.info("DRY RUN: se omite el cambio real en %s", host)
         if is_wallpaper:
             detail = f"tapiz {wallpaper_uri or value}"

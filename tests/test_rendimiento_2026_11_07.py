@@ -202,10 +202,14 @@ def test_metrics_endpoints_require_admin(client):
     assert payload["window"] >= 50
     assert "index" in payload["endpoints"]
     assert payload["endpoints"]["index"]["count"] >= 1
+    assert payload["queue"]["workers"] >= 1
+    assert "depth" in payload["queue"]
+    assert "wait" in payload["queue"]
 
     page = client.get("/metricas")
     assert page.status_code == 200
     assert b"Latencia por ruta" in page.data
+    assert b"Trabajos en cola" in page.data
 
 
 def test_metrics_endpoint_forbidden_for_viewer(client, db_path):
