@@ -126,8 +126,9 @@ CONTENIDO DE LA CARPETA
                               cargar (aplicación + Nginx, sin código)
   docker-compose.yml          estructura del stack (app + Nginx)
   .env.docker.example         plantilla de configuración
-  Dockerfile                  solo para recrear desde código; con el
-                              tar de imágenes no hace falta
+  Dockerfile                  referencia de la imagen; con el tar de
+                              imágenes no hace falta (reconstruir requiere
+                              el código fuente y Docker Hub)
   certs/                      vacío: el certificado se genera al arrancar
   sha256sums.txt              para verificar la integridad del paquete
 

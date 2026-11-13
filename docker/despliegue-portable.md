@@ -29,7 +29,7 @@ Navegador ──HTTPS(443)──> nginx ──HTTP(8000)──> app (Gunicorn)
 | `.env.docker.example` | Plantilla de configuración (copiar a `.env.docker`) |
 | `certs/` | Vacío; el certificado autofirmado se genera aquí al arrancar |
 | `docker/` | Entrypoint y configuración de Nginx (ya dentro de la imagen) |
-| `Dockerfile` | Solo si quieres reconstruir; no se usa con `--no-build` |
+| `Dockerfile` | Referencia de la imagen; no se usa con `--no-build` (reconstruir requiere el código fuente y Docker Hub) |
 | `sha256sums.txt` | Sumas SHA-256 para comprobar la integridad del paquete |
 
 ---
@@ -176,10 +176,10 @@ LDAPS entran con rol `viewer` en su primer login y deben ser promovidos a
 
    ```bash
    # En el host que ejecuta Docker (ajusta el nombre del volumen si el
-   # proyecto compose no es "ansible-control-center"):
+   # proyecto compose no es "hora-admin"):
    echo 'contraseña-del-rouser' \
-     | sudo tee /var/lib/docker/volumes/ansible-control-center_acc_secrets/_data/acc_ldap_bind_password
-   sudo chmod 600 /var/lib/docker/volumes/ansible-control-center_acc_secrets/_data/acc_ldap_bind_password
+     | sudo tee /var/lib/docker/volumes/hora-admin_acc_secrets/_data/acc_ldap_bind_password
+   sudo chmod 600 /var/lib/docker/volumes/hora-admin_acc_secrets/_data/acc_ldap_bind_password
    ```
 
 2. Certificado del directorio (si TLS con CA propia) en
@@ -316,10 +316,10 @@ contenedor o usa un certificado de confianza; evita
 
 | Volumen | Ruta | Contenido |
 |---|---|---|
-| `ansible-control-center_acc_data` | `/data` | SQLite, clave de sesión y pepper |
-| `ansible-control-center_acc_secrets` | `/secrets` | Vault cifrado (`ansible-vault`) |
-| `ansible-control-center_acc_logs` | `/logs` | Logs rotados |
-| `ansible-control-center_acc_ssh` | `/home/acc/.ssh` | `known_hosts` |
+| `hora-admin_acc_data` | `/data` | SQLite, clave de sesión y pepper |
+| `hora-admin_acc_secrets` | `/secrets` | Vault cifrado (`ansible-vault`) |
+| `hora-admin_acc_logs` | `/logs` | Logs rotados |
+| `hora-admin_acc_ssh` | `/home/acc/.ssh` | `known_hosts` |
 | `./certs` (bind) | `/etc/nginx/certs` | Certificado TLS |
 
 Copia de seguridad (detén la app para no copiar un WAL inconsistente):
@@ -327,11 +327,12 @@ Copia de seguridad (detén la app para no copiar un WAL inconsistente):
 ```bash
 docker compose stop app
 mkdir -p backup
-docker run --rm \
-  -v ansible-control-center_acc_data:/data:ro \
-  -v ansible-control-center_acc_secrets:/secrets:ro \
+docker run --rm --user 0:0 \
+  -v hora-admin_acc_data:/data:ro \
+  -v hora-admin_acc_secrets:/secrets:ro \
   -v "$PWD/backup:/backup" \
-  alpine tar czf /backup/ansible-control-center-$(date +%F).tgz -C / data secrets
+  --entrypoint tar ansible-control-center:latest \
+  czf /backup/ansible-control-center-$(date +%F).tgz -C / data secrets
 docker compose start app
 ```
 

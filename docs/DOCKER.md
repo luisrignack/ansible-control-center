@@ -159,21 +159,22 @@ ofrecen a los gestores de contraseñas del navegador.
 
 | Volumen | Ruta | Contenido |
 |---|---|---|
-| `ansible-control-center_acc_data` | `/data` | SQLite, clave de sesión y pepper |
-| `ansible-control-center_acc_secrets` | `/secrets` | Vault cifrado y temporales |
-| `ansible-control-center_acc_logs` | `/logs` | Logs rotados |
-| `ansible-control-center_acc_ssh` | `/home/acc/.ssh` | `known_hosts` |
+| `hora-admin_acc_data` | `/data` | SQLite, clave de sesión y pepper |
+| `hora-admin_acc_secrets` | `/secrets` | Vault cifrado y temporales |
+| `hora-admin_acc_logs` | `/logs` | Logs rotados |
+| `hora-admin_acc_ssh` | `/home/acc/.ssh` | `known_hosts` |
 | `./certs` (bind) | `/etc/nginx/certs` | Certificado TLS |
 
 Copia de seguridad de SQLite y del vault:
 
 ```bash
 docker compose stop app
-docker run --rm \
-  -v ansible-control-center_acc_data:/data:ro \
-  -v ansible-control-center_acc_secrets:/secrets:ro \
+docker run --rm --user 0:0 \
+  -v hora-admin_acc_data:/data:ro \
+  -v hora-admin_acc_secrets:/secrets:ro \
   -v "$PWD/backup:/backup" \
-  alpine tar czf /backup/ansible-control-center-$(date +%F).tgz -C / data secrets
+  --entrypoint tar ansible-control-center:latest \
+  czf /backup/ansible-control-center-$(date +%F).tgz -C / data secrets
 docker compose start app
 ```
 
