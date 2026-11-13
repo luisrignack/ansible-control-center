@@ -275,6 +275,17 @@
 
 <script nonce="{{ csp_nonce }}">
 (function () {
+    // Bootstrap añade el backdrop al <body> con z-index 1050, pero .app-shell
+    // crea su propio contexto de apilamiento (z-index: 1). Un modal que viva
+    // dentro del shell queda detrás del backdrop: la página se oscurece y no
+    // se puede escribir ni pulsar nada. Bootstrap espera los modales en el
+    // body, así que los movemos allí antes de que se muestren.
+    document.querySelectorAll('.modal').forEach(function (modal) {
+        if (modal.parentElement !== document.body) {
+            document.body.appendChild(modal);
+        }
+    });
+
     // Confirmaciones sin manejadores inline: compatibles con la CSP basada en
     // nonce y sin interpolar datos de usuario dentro de JavaScript.
     document.addEventListener('submit', function (event) {

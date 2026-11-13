@@ -21,6 +21,14 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 - Auditoría de las tres acciones (`local_user_created`, `password_changed`,
   `local_user_deleted`).
 
+### Corregido
+
+- El diálogo **Nuevo usuario local** se abría detrás del backdrop: la pantalla
+  se oscurecía y no dejaba escribir ni pulsar botones. Los modales se mueven a
+  `<body>` al cargar la página para que queden fuera del contexto de
+  apilamiento de `.app-shell`, igual que ya se hacía en el panel y en
+  credenciales. Afecta también a los diálogos de contraseña y eliminación.
+
 ### Seguridad
 
 - Las cuentas LDAPS no admiten contraseña local ni borrado desde la
