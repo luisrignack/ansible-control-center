@@ -274,6 +274,7 @@ def test_about_page_content(client):
     body = response.get_data(as_text=True)
     assert "Grupo de Migración a Código Abierto / DCTI - ETECSA" in body
     assert "Acerca de" in body
+    assert "Centraliza la configuración de hora y zona horaria" not in body
     # "Fecha del host" con formato español.
     assert "Fecha del host" in body
     assert " de noviembre de " in body or " de 2026 " in body
