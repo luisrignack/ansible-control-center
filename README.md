@@ -56,11 +56,11 @@ por defecto** (486 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 La versión vigente está en [`VERSION`](VERSION) y se aplica con versionado
 semántico (`MAJOR.MINOR.PATCH`). La misma cifra alimenta la aplicación, el tag
-de Git (`v0.9.2`) y los tags de Docker:
+de Git (`v0.9.3`) y los tags de Docker:
 
 | Tag | Uso |
 |---|---|
-| `ansible-control-center:0.9.2` | Versión exacta; es la que usa el paquete offline |
+| `ansible-control-center:0.9.3` | Versión exacta; es la que usa el paquete offline |
 | `ansible-control-center:0.9` | Alias de la minor |
 | `ansible-control-center:latest` | Alias de consulta; no usar para desplegar |
 | `ansible-control-center:sha-<commit>` | Trazabilidad al commit exacto |

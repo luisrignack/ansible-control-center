@@ -8,6 +8,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.3] — 2026-11-13
+
 ### Cambiado
 
 - El favicon de la aplicación pasa a ser el icono institucional de ETECSA,
