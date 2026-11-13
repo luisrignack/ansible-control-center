@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es" data-theme="dark" data-bs-theme="dark">
+<html lang="es" data-theme="light" data-bs-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -222,7 +222,7 @@
                 <div class="topbar-divider hide-sm" aria-hidden="true"></div>
                 <button class="icon-btn" id="themeBtn" type="button"
                         aria-label="Cambiar tema" title="Cambiar tema">
-                    <i class="bi bi-sun" id="themeIcon" aria-hidden="true"></i>
+                    <i class="bi bi-moon-stars" id="themeIcon" aria-hidden="true"></i>
                 </button>
             </div>
         </header>
@@ -364,7 +364,7 @@
     } catch (_error) {
         savedTheme = null;
     }
-    applyTheme(savedTheme === 'light' ? 'light' : 'dark');
+    applyTheme(savedTheme === 'dark' ? 'dark' : 'light');
 
     if (themeBtn) {
         themeBtn.addEventListener('click', function () {

@@ -74,7 +74,7 @@ openssl rand -hex 32        # copia el resultado en ACC_SECRET_KEY
 
 # 3. Editar .env.docker
 #    ACC_IMAGE_TAG ya viene fijado a la versión exacta del paquete
-#    (por ejemplo 0.9.3); no lo cambies por latest en producción.
+#    (por ejemplo 0.9.4); no lo cambies por latest en producción.
 #    ACC_SECRET_KEY=<la clave del paso 2>
 #    ACC_ADMIN_PASSWORD=<mínimo 12 caracteres>
 #    ACC_ENV=production

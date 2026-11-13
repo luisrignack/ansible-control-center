@@ -8,6 +8,16 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.4] — 2026-11-13
+
+### Cambiado
+
+- La interfaz adopta la propuesta «Institucional claro»: barra lateral azul
+  marino ETECSA, superficies blancas y azul/cian institucionales en botones,
+  enlaces, estados y gráficos.
+- El tema claro pasa a ser el predeterminado; el tema oscuro se mantiene
+  disponible desde el selector de la barra superior.
+
 ## [0.9.3] — 2026-11-13
 
 ### Cambiado

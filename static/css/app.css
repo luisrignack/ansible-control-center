@@ -52,33 +52,37 @@ html[data-theme="dark"] {
 }
 
 html[data-theme="light"] {
-    --bg: #f2f6fd;
-    --bg-deep: #e7eefb;
+    /* Propuesta 01 · Institucional claro: azul marino ETECSA, superficies
+       blancas y cian institucional. */
+    --bg: #f4f7fb;
+    --bg-deep: #e9f0f8;
     --surface: #ffffff;
-    --surface-2: #f5f8fe;
-    --surface-3: #e7eefb;
-    --border: #d2dff2;
-    --border-soft: #e2eaf7;
-    --text: #0a1830;
-    --text-2: #2c4162;
-    --muted: #5b7093;
-    --accent: #2563eb;
-    --accent-strong: #1d4ed8;
-    --accent-soft: rgba(37, 99, 235, .09);
+    --surface-2: #edf2f9;
+    --surface-3: #e1e9f4;
+    --border: #d6dfea;
+    --border-soft: #e4ebf3;
+    --text: #12172b;
+    --text-2: #33405a;
+    --muted: #5a6478;
+    --accent: #0066cc;
+    --accent-strong: #0052a3;
+    --accent-soft: rgba(0, 102, 204, .10);
     --accent-contrast: #ffffff;
-    --teal: #0284c7;
-    --ok: #0f9d63;
-    --ok-soft: rgba(15, 157, 99, .10);
-    --warn: #a86a00;
-    --warn-soft: rgba(199, 125, 0, .12);
-    --danger: #d0314b;
-    --danger-soft: rgba(208, 49, 75, .10);
-    --info: #1466c9;
-    --info-soft: rgba(20, 102, 201, .09);
-    --console-bg: #071225;
+    --teal: #0099cc;
+    --ok: #3f6600;
+    --ok-soft: rgba(63, 102, 0, .10);
+    --warn: #8a4b00;
+    --warn-soft: rgba(138, 75, 0, .12);
+    --danger: #b00020;
+    --danger-soft: rgba(176, 0, 32, .09);
+    --info: #0066cc;
+    --info-soft: rgba(0, 102, 204, .09);
+    --console-bg: #000a22;
     --console-text: #b9cdea;
-    --grid-line: rgba(37, 99, 235, .05);
-    --topbar-bg: rgba(242, 246, 253, .85);
+    --grid-line: rgba(0, 102, 204, .05);
+    --topbar-bg: rgba(255, 255, 255, .88);
+    --shadow-sm: 0 1px 2px rgba(0, 20, 60, .12);
+    --shadow: 0 1px 2px rgba(0, 20, 60, .05), 0 14px 34px -18px rgba(0, 32, 90, .18);
 }
 
 /* ============================================================
@@ -113,8 +117,8 @@ body::before {
 }
 html[data-theme="light"] body::before {
     background:
-        radial-gradient(1000px 560px at 8% -14%, rgba(37, 99, 235, .10), transparent 66%),
-        radial-gradient(860px 480px at 102% -6%, rgba(56, 189, 248, .08), transparent 62%),
+        radial-gradient(1100px 500px at 88% -12%, rgba(0, 153, 204, .10), transparent 62%),
+        radial-gradient(820px 460px at 4% -10%, rgba(0, 102, 204, .08), transparent 66%),
         linear-gradient(var(--grid-line) 1px, transparent 1px),
         linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size: auto, auto, 46px 46px, 46px 46px;
@@ -185,8 +189,9 @@ code { color: var(--teal); font-family: var(--font-mono); font-size: .92em; }
     grid-area: 1 / 1; width: 100%; height: 100%;
     object-fit: contain; display: block;
 }
-html[data-theme="dark"] .brand-logo .logo-on-light,
-html[data-theme="light"] .brand-logo .logo-on-dark { display: none; }
+/* El logotipo azul institucional se usa en ambos temas: en el tema claro
+   aparece sobre la placa blanca de la barra azul marino. */
+.brand-logo .logo-on-light { display: none; }
 html[data-theme="light"] .brand-logo {
     border-color: var(--border);
     box-shadow: var(--shadow-sm);
@@ -555,7 +560,7 @@ html[data-theme="light"] .brand-logo {
     font-size: 13px;
 }
 .banner-info {
-    border-color: rgba(56, 189, 248, .28);
+    border-color: color-mix(in srgb, var(--teal) 28%, transparent);
     background: linear-gradient(90deg, var(--info-soft), transparent 70%);
 }
 .banner-info .banner-icon { background: var(--info-soft); color: var(--info); }
@@ -683,7 +688,7 @@ html[data-theme="light"] .btn-close { filter: none; }
 .badge.bg-warning.text-dark, .badge.bg-info.text-dark { color: var(--warn) !important; }
 .badge.bg-info.text-dark { color: var(--info) !important; }
 .badge-custom { background: var(--surface-3); color: var(--text-2); }
-.badge-accent { background: var(--accent-soft); color: var(--accent); border-color: rgba(77, 141, 255, .30); }
+.badge-accent { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
 
 /* Avisos y banners */
 .alert {
@@ -1024,14 +1029,14 @@ progress.hora-progress::-moz-progress-bar {
     background: linear-gradient(160deg, var(--surface-2), rgba(37, 99, 235, .05));
     border-color: var(--border-soft);
 }
-.topbar { box-shadow: 0 1px 0 rgba(77, 141, 255, .06); }
+.topbar { box-shadow: 0 1px 0 color-mix(in srgb, var(--accent) 6%, transparent); }
 .icon-btn {
     background: linear-gradient(180deg, var(--surface-2), var(--surface));
     border-color: var(--border-soft);
 }
 .icon-btn:hover {
     background: var(--surface-3);
-    border-color: rgba(77, 141, 255, .34);
+    border-color: color-mix(in srgb, var(--accent) 34%, transparent);
 }
 
 .page-head {
@@ -1079,7 +1084,7 @@ progress.hora-progress::-moz-progress-bar {
     box-shadow: 0 1px 2px rgba(2, 8, 23, .18), 0 22px 50px -40px rgba(2, 8, 23, .85);
 }
 .card-header, .card-head {
-    background: linear-gradient(180deg, rgba(77, 141, 255, .07), transparent);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent);
     border-bottom-color: var(--border-soft);
 }
 .card-title, .card-header h4, .card-header h5 { letter-spacing: -.015em; }
@@ -1184,25 +1189,85 @@ progress.hora-progress::-moz-progress-bar {
 
 html[data-theme="light"] .page-head {
     background:
-        radial-gradient(620px 220px at 92% -46%, rgba(56, 189, 248, .13), transparent 68%),
-        radial-gradient(520px 260px at 2% -40%, rgba(37, 99, 235, .10), transparent 70%),
-        linear-gradient(160deg, #ffffff, #f4f8ff);
-    box-shadow: 0 18px 45px -38px rgba(15, 35, 70, .45);
+        radial-gradient(620px 220px at 92% -46%, rgba(0, 153, 204, .12), transparent 68%),
+        radial-gradient(520px 260px at 2% -40%, rgba(0, 102, 204, .09), transparent 70%),
+        linear-gradient(160deg, #ffffff, #f2f7fd);
+    box-shadow: 0 18px 45px -40px rgba(0, 32, 90, .35);
 }
 html[data-theme="light"] .stat {
-    background: linear-gradient(160deg, #ffffff, #f3f7ff);
+    background: linear-gradient(160deg, #ffffff, #f4f8fd);
     box-shadow: inset 0 1px 0 #ffffff;
 }
 html[data-theme="light"] .auth-shell {
     background:
-        radial-gradient(760px 520px at 50% -20%, rgba(37, 99, 235, .12), transparent 68%),
-        radial-gradient(620px 420px at 100% 100%, rgba(56, 189, 248, .08), transparent 70%);
+        radial-gradient(760px 520px at 50% -20%, rgba(0, 0, 102, .12), transparent 68%),
+        radial-gradient(620px 420px at 100% 100%, rgba(0, 153, 204, .10), transparent 70%);
 }
+/* Barra lateral institucional: azul marino ETECSA con texto claro. */
 html[data-theme="light"] .sidebar {
-    background:
-        radial-gradient(420px 240px at 10% -6%, rgba(37, 99, 235, .07), transparent 70%),
-        linear-gradient(180deg, #ffffff 0%, #edf3fc 100%);
-    box-shadow: 24px 0 60px -56px rgba(15, 35, 70, .5);
+    background: linear-gradient(180deg, #000066 0%, #062f85 100%);
+    border-right-color: rgba(255, 255, 255, .14);
+    box-shadow: none;
+}
+html[data-theme="light"] .sidebar .brand-name { color: #ffffff; }
+html[data-theme="light"] .sidebar .brand-sub { color: #a9bce0; }
+html[data-theme="light"] .sidebar .brand-logo {
+    background: #ffffff;
+    border-color: rgba(255, 255, 255, .24);
+    box-shadow: 0 8px 20px -12px rgba(0, 0, 0, .65);
+}
+html[data-theme="light"] .sidebar .nav-label { color: #8fa6cc; }
+html[data-theme="light"] .sidebar .nav-item { color: #c9d6ec; }
+html[data-theme="light"] .sidebar .nav-item:hover {
+    background: rgba(255, 255, 255, .10);
+    color: #ffffff;
+}
+html[data-theme="light"] .sidebar .nav-item.is-active {
+    background: linear-gradient(90deg, #0066cc, #0099cc);
+    color: #ffffff;
+    box-shadow: 0 8px 18px -12px rgba(0, 0, 0, .8);
+}
+html[data-theme="light"] .sidebar .nav-item.is-active .icon { color: #ffffff; }
+html[data-theme="light"] .sidebar .badge-count {
+    background: rgba(255, 255, 255, .18);
+    color: #ffffff;
+}
+html[data-theme="light"] .sidebar .env-pill {
+    background: rgba(255, 255, 255, .08);
+    border-color: rgba(255, 255, 255, .18);
+    color: #d7e2f4;
+}
+html[data-theme="light"] .sidebar .env-pill strong { color: #ffffff; }
+html[data-theme="light"] .sidebar .env-pill .env-tag { color: #a9bce0; }
+html[data-theme="light"] .sidebar .health-mini {
+    background: rgba(255, 255, 255, .08);
+    border-color: rgba(255, 255, 255, .16);
+}
+html[data-theme="light"] .sidebar .health-mini-top { color: #a9bce0; }
+html[data-theme="light"] .sidebar .health-mini-top strong { color: #ffffff; }
+html[data-theme="light"] .sidebar .health-mini .small { color: #a9bce0; }
+html[data-theme="light"] .sidebar .health-dots span { background: #7ed957; }
+html[data-theme="light"] .sidebar .health-dots span.warn { background: #ffb020; }
+html[data-theme="light"] .sidebar .health-dots span.off { background: rgba(255, 255, 255, .28); }
+html[data-theme="light"] .sidebar .user-card {
+    background: rgba(255, 255, 255, .08);
+    border-color: rgba(255, 255, 255, .16);
+}
+html[data-theme="light"] .sidebar .user-card .user-meta strong { color: #ffffff; }
+html[data-theme="light"] .sidebar .user-card .user-meta span { color: #a9bce0; }
+html[data-theme="light"] .sidebar .avatar {
+    background: rgba(255, 255, 255, .16);
+    border-color: rgba(255, 255, 255, .24);
+    color: #ffffff;
+}
+html[data-theme="light"] .sidebar .icon-btn {
+    background: rgba(255, 255, 255, .10);
+    border-color: rgba(255, 255, 255, .20);
+    color: #e9f1ff;
+}
+html[data-theme="light"] .sidebar .icon-btn:hover {
+    background: rgba(255, 255, 255, .20);
+    color: #ffffff;
 }
 html[data-theme="light"] .app-footer { border-top-color: var(--border-soft); }
 
@@ -1212,7 +1277,7 @@ html[data-theme="light"] .app-footer { border-top-color: var(--border-soft); }
 .about-version {
     display: inline-flex; align-items: center; gap: 7px;
     padding: 6px 11px; border-radius: 999px;
-    background: var(--accent-soft); border: 1px solid rgba(77, 141, 255, .28);
+    background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
     color: var(--accent); font-size: 12px; font-weight: 650;
 }
 .about-hero { overflow: hidden; }
@@ -1291,7 +1356,7 @@ html[data-theme="light"] .app-footer { border-top-color: var(--border-soft); }
 .about-mail {
     display: inline-flex; align-items: center; gap: 8px; width: fit-content;
     padding: 8px 12px; border-radius: 9px;
-    background: var(--accent-soft); border: 1px solid rgba(77, 141, 255, .3);
+    background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
     color: var(--accent); font-size: 12.5px; font-weight: 650; text-decoration: none;
 }
 .about-mail:hover { color: var(--accent-strong); background: var(--accent-soft); }

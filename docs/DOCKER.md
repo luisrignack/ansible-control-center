@@ -336,7 +336,7 @@ etiqueta cada release así:
 
 | Tag | Uso |
 |---|---|
-| `ansible-control-center:0.9.3` | Versión exacta; la usa el paquete offline |
+| `ansible-control-center:0.9.4` | Versión exacta; la usa el paquete offline |
 | `ansible-control-center:0.9` | Alias de la minor |
 | `ansible-control-center:latest` | Alias de consulta; no usar para desplegar |
 | `ansible-control-center:sha-<commit>` | Trazabilidad al commit exacto |
