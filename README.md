@@ -961,6 +961,8 @@ con PyPI. El CI ejecuta el modo rápido en cada push/PR.
 Módulos:
 
 - `test_app.py`: login, CSRF, cabeceras, validación, historial.
+- `test_estructura_app.py`: mapa de URLs/endpoints, CLI, hooks y fachada.
+- `test_version.py`: `VERSION` como fuente única y versión en `/acerca-de`.
 - `test_security.py`: CSRF, rate limiter, CIDR.
 - `test_db.py`: migraciones, idempotencia, concurrencia, paginación.
 - `test_ansible_runner.py`: dry-run, fichero seguro, ping.

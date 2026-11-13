@@ -597,3 +597,4 @@ python -m pytest -q
 | `test_services.py` | Resolución y servicios |
 | `test_p4.py` | Lotes, todos los hosts, reintentos, preview, opciones P4 |
 | `test_estructura_app.py` | Contrato del troceado: mapa de URLs/endpoints, CLI, hooks, plantillas y fachada de `app.py` |
+| `test_version.py` | Fuente única de `VERSION`, configuración de Flask y versión en `/acerca-de` |
