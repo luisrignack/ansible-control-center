@@ -43,7 +43,7 @@
         <h2 class="card-title"><i class="bi bi-plus-circle" aria-hidden="true"></i> Nuevo grupo</h2>
     </div>
     <div class="card-body p-4">
-        <form method="post" action="{{ url_for('inventario') }}" class="row g-3 align-items-end">
+        <form method="post" action="{{ url_for('inventario') }}" class="row g-3 align-items-start">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             {% if show_all %}<input type="hidden" name="view_all" value="1">{% endif %}
             <input type="hidden" name="action" value="create_group">
@@ -240,7 +240,7 @@
             {% if show_all %}<input type="hidden" name="view_all" value="1">{% endif %}
                         <input type="hidden" name="action" value="update_group_safety">
                         <input type="hidden" name="group_id" value="{{ group.id }}">
-                        <div class="col-6 col-md-2">
+                        <div class="col-6 col-xl-2">
                             <label class="form-label small mb-1" for="groupCrit{{ group.id }}">Criticidad</label>
                             <select class="form-select form-select-sm" id="groupCrit{{ group.id }}" name="criticality">
                                 {% for level in criticality_levels %}
@@ -248,27 +248,27 @@
                                 {% endfor %}
                             </select>
                         </div>
-                        <div class="col-6 col-md-2">
+                        <div class="col-6 col-xl-2">
                             <label class="form-label small mb-1" for="groupDays{{ group.id }}">Días permitidos (UTC)</label>
                             <input type="text" class="form-control form-control-sm" id="groupDays{{ group.id }}"
                                 name="window_days" value="{{ group.window_days }}" placeholder="1,2,3,4,5">
                         </div>
-                        <div class="col-6 col-md-2">
+                        <div class="col-6 col-xl-2">
                             <label class="form-label small mb-1" for="groupStart{{ group.id }}">Inicio (UTC)</label>
                             <input type="time" class="form-control form-control-sm" id="groupStart{{ group.id }}"
                                 name="window_start" value="{{ group.window_start }}">
                         </div>
-                        <div class="col-6 col-md-2">
+                        <div class="col-6 col-xl-2">
                             <label class="form-label small mb-1" for="groupEnd{{ group.id }}">Fin (UTC)</label>
                             <input type="time" class="form-control form-control-sm" id="groupEnd{{ group.id }}"
                                 name="window_end" value="{{ group.window_end }}">
                         </div>
-                        <div class="col-md-2">
+                        <div class="col-12 col-xl-2">
                             <label class="form-label small mb-1" for="groupNote{{ group.id }}">Nota</label>
                             <input type="text" class="form-control form-control-sm" id="groupNote{{ group.id }}"
                                 name="window_note" value="{{ group.window_note }}" maxlength="200">
                         </div>
-                        <div class="col-12 col-md-2 d-grid">
+                        <div class="col-12 col-xl-2 d-grid">
                             <button type="submit" class="btn btn-sm btn-secondary">Guardar política</button>
                         </div>
                         <div class="col-12">

@@ -277,6 +277,9 @@ def test_about_page_content(client):
     # "Fecha del host" con formato español.
     assert "Fecha del host" in body
     assert " de noviembre de " in body or " de 2026 " in body
+    # La sigla DCTI se desarrolla con su denominación correcta.
+    assert "Dirección Central de Tecnologías de la Información (DCTI)" in body
+    assert "Dirección de Ciencia, Tecnología e Innovación" not in body
     # Secciones del rediseño institucional.
     assert "Identidad institucional" in body
     assert "Información del sistema" in body

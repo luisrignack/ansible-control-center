@@ -8,6 +8,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+### Corregido
+
+- La sigla DCTI se desarrolla correctamente como «Dirección Central de
+  Tecnologías de la Información» en la vista «Acerca de».
+- El formulario de políticas de los grupos de inventario reorganiza sus campos
+  en pantallas medianas para evitar que se compriman en una sola fila.
+
 ## [0.9.1] — 2026-11-13
 
 ### Añadido
