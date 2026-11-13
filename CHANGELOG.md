@@ -5,6 +5,29 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Usuarios locales gestionables] — 2026-11-12
+
+### Añadido
+
+- **Alta de usuarios locales** desde `/usuarios` con contraseña propia, rol y
+  estado inicial. La contraseña debe cumplir `ACC_ADMIN_PASSWORD_MIN_LENGTH`
+  (12 por defecto) y el nombre no puede coincidir con una cuenta existente,
+  incluida una sombra LDAPS.
+- **Cambio de contraseña** de cuentas locales, que también limpia el bloqueo
+  por intentos fallidos.
+- **Eliminación de cuentas locales** con confirmación por nombre. Sus
+  programaciones y grupos privados de inventario se transfieren al
+  administrador que ejecuta el borrado.
+- Auditoría de las tres acciones (`local_user_created`, `password_changed`,
+  `local_user_deleted`).
+
+### Seguridad
+
+- Las cuentas LDAPS no admiten contraseña local ni borrado desde la
+  aplicación: se validan en el directorio y solo se pueden desactivar.
+- Se mantiene la protección del último administrador local activo al
+  eliminar, desactivar o retirar el rol admin.
+
 ## [Correcciones QA de paralelización] — 2026-11-12
 
 ### Corregido

@@ -9,12 +9,17 @@
         <div class="eyebrow">Seguridad</div>
         <h1>Usuarios</h1>
         <p class="sub">
-            Cuentas locales y corporativas (LDAPS). Los usuarios corporativos
-            entran con rol básico en su primer acceso; el admin local decide
-            aquí quién puede operar (operator) o administrar (admin).
+            Cuentas locales y corporativas (LDAPS). Crea usuarios locales con
+            su propia contraseña, cámbialas o elimina la cuenta. Los usuarios
+            corporativos entran con rol básico en su primer acceso; el admin
+            local decide aquí quién puede operar (operator) o administrar (admin).
         </p>
     </div>
     <div class="head-actions">
+        <button type="button" class="btn btn-sm btn-acento"
+                data-bs-toggle="modal" data-bs-target="#createLocalUserModal">
+            <i class="bi bi-person-plus" aria-hidden="true"></i> Nuevo usuario local
+        </button>
         <span class="badge bg-secondary">{{ users | length }} cuenta(s)</span>
         {% if current_user.auth_source == 'local' %}
         <form method="post" action="{{ url_for('usuarios_ldaps') }}" class="d-inline ms-2">
@@ -96,19 +101,33 @@
                         </td>
                         <td><small>{{ (last_login.get(user.username) or "—")[:19].replace("T", " ") }}</small></td>
                         <td>
-                            {% if user.username != current_user.username %}
-                            <form method="post" action="{{ url_for('usuarios_estado') }}" class="d-inline">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <input type="hidden" name="username" value="{{ user.username }}">
-                                <input type="hidden" name="active" value="{{ '0' if user.is_active else '1' }}">
-                                <button type="submit"
-                                        class="btn btn-sm {% if user.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %}">
-                                    {{ 'Desactivar' if user.is_active else 'Reactivar' }}
+                            <div class="d-flex flex-wrap gap-1 justify-content-end">
+                                {% if user.auth_source == 'local' %}
+                                <button type="button" class="btn btn-sm btn-outline-primary"
+                                        data-bs-toggle="modal" data-bs-target="#passwordUser{{ user.id }}">
+                                    <i class="bi bi-key" aria-hidden="true"></i> Contraseña
                                 </button>
-                            </form>
-                            {% else %}
-                            <small class="text-secondary">—</small>
-                            {% endif %}
+                                {% endif %}
+                                {% if user.username != current_user.username %}
+                                <form method="post" action="{{ url_for('usuarios_estado') }}" class="d-inline">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <input type="hidden" name="username" value="{{ user.username }}">
+                                    <input type="hidden" name="active" value="{{ '0' if user.is_active else '1' }}">
+                                    <button type="submit"
+                                            class="btn btn-sm {% if user.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %}">
+                                        {{ 'Desactivar' if user.is_active else 'Reactivar' }}
+                                    </button>
+                                </form>
+                                {% endif %}
+                                {% if user.auth_source == 'local' and user.username != current_user.username %}
+                                <button type="button" class="btn btn-sm btn-outline-danger"
+                                        data-bs-toggle="modal" data-bs-target="#deleteUser{{ user.id }}">
+                                    <i class="bi bi-trash" aria-hidden="true"></i> Eliminar
+                                </button>
+                                {% elif user.username == current_user.username %}
+                                <small class="text-secondary align-self-center">tu cuenta</small>
+                                {% endif %}
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
@@ -118,10 +137,196 @@
     </div>
     <div class="card-footer text-secondary">
         <small>
-            Las cuentas <strong>LDAPS</strong> no guardan contraseña en este
-            equipo: se validan en el directorio en cada login. «Desactivar»
+            Las cuentas <strong>locales</strong> guardan solo el hash de su
+            contraseña. Las cuentas <strong>LDAPS</strong> no guardan
+            contraseña en este equipo: se validan en el directorio en cada
+            login, así que su contraseña se cambia en el directorio. «Desactivar»
             solo bloquea el acceso a la aplicación.
         </small>
     </div>
 </div>
+
+<!-- Alta de usuario local -->
+<div class="modal fade" id="createLocalUserModal" tabindex="-1"
+     aria-labelledby="createLocalUserLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" action="{{ url_for('usuarios_crear') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-header">
+                    <h2 class="modal-title h5" id="createLocalUserLabel">
+                        <i class="bi bi-person-plus" aria-hidden="true"></i>
+                        Nuevo usuario local
+                    </h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"
+                            aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="newLocalUsername" class="form-label">Usuario</label>
+                        <input type="text" class="form-control" id="newLocalUsername"
+                               name="username" maxlength="64" required
+                               autocomplete="off" spellcheck="false">
+                        <div class="form-text">
+                            Letras, números, punto, guion, guion bajo o @. Sin espacios.
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="newLocalPassword" class="form-label">Contraseña</label>
+                        <input type="password" class="form-control" id="newLocalPassword"
+                               name="password" required autocomplete="new-password"
+                               minlength="{{ password_min_length }}">
+                        <div class="form-text">
+                            Mínimo {{ password_min_length }} caracteres.
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="newLocalPasswordConfirm" class="form-label">
+                            Repite la contraseña
+                        </label>
+                        <input type="password" class="form-control"
+                               id="newLocalPasswordConfirm" name="password_confirm"
+                               required autocomplete="new-password"
+                               minlength="{{ password_min_length }}">
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-sm-7">
+                            <label for="newLocalRole" class="form-label">Rol</label>
+                            <select class="form-select" id="newLocalRole" name="role">
+                                {% for option in roles_in_ui %}
+                                <option value="{{ option }}" {% if option == 'viewer' %}selected{% endif %}>
+                                    {{ option }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-sm-5 d-flex align-items-end">
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox"
+                                       id="newLocalActive" name="active" value="1" checked>
+                                <label class="form-check-label" for="newLocalActive">
+                                    Cuenta activa
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary"
+                            data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-acento">
+                        Crear usuario
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% for user in users %}
+{% if user.auth_source == 'local' %}
+<!-- Cambio de contraseña: {{ user.username }} -->
+<div class="modal fade" id="passwordUser{{ user.id }}" tabindex="-1"
+     aria-labelledby="passwordUserLabel{{ user.id }}" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" action="{{ url_for('usuarios_password') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="username" value="{{ user.username }}">
+                <div class="modal-header">
+                    <h2 class="modal-title h5" id="passwordUserLabel{{ user.id }}">
+                        <i class="bi bi-key" aria-hidden="true"></i>
+                        Contraseña de {{ user.username }}
+                    </h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"
+                            aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-secondary">
+                        Se sustituye la contraseña local y se desbloquea la
+                        cuenta si estaba bloqueada. Las sesiones ya abiertas
+                        siguen activas hasta que el usuario cierre sesión.
+                    </p>
+                    <div class="mb-3">
+                        <label for="passwordUserNew{{ user.id }}" class="form-label">
+                            Nueva contraseña
+                        </label>
+                        <input type="password" class="form-control"
+                               id="passwordUserNew{{ user.id }}" name="password"
+                               required autocomplete="new-password"
+                               minlength="{{ password_min_length }}">
+                        <div class="form-text">
+                            Mínimo {{ password_min_length }} caracteres.
+                        </div>
+                    </div>
+                    <div class="mb-0">
+                        <label for="passwordUserConfirm{{ user.id }}" class="form-label">
+                            Repite la contraseña
+                        </label>
+                        <input type="password" class="form-control"
+                               id="passwordUserConfirm{{ user.id }}"
+                               name="password_confirm" required
+                               autocomplete="new-password"
+                               minlength="{{ password_min_length }}">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary"
+                            data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-acento">
+                        Cambiar contraseña
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% if user.username != current_user.username %}
+<!-- Eliminación: {{ user.username }} -->
+<div class="modal fade" id="deleteUser{{ user.id }}" tabindex="-1"
+     aria-labelledby="deleteUserLabel{{ user.id }}" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" action="{{ url_for('usuarios_eliminar') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="username" value="{{ user.username }}">
+                <div class="modal-header">
+                    <h2 class="modal-title h5" id="deleteUserLabel{{ user.id }}">
+                        <i class="bi bi-trash" aria-hidden="true"></i>
+                        Eliminar {{ user.username }}
+                    </h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"
+                            aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="banner banner-danger mb-3" role="alert">
+                        <div class="banner-text">
+                            Esta acción elimina la cuenta local y no se puede
+                            deshacer. Sus programaciones y grupos privados de
+                            inventario pasarán a tu cuenta.
+                        </div>
+                    </div>
+                    <label for="deleteUserConfirm{{ user.id }}" class="form-label">
+                        Escribe <code>{{ user.username }}</code> para confirmar
+                    </label>
+                    <input type="text" class="form-control"
+                           id="deleteUserConfirm{{ user.id }}"
+                           name="confirm_username" required autocomplete="off"
+                           spellcheck="false">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary"
+                            data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger">
+                        Eliminar usuario
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endif %}
+{% endfor %}
 {% endblock %}

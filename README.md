@@ -172,7 +172,8 @@ por defecto** (400 recopilados). Incluye empaquetado Docker con Nginx y TLS.
   host desde SQLite. Los SLO están en
   [docs/RENDIMIENTO.md](docs/RENDIMIENTO.md).
 - **Auditoría de acceso**: `/audit` registra logins, cambios de rol y bloqueos;
-  `/usuarios` permite gestionar cuentas locales y LDAPS.
+  `/usuarios` permite crear y eliminar cuentas locales, cambiar su contraseña,
+  asignar roles y gestionar las cuentas LDAPS.
 
 ### Seguridad
 
@@ -183,8 +184,13 @@ por defecto** (400 recopilados). Incluye empaquetado Docker con Nginx y TLS.
   contraseña no se guarda en la aplicación; en el primer login se crea una
   cuenta con rol básico (`viewer`) que el **admin local promueve en
   `/usuarios`**: asigna roles (`viewer`/`operator`/`admin`) y activa o
-  desactiva cuentas. El nombre de una cuenta local nunca puede ser
-  tomado por un uid del directorio: la cuenta local tiene prioridad.
+  desactiva cuentas. Además, `/usuarios` permite **crear cuentas locales**
+  con contraseña propia, **cambiarla** y **eliminarlas**; al eliminar una
+  cuenta local, sus programaciones y grupos privados pasan al admin que
+  ejecuta el borrado. Las cuentas LDAPS se validan siempre en el directorio,
+  así que su contraseña no se cambia desde la aplicación. El nombre de una
+  cuenta local nunca puede ser tomado por un uid del directorio: la cuenta
+  local tiene prioridad.
   El acceso por LDAPS se activa/desactiva con un **interruptor en
   `/usuarios`, maniobrable únicamente por el admin local**; su estado se
   guarda en la base de datos (antes del primer cambio decide
@@ -646,7 +652,10 @@ administrador desactiva el interruptor **Simulación** de la barra superior
 | GET/POST | `/passwords` | Sí | Gestión del vault |
 | GET | `/history` | Sí | Historial de lotes |
 | GET | `/audit` | Admin | Eventos de autenticación y auditoría |
-| GET | `/usuarios` | Admin | Cuentas, roles y acceso LDAPS |
+| GET | `/usuarios` | Admin | Cuentas locales y LDAPS, roles y acceso LDAPS |
+| POST | `/usuarios/crear` | Admin | Alta de cuenta local con contraseña |
+| POST | `/usuarios/password` | Admin | Cambio de contraseña local |
+| POST | `/usuarios/eliminar` | Admin | Baja de cuenta local con transferencia de datos |
 | GET | `/acerca-de` | Sí | Versión, configuración efectiva y diagnóstico |
 
 CLI:
@@ -935,6 +944,8 @@ Módulos:
   cifrado Fernet de credenciales.
 - `test_ldap.py`: cliente LDAPS con conexión falsa, primer login, colisión con
   cuentas locales, permisos de `/usuarios` y cambios de rol.
+- `test_usuarios_locales_2026_11_12.py`: alta, cambio de contraseña y baja de
+  cuentas locales, protección del último admin local y transferencia de datos.
 - `test_windows.py`: playbooks y marcadores de soporte WinRM.
 - `test_ssh_host_keys.py`: `ssh-keyscan`, deduplicación y permisos de
   `known_hosts` sin red.

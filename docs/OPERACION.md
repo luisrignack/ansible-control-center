@@ -664,23 +664,46 @@ sudo systemctl start ansible-control-center
 ```
 
 `init-db` es idempotente y aplica migraciones no destructivas. El esquema
-actual es `PRAGMA user_version = 14`.
+actual es `PRAGMA user_version = 19`.
 
-### 8.2. Rotar la contraseña del administrador
+### 8.2. Cuentas locales
+
+En `/usuarios` (solo `admin`) puedes crear cuentas **locales** con usuario,
+contraseña y rol, además de las cuentas corporativas LDAPS:
+
+- **Crear**: «Nuevo usuario local». El nombre admite letras, números, punto,
+  guion, guion bajo o `@`, sin espacios. La contraseña debe tener al menos
+  `ACC_ADMIN_PASSWORD_MIN_LENGTH` caracteres (12 por defecto).
+- **Cambiar contraseña**: botón «Contraseña» de la fila. Sustituye el hash,
+  limpia el bloqueo por intentos fallidos y no afecta a las sesiones ya
+  abiertas hasta que el usuario cierre sesión.
+- **Eliminar**: botón «Eliminar», escribiendo el nombre exacto para confirmar.
+  Sus programaciones y grupos privados de inventario pasan a la cuenta del
+  administrador que ejecuta el borrado; no se comparten con todos.
+- **LDAPS**: no tienen contraseña local ni se eliminan desde aquí. Su
+  contraseña se cambia en el directorio y, si quieres bloquear el acceso, usa
+  «Desactivar». El sistema nunca permite quedarse sin un administrador local
+  activo.
+
+Los cambios quedan en `/audit` como `local_user_created`,
+`password_changed` y `local_user_deleted`.
+
+### 8.3. Rotar la contraseña del administrador
 
 ```bash
 sudo -u ansible-control-center .venv/bin/flask --app app init-admin
 ```
 
-Vuelve a pedir la contraseña y actualiza el hash Werkzeug.
+Vuelve a pedir la contraseña y actualiza el hash Werkzeug. También puedes
+cambiarla desde `/usuarios` con el botón «Contraseña» de tu propia cuenta.
 
-### 8.3. Rotar `SECRET_KEY`
+### 8.4. Rotar `SECRET_KEY`
 
 1. Genera una nueva: `openssl rand -hex 32`.
 2. Actualiza `ACC_SECRET_KEY` en `.env`.
 3. Reinicia el servicio. **Todas las sesiones activas se invalidan.**
 
-### 8.4. Rotar la contraseña maestra del vault
+### 8.5. Rotar la contraseña maestra del vault
 
 `ansible-vault rekey` no está integrado en la interfaz. Procedimiento manual:
 
@@ -692,7 +715,7 @@ sudo -u ansible-control-center ansible-vault rekey \
 Guarda la nueva contraseña en el gestor de secretos correspondiente. No se
 persiste en la aplicación.
 
-### 8.5. Actualización de paquetes del sistema (tarjeta APT)
+### 8.6. Actualización de paquetes del sistema (tarjeta APT)
 
 La tarjeta **Actualización del sistema** (`apt-upgrade`) está operativa. El
 flujo completo está en §2.8. Recomendación para automatización: usar
@@ -728,7 +751,7 @@ Decisiones:
 - Debe ejecutarse dentro de la ventana de mantenimiento del grupo; los hosts
   críticos fuera de ventana quedan bloqueados por S1.
 
-### 8.6. Cambio de contraseña de usuario (tarjeta Contraseña administrativa)
+### 8.7. Cambio de contraseña de usuario (tarjeta Contraseña administrativa)
 
 La tarjeta **Contraseña administrativa** (`contrasena`) está operativa. El
 flujo completo está en §2.9. Equivalente manual del playbook:
@@ -756,14 +779,14 @@ Decisiones:
   ejecutor. El aprobador autoriza el usuario objetivo, no el valor del
   secreto; el ejecutor debe reescribir la contraseña después de la aprobación.
 
-### 8.7. Logs
+### 8.8. Logs
 
 - `ACC_LOG_TO_FILE=1` escribe en `LOG_DIR/ansible-control-center.log` con rotación
   (`LOG_MAX_BYTES`, `LOG_BACKUPS`).
 - Gunicorn escribe a stdout/stderr; en systemd va a journald.
 - Revisa crecimiento y errores periódicamente.
 
-### 8.7. `known_hosts`
+### 8.9. `known_hosts`
 
 Con `HOST_KEY_CHECKING=1`, provisiona las claves antes del primer uso:
 
@@ -774,7 +797,7 @@ ssh-keyscan -H 192.0.2.10 | sudo -u ansible-control-center tee -a ~/.ssh/known_h
 Verifica las huellas por un canal de confianza antes de aceptarlas. No
 desactives la verificación salvo decisión consciente y documentada.
 
-### 8.8. Programador de tareas
+### 8.10. Programador de tareas
 
 - `ACC_ROLE=all` (por defecto) ejecuta web, scheduler y mantenimiento en el
   mismo proceso. `ACC_ROLE=web` deja el scheduler fuera de Gunicorn y

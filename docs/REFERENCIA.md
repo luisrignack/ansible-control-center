@@ -28,6 +28,13 @@ contrato de los playbooks.
 | GET, POST | `/passwords` | Sí | Vault compartido: lectura para todos; alta/borrado solo `admin` |
 | GET, POST | `/inventario` | Sí | Grupos propios y compartidos; edición `admin`/`operator` |
 | GET, POST | `/programaciones` | Sí | Programaciones propias y compartidas; alta/edición `admin` |
+| GET | `/usuarios` | Admin | Cuentas locales y LDAPS, roles, estado y acceso LDAPS |
+| POST | `/usuarios/crear` | Admin | Crea una cuenta local con contraseña propia |
+| POST | `/usuarios/password` | Admin | Cambia la contraseña de una cuenta local |
+| POST | `/usuarios/eliminar` | Admin | Elimina una cuenta local y transfiere sus datos |
+| POST | `/usuarios/rol` | Admin | Asigna el rol de una cuenta |
+| POST | `/usuarios/estado` | Admin | Activa o desactiva una cuenta |
+| POST | `/usuarios/ldaps` | Admin local | Activa o desactiva el acceso LDAPS |
 | GET | `/history` | Sí | Historial de lotes |
 
 Errores: `400`, `404`, `429`, `500`. Las peticiones AJAX/JSON reciben JSON en
@@ -64,6 +71,26 @@ Campos aceptados por `/`, `/preview` y `/execute`:
 
 Las tres acciones requieren rol `admin`. Cualquier usuario autenticado puede
 consultar el listado y usar el vault al ejecutar tareas.
+
+### Acciones de `/usuarios`
+
+Todas requieren rol `admin`; el interruptor LDAPS exige además una cuenta
+local (una cuenta LDAPS no puede cambiar el acceso del que depende).
+
+| Ruta | Campos | Descripción |
+|---|---|---|
+| `/usuarios/crear` | `username`, `password`, `password_confirm`, `role`, `active` | Alta de cuenta local; el nombre no puede existir ya |
+| `/usuarios/password` | `username`, `password`, `password_confirm` | Cambia la contraseña local y limpia el bloqueo |
+| `/usuarios/eliminar` | `username`, `confirm_username` | Borra una cuenta local; sus programaciones y grupos pasan al admin actual |
+| `/usuarios/rol` | `username`, `role`, `next_username` | Asigna `viewer`, `operator` o `admin` |
+| `/usuarios/estado` | `username`, `active` | Activa o desactiva sin borrar datos |
+| `/usuarios/ldaps` | — | Conmuta el acceso corporativo |
+
+Las cuentas **LDAPS** no tienen contraseña local: su contraseña se cambia en el
+directorio y `/usuarios/password` la rechaza. Tampoco se eliminan desde la
+aplicación; se desactivan para bloquear el acceso. El sistema impide eliminar,
+desactivar o retirar el rol a la última cuenta de administración **local**
+activa, porque el acceso LDAPS depende de que el directorio esté disponible.
 
 ---
 

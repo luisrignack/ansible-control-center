@@ -6012,6 +6012,7 @@ def usuarios():
         ldap_supported=ldap_on,
         ldap_configured=ldap_auth.ldap_configured(),
         last_login=last_login,
+        password_min_length=ADMIN_PASSWORD_MIN_LENGTH,
     )
 
 
@@ -6126,6 +6127,189 @@ def usuarios_rol():
     return redirect(
         url_for("usuarios") + (f"#{next_username}" if next_username else "")
     )
+
+
+def _local_password_error(password: str, confirm: str) -> str | None:
+    """Valida una contraseña local antes de guardar su hash."""
+    if not password:
+        return "La contraseña es obligatoria."
+    if password != confirm:
+        return "La contraseña y su confirmación no coinciden."
+    if len(password) < ADMIN_PASSWORD_MIN_LENGTH:
+        return (
+            f"La contraseña debe tener al menos {ADMIN_PASSWORD_MIN_LENGTH} "
+            "caracteres."
+        )
+    if len(password) > 256:
+        return "La contraseña es demasiado larga (máximo 256 caracteres)."
+    if any(ord(char) < 32 or ord(char) == 127 for char in password):
+        return "La contraseña no puede contener caracteres de control."
+    return None
+
+
+@app.route("/usuarios/crear", methods=["POST"])
+@roles_required("admin")
+def usuarios_crear():
+    """Crea una cuenta local con contraseña propia y rol explícito."""
+    username = (request.form.get("username") or "").strip()
+    password = request.form.get("password") or ""
+    confirm = request.form.get("password_confirm") or ""
+    role = (request.form.get("role") or "viewer").strip()
+    is_active = (request.form.get("active") or "").strip().lower() in {
+        "1",
+        "true",
+        "si",
+        "sí",
+        "yes",
+        "on",
+    }
+
+    password_error = _local_password_error(password, confirm)
+    if password_error:
+        flash(password_error, "danger")
+        return redirect(url_for("usuarios"))
+
+    try:
+        user = User.create_local(
+            username,
+            password,
+            role=role,
+            is_active=is_active,
+            db_path=get_db_path(),
+        )
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("usuarios"))
+
+    AuthEvent.record(
+        current_user.username,
+        _client_ip(),
+        "local_user_created",
+        f"Creó la cuenta local '{user.username}' con rol '{user.role}'"
+        + (" (inactiva)" if not user.is_active else ""),
+        db_path=get_db_path(),
+    )
+    flash(
+        f"Usuario local '{user.username}' creado con rol '{user.role}'.",
+        "success",
+    )
+    return redirect(url_for("usuarios") + f"#{user.username}")
+
+
+@app.route("/usuarios/password", methods=["POST"])
+@roles_required("admin")
+def usuarios_password():
+    """Cambia la contraseña de una cuenta local (nunca de una LDAPS)."""
+    username = (request.form.get("username") or "").strip()
+    password = request.form.get("password") or ""
+    confirm = request.form.get("password_confirm") or ""
+    if not username:
+        flash("Nombre de usuario no indicado.", "danger")
+        return redirect(url_for("usuarios"))
+
+    password_error = _local_password_error(password, confirm)
+    if password_error:
+        flash(password_error, "danger")
+        return redirect(url_for("usuarios"))
+
+    try:
+        User.set_password(username, password, db_path=get_db_path())
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("usuarios"))
+
+    AuthEvent.record(
+        current_user.username,
+        _client_ip(),
+        "password_changed",
+        f"El admin '{current_user.username}' cambió la contraseña de '{username}'",
+        db_path=get_db_path(),
+    )
+    flash(f"Contraseña de '{username}' actualizada.", "success")
+    return redirect(url_for("usuarios") + f"#{username}")
+
+
+@app.route("/usuarios/eliminar", methods=["POST"])
+@roles_required("admin")
+def usuarios_eliminar():
+    """Elimina una cuenta local y transfiere sus datos al admin actual.
+
+    Las cuentas LDAPS no se borran aquí: su identidad vive en el directorio.
+    Las programaciones y grupos privados del usuario eliminado pasan al
+    administrador que ejecuta el borrado para no quedar huérfanos ni
+    exponerse automáticamente a todos los usuarios.
+    """
+    username = (request.form.get("username") or "").strip()
+    confirmation = (request.form.get("confirm_username") or "").strip()
+    if not username:
+        flash("Nombre de usuario no indicado.", "danger")
+        return redirect(url_for("usuarios"))
+    if confirmation != username:
+        flash(
+            "Para eliminar la cuenta escribe su nombre exacto en la confirmación.",
+            "danger",
+        )
+        return redirect(url_for("usuarios"))
+
+    if username == current_user.username:
+        flash("No puedes eliminar tu propia cuenta.", "danger")
+        return redirect(url_for("usuarios"))
+
+    target = User.get_by_username(username, db_path=get_db_path())
+    if target is None:
+        flash(f"El usuario '{username}' no existe.", "danger")
+        return redirect(url_for("usuarios"))
+    if target.auth_source != "local":
+        flash(
+            "Las cuentas LDAPS se gestionan en el directorio corporativo. "
+            "Puedes desactivarlas aquí para bloquear su acceso.",
+            "danger",
+        )
+        return redirect(url_for("usuarios"))
+
+    if (
+        target.is_admin
+        and target.is_active
+        and User.count_active_local_admins_excluding(username, db_path=get_db_path())
+        == 0
+    ):
+        flash(
+            f"'{username}' es el último administrador local activo: no "
+            "puedes eliminarlo.",
+            "danger",
+        )
+        return redirect(url_for("usuarios"))
+
+    owner_id = _current_owner_id()
+    moved_schedules = Schedule.reassign_owner(
+        target.id, owner_id, db_path=get_db_path()
+    )
+    moved_groups = HostGroup.reassign_owner(target.id, owner_id, db_path=get_db_path())
+    try:
+        deleted = User.delete_local(username, db_path=get_db_path())
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("usuarios"))
+    if not deleted:
+        flash(f"El usuario '{username}' no existe.", "danger")
+        return redirect(url_for("usuarios"))
+
+    AuthEvent.record(
+        current_user.username,
+        _client_ip(),
+        "local_user_deleted",
+        f"Eliminó la cuenta local '{username}'; transfirió "
+        f"{moved_schedules} programación(es) y {moved_groups} grupo(s)",
+        db_path=get_db_path(),
+    )
+    detail = ""
+    if moved_schedules or moved_groups:
+        detail = (
+            f" Se transfirieron a tu cuenta {moved_schedules} programación(es) "
+            f"y {moved_groups} grupo(s) de inventario."
+        )
+    flash(f"Usuario local '{username}' eliminado.{detail}", "success")
+    return redirect(url_for("usuarios"))
 
 
 @app.route("/usuarios/estado", methods=["POST"])

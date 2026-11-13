@@ -355,6 +355,26 @@ class HostGroup:
                 (ssh_key_path or "", int(group_id)),
             )
 
+    @classmethod
+    def reassign_owner(
+        cls, from_user_id: int, to_user_id: int, db_path: str | None = None
+    ) -> int:
+        """Transfiere los grupos de un usuario a otro.
+
+        Se usa al eliminar una cuenta local: sus grupos privados pasan al
+        administrador que ejecuta el borrado para no quedar huérfanos ni
+        exponerse a todos los usuarios. Devuelve cuántos grupos cambió.
+        """
+        if db_path is None:
+            db_path = _default_db_path()
+        with get_connection(db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE inventory_groups SET owner_user_id = ? "
+                "WHERE owner_user_id = ?",
+                (int(to_user_id or 0), int(from_user_id or 0)),
+            )
+            return int(cursor.rowcount or 0)
+
     def delete(self, db_path: str | None = None) -> None:
         if db_path is None:
             db_path = _default_db_path()
@@ -838,6 +858,24 @@ class Schedule:
                 "UPDATE schedules SET enabled = ? WHERE id = ?",
                 (1 if enabled else 0, int(schedule_id)),
             )
+
+    @classmethod
+    def reassign_owner(
+        cls, from_user_id: int, to_user_id: int, db_path: str | None = None
+    ) -> int:
+        """Transfiere las programaciones de un usuario a otro.
+
+        Se usa al eliminar una cuenta local para que sus programaciones no
+        queden apuntando a un propietario inexistente. Devuelve cuántas cambió.
+        """
+        if db_path is None:
+            db_path = _default_db_path()
+        with get_connection(db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE schedules SET owner_user_id = ? WHERE owner_user_id = ?",
+                (int(to_user_id or 0), int(from_user_id or 0)),
+            )
+            return int(cursor.rowcount or 0)
 
     @classmethod
     def delete(cls, schedule_id: int, db_path: str | None = None) -> None:

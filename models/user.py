@@ -2,6 +2,8 @@
 # Usuarios administradores de la aplicación (login con Flask-Login).
 from __future__ import annotations
 
+import re
+import sqlite3
 from datetime import UTC, datetime, timedelta
 
 from flask_login import UserMixin
@@ -11,6 +13,24 @@ from config import resolve_db_path
 from models.db import get_connection, init_schema
 
 VALID_ROLES = ("viewer", "operator", "admin")
+
+# Los nombres locales admiten los mismos caracteres que un usuario corporativo
+# habitual (``jose.cu``, ``jose_cu`` o ``jose@dominio``). Se rechazan espacios
+# y caracteres de control para que el nombre sea seguro en formularios y logs.
+USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$")
+
+
+def validate_username(username: str) -> str:
+    """Normaliza y valida el nombre de una cuenta local."""
+    value = (username or "").strip()
+    if not value:
+        raise ValueError("El nombre de usuario es obligatorio.")
+    if not USERNAME_PATTERN.match(value):
+        raise ValueError(
+            "El usuario solo puede contener letras, números, punto, guion, "
+            "guion bajo o @ (máximo 64 caracteres, sin espacios)."
+        )
+    return value
 
 
 def _default_db_path() -> str:
@@ -224,6 +244,59 @@ class User(UserMixin):
             )
         return user
 
+    @classmethod
+    def create_local(
+        cls,
+        username: str,
+        password: str,
+        role: str = "viewer",
+        is_active: bool = True,
+        db_path: str | None = None,
+    ) -> User:
+        """Crea una cuenta local nueva con contraseña propia.
+
+        A diferencia de ``create_or_update``, exige que el nombre no exista:
+        el alta desde la interfaz no debe sobrescribir la contraseña de una
+        cuenta ya creada. El rol es explícito y la cuenta nace como ``local``.
+        """
+        if db_path is None:
+            db_path = _default_db_path()
+        username = validate_username(username)
+        if role not in VALID_ROLES:
+            raise ValueError(f"Rol no válido: {role}")
+        if not password:
+            raise ValueError("La contraseña es obligatoria.")
+        if cls.get_by_username(username, db_path=db_path) is not None:
+            raise ValueError(f"El usuario '{username}' ya existe.")
+
+        password_hash = generate_password_hash(password)
+        try:
+            with get_connection(db_path) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO users
+                        (username, password_hash, is_active, created_at, role,
+                         auth_source)
+                    VALUES (?, ?, ?, ?, ?, 'local')
+                    """,
+                    (
+                        username,
+                        password_hash,
+                        1 if is_active else 0,
+                        _now_iso(),
+                        role,
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:  # carrera con otra alta
+            raise ValueError(f"El usuario '{username}' ya existe.") from exc
+
+        user = cls.get_by_username(username, db_path=db_path)
+        if user is None:  # pragma: no cover - el insert acaba de ejecutarse
+            raise RuntimeError(
+                f"No se pudo recuperar el usuario recién creado: {username}"
+            )
+        return user
+
     _SELECT = (
         "SELECT id, username, password_hash, is_active, created_at, role, "
         "failed_attempts, locked_until, auth_source FROM users "
@@ -283,6 +356,55 @@ class User(UserMixin):
             cursor = conn.execute(
                 "UPDATE users SET is_active = ? WHERE username = ?",
                 (1 if active else 0, username),
+            )
+            return bool(cursor.rowcount)
+
+    @classmethod
+    def set_password(
+        cls, username: str, password: str, db_path: str | None = None
+    ) -> None:
+        """Cambia la contraseña de una cuenta local y limpia su bloqueo.
+
+        Las cuentas LDAPS no tienen contraseña local: su credencial vive en el
+        directorio y aquí se rechaza el cambio para no dar una falsa sensación
+        de que se ha modificado el acceso corporativo.
+        """
+        if db_path is None:
+            db_path = _default_db_path()
+        user = cls.get_by_username(username, db_path=db_path)
+        if user is None:
+            raise ValueError(f"El usuario '{username}' no existe.")
+        if user.auth_source != "local":
+            raise ValueError(
+                "Las cuentas LDAPS validan su contraseña en el directorio; "
+                "no se puede cambiar desde aquí."
+            )
+        if not password:
+            raise ValueError("La contraseña es obligatoria.")
+        with get_connection(db_path) as conn:
+            conn.execute(
+                "UPDATE users SET password_hash = ?, failed_attempts = 0, "
+                "locked_until = NULL WHERE id = ?",
+                (generate_password_hash(password), user.id),
+            )
+
+    @classmethod
+    def delete_local(cls, username: str, db_path: str | None = None) -> bool:
+        """Elimina una cuenta local. Las cuentas LDAPS no se borran aquí."""
+        if db_path is None:
+            db_path = _default_db_path()
+        user = cls.get_by_username(username, db_path=db_path)
+        if user is None:
+            return False
+        if user.auth_source != "local":
+            raise ValueError(
+                "Las cuentas LDAPS se gestionan en el directorio corporativo; "
+                "desactívalas aquí si quieres bloquear su acceso."
+            )
+        with get_connection(db_path) as conn:
+            cursor = conn.execute(
+                "DELETE FROM users WHERE id = ? AND auth_source = 'local'",
+                (user.id,),
             )
             return bool(cursor.rowcount)
 
