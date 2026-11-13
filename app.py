@@ -211,6 +211,7 @@ from services.time_utils import (
 )
 from services.vault_manager import VaultManager
 from services.wallpaper import (
+    clone_wallpaper_for_run,
     remote_wallpaper_uri,
     remove_wallpaper,
     save_wallpaper,
@@ -852,8 +853,17 @@ def _validate_scheduled_params(
     platform: str = "",
     group_name: str = "",
     min_free_gb_raw: str = "",
+    target_user_raw: str = "",
+    new_password: str = "",
+    new_password_confirm: str = "",
+    require_password: bool = False,
 ) -> tuple[dict[str, Any] | None, list[str]]:
-    """Valida una programación con las mismas reglas que la ejecución manual."""
+    """Valida una programación con las mismas reglas que la ejecución manual.
+
+    Las tareas destructivas solo llegan aquí si el catálogo las marca como
+    ``schedulable``: la propia programación (admin, contraseña maestra y
+    ventana de mantenimiento) sustituye a la aprobación manual interactiva.
+    """
     return _validate_operation_core(
         task=task,
         task_id=(task or {}).get("id", ""),
@@ -864,10 +874,14 @@ def _validate_scheduled_params(
         ntp_servers_raw=ntp_servers_raw,
         platform=platform,
         group_name=group_name,
-        reject_destructive=True,
+        reject_destructive=False,
         enforce_time_ntp_off=True,
         for_schedule=True,
         min_free_gb_raw=min_free_gb_raw,
+        target_user_raw=target_user_raw,
+        new_password=new_password,
+        new_password_confirm=new_password_confirm,
+        require_password=require_password,
     )
 
 
@@ -2759,13 +2773,16 @@ def _validate_schedule_form(
     db_path: str,
     form,
     *,
+    files=None,
     existing: Schedule | None = None,
 ) -> tuple[dict[str, Any] | None, list[str], list[str]]:
     """Valida los campos comunes de alta y edición de programaciones.
 
     Devuelve ``(datos, errores, avisos)``. Los datos incluyen nombre, tarea,
-    fecha, recurrencia y parámetros operativos sin secretos. En el alta se
-    exige la contraseña maestra; en la edición se conserva la ya cifrada.
+    fecha, recurrencia, parámetros operativos y, cuando corresponde, el
+    secreto nuevo en claro para que el llamador lo cifre antes de guardarlo.
+    En el alta se exige la contraseña maestra; en la edición se conserva la
+    que ya estaba cifrada.
     """
     errors: list[str] = []
     warnings: list[str] = []
@@ -2775,6 +2792,7 @@ def _validate_schedule_form(
     recurrence = form.get("recurrence", "once").strip().lower() or "once"
     if task_id not in tasks:
         return None, ["Selecciona una tarea activa del catálogo."], warnings
+    task = tasks[task_id]
     try:
         run_at = datetime.strptime(run_at_raw, "%Y-%m-%dT%H:%M").replace(tzinfo=UTC)
     except ValueError:
@@ -2815,19 +2833,46 @@ def _validate_schedule_form(
         pinned_ip, ip_error = pin_target(form.get("target_ip", "").strip())
         if ip_error or not pinned_ip:
             return None, [ip_error or "IP objetivo no válida."], warnings
+
+    action = form.get("action", "").strip().upper()
+    task_actions = task.get("actions") or ["TZ", "TIME"]
+    if not action:
+        action = str(task_actions[0]).upper() if len(task_actions) == 1 else "TZ"
+    target_user_raw = form.get("target_user", "")
+    new_password = form.get("new_password", "")
+    new_password_confirm = form.get("new_password_confirm", "")
+    value = form.get("value", "")
+    if action == "FIREWALL":
+        # El motor guarda la operación completa en ``value``; el formulario
+        # la separa en operación + IP para mayor claridad.
+        firewall_op = form.get("firewall_op", "").strip().lower()
+        firewall_ip = form.get("firewall_ip", "").strip()
+        value = f"allow:{firewall_ip}" if firewall_op == "allow" else firewall_op
+
+    existing_params = (existing.params or {}) if existing is not None else {}
+    # En la edición de una contraseña ya programada se permite dejarla en
+    # blanco para conservar el secreto cifrado existente.
+    require_password = action == "PASSWORD" and not existing_params.get(
+        "new_password_enc"
+    )
+
     # Mismas reglas que la ejecución manual: una programación no puede
     # saltarse la política de hora/NTP, usar una acción que la tarea no admite
     # ni apuntar a un grupo con otra plataforma.
     validated, schedule_errors = _validate_scheduled_params(
-        tasks[task_id],
+        task,
         form.get("admin_user", ""),
-        form.get("action", "TZ"),
-        form.get("value", ""),
+        action,
+        value,
         form.get("ntp_policy", "keep"),
         form.get("ntp_servers", ""),
         platform=schedule_group.os_flavor if schedule_group else "",
         group_name=schedule_group.name if schedule_group else "",
         min_free_gb_raw=form.get("min_free_gb", ""),
+        target_user_raw=target_user_raw,
+        new_password=new_password,
+        new_password_confirm=new_password_confirm,
+        require_password=require_password,
     )
     if schedule_errors or validated is None:
         return (
@@ -2852,6 +2897,48 @@ def _validate_schedule_form(
             warnings,
         )
     warnings.extend(schedule_safety["warnings"])
+    if task.get("destructive"):
+        warnings.append(
+            f"La tarea '{task['name']}' es destructiva: se ejecutará "
+            "desatendida sin aprobación manual. Revisa el objetivo y la "
+            "ventana de mantenimiento."
+        )
+
+    # Imagen del tapiz: la nueva imagen se guarda en el directorio persistente
+    # de programaciones; si la edición no sube una nueva, se conserva la que
+    # ya tenía la programación.
+    wallpaper_path = ""
+    wallpaper_name = ""
+    wallpaper_ext = ""
+    if validated["action"] == "WALLPAPER":
+        upload = files.get("wallpaper_file") if files is not None else None
+        has_upload = bool(upload is not None and getattr(upload, "filename", ""))
+        if has_upload:
+            try:
+                saved_wallpaper = save_wallpaper(upload, persistent=True)
+            except ValueError as exc:
+                return None, [str(exc)], warnings
+            wallpaper_path = saved_wallpaper["path"]
+            wallpaper_name = saved_wallpaper["name"]
+            wallpaper_ext = saved_wallpaper["ext"]
+        else:
+            wallpaper_path = str(existing_params.get("wallpaper_path") or "")
+            wallpaper_name = str(existing_params.get("wallpaper_name") or "tapiz")
+            wallpaper_ext = str(existing_params.get("wallpaper_ext") or "")
+            if not wallpaper_path or not os.path.isfile(wallpaper_path):
+                return (
+                    None,
+                    [
+                        (
+                            "Selecciona una imagen para el tapiz. La programación "
+                            "no conserva una imagen válida."
+                        )
+                    ],
+                    warnings,
+                )
+            if not wallpaper_ext:
+                wallpaper_ext = os.path.splitext(wallpaper_path)[1].lstrip(".")
+
     schedule_params = _approval_params(
         {
             "target": (
@@ -2862,11 +2949,15 @@ def _validate_schedule_form(
             "target_mode": target_mode,
             "target_group_id": target_group_id,
             "task_id": task_id,
-            "task_name": tasks[task_id]["name"],
+            "task_name": task["name"],
             "admin_user": validated["admin_user"],
             "origin": "stored",
             "action": validated["action"],
-            "value": validated["value"],
+            "value": (
+                wallpaper_name
+                if validated["action"] == "WALLPAPER"
+                else validated["value"]
+            ),
             "time_mode": "utc",
             "time_zone": "",
             "time_fold": None,
@@ -2875,6 +2966,9 @@ def _validate_schedule_form(
             "sync_rtc": _form_bool("sync_rtc", form),
             "force": _form_bool("force", form),
             "min_free_gb": validated["min_free_gb"],
+            "wallpaper_path": wallpaper_path,
+            "wallpaper_name": wallpaper_name,
+            "wallpaper_ext": wallpaper_ext,
         }
     )
     return {
@@ -2884,6 +2978,9 @@ def _validate_schedule_form(
         "recurrence": recurrence,
         "params": schedule_params,
         "master_password": master_password,
+        "new_password": (
+            new_password if validated["action"] == "PASSWORD" else ""
+        ),
     }, errors, warnings
 
 
@@ -2891,32 +2988,39 @@ def _create_schedule_from_form(
     tasks: dict[str, dict[str, Any]],
     db_path: str,
     form,
+    *,
+    files=None,
 ) -> tuple[str | None, list[str], list[str]]:
     """Valida y crea una programación desde un formulario.
 
     Devuelve ``(nombre_creado, errores, avisos)``. No redirige ni escribe
     flashes para que lo usen el formulario de ejecución y las pruebas sin
-    duplicar validaciones.
+    duplicar validaciones. Los secretos se cifran antes de persistirlos.
     """
-    data, errors, warnings = _validate_schedule_form(tasks, db_path, form)
+    data, errors, warnings = _validate_schedule_form(
+        tasks, db_path, form, files=files
+    )
     if data is None:
         return None, errors, warnings
+    params = {
+        **data["params"],
+        "master_password_enc": scheduler.encrypt_secret(data["master_password"]),
+    }
+    if data["new_password"]:
+        params["new_password_enc"] = scheduler.encrypt_secret(data["new_password"])
     try:
         Schedule.create(
             data["name"],
             data["task_id"],
             data["run_at"],
-            {
-                **data["params"],
-                "master_password_enc": scheduler.encrypt_secret(
-                    data["master_password"]
-                ),
-            },
+            params,
             recurrence=data["recurrence"],
             created_by=getattr(current_user, "username", "") or "",
             db_path=db_path,
         )
     except ValueError as exc:
+        # No dejar una imagen persistente huérfana si el alta falla.
+        remove_wallpaper(data["params"].get("wallpaper_path"))
         return None, [str(exc)], warnings
     return data["name"], errors, warnings
 
@@ -2926,15 +3030,19 @@ def _update_schedule_from_form(
     tasks: dict[str, dict[str, Any]],
     db_path: str,
     form,
+    *,
+    files=None,
 ) -> tuple[str | None, list[str], list[str]]:
-    """Valida y actualiza una programación conservando su secreto cifrado."""
+    """Valida y actualiza una programación conservando sus secretos cifrados."""
     data, errors, warnings = _validate_schedule_form(
-        tasks, db_path, form, existing=schedule
+        tasks, db_path, form, files=files, existing=schedule
     )
     if data is None:
         return None, errors, warnings
-    encrypted = (schedule.params or {}).get("master_password_enc")
+    old_params = schedule.params or {}
+    encrypted = old_params.get("master_password_enc")
     if not encrypted:
+        remove_wallpaper(data["params"].get("wallpaper_path"))
         return (
             None,
             [
@@ -2945,17 +3053,48 @@ def _update_schedule_from_form(
             ],
             warnings,
         )
+    params = {**data["params"], "master_password_enc": encrypted}
+    action = data["params"].get("action", "")
+    if action == "PASSWORD":
+        if data["new_password"]:
+            params["new_password_enc"] = scheduler.encrypt_secret(
+                data["new_password"]
+            )
+        else:
+            existing_secret = old_params.get("new_password_enc")
+            if not existing_secret:
+                remove_wallpaper(data["params"].get("wallpaper_path"))
+                return (
+                    None,
+                    [
+                        (
+                            "Indica la nueva contraseña: esta programación no "
+                            "conserva un secreto cifrado."
+                        )
+                    ],
+                    warnings,
+                )
+            params["new_password_enc"] = existing_secret
+    else:
+        params.pop("new_password_enc", None)
     try:
         Schedule.update(
             schedule.id,
             data["name"],
             data["run_at"],
-            {**data["params"], "master_password_enc": encrypted},
+            params,
             recurrence=data["recurrence"],
             db_path=db_path,
         )
     except ValueError as exc:
+        new_wallpaper = data["params"].get("wallpaper_path")
+        if new_wallpaper and new_wallpaper != old_params.get("wallpaper_path"):
+            remove_wallpaper(new_wallpaper)
         return None, [str(exc)], warnings
+    old_wallpaper = old_params.get("wallpaper_path")
+    new_wallpaper = data["params"].get("wallpaper_path")
+    if old_wallpaper and old_wallpaper != new_wallpaper:
+        remove_wallpaper(old_wallpaper)
     return data["name"], errors, warnings
 
 
@@ -2989,9 +3128,19 @@ def _handle_schedule_from_task_form():
         "min_free_gb": form.get("min_free_gb", ""),
         "sync_rtc": form.get("sync_rtc", ""),
         "force": form.get("force", ""),
+        # Campos propios de cada tarjeta; la validación común los ignora
+        # cuando la acción no los usa.
+        "target_user": form.get("target_user", ""),
+        "new_password": form.get("new_password", ""),
+        "new_password_confirm": form.get("new_password_confirm", ""),
+        "firewall_op": form.get("firewall_op", ""),
+        "firewall_ip": form.get("firewall_ip", ""),
     }
     created, errors, warnings = _create_schedule_from_form(
-        _schedulable_tasks(), get_db_path(), schedule_form
+        _schedulable_tasks(),
+        get_db_path(),
+        schedule_form,
+        files=request.files,
     )
     for error in errors:
         flash(error, "danger")
@@ -3045,6 +3194,7 @@ def programaciones():
             if schedule is None:
                 flash("La programación no existe.", "warning")
             else:
+                remove_wallpaper((schedule.params or {}).get("wallpaper_path"))
                 Schedule.delete(schedule.id, db_path=db_path)
                 flash(f"Programación '{schedule.name}' eliminada.", "success")
         else:
@@ -3125,7 +3275,7 @@ def schedule_edit(schedule_id: int):
     values: dict[str, Any] = {}
     if request.method == "POST":
         updated, errors, warnings = _update_schedule_from_form(
-            schedule, tasks, db_path, request.form
+            schedule, tasks, db_path, request.form, files=request.files
         )
         if updated is not None:
             for warning in warnings:
@@ -3136,6 +3286,17 @@ def schedule_edit(schedule_id: int):
     if not values:
         params = schedule.params or {}
         target_mode = str(params.get("target_mode") or "manual")
+        action = str(params.get("action") or "TZ").upper()
+        stored_value = str(params.get("value") or "")
+        target_user = stored_value if action == "PASSWORD" else OS_PASSWORD_DEFAULT_USER
+        firewall_op = "enable"
+        firewall_ip = ""
+        if action == "FIREWALL":
+            if stored_value in {"enable", "disable"}:
+                firewall_op = stored_value
+            elif stored_value.startswith("allow:"):
+                firewall_op = "allow"
+                firewall_ip = stored_value.split(":", 1)[1]
         values = {
             "name": schedule.name,
             "task_id": schedule.task_id,
@@ -3145,14 +3306,21 @@ def schedule_edit(schedule_id: int):
             "target_ip": params.get("target") if target_mode != "group" else "",
             "target_group": str(params.get("target_group_id") or ""),
             "admin_user": params.get("admin_user") or TARGET_ADMIN_USERNAME,
-            "action": params.get("action") or "TZ",
-            "value": params.get("value") or "",
+            "action": action,
+            "value": stored_value,
+            "target_user": target_user,
+            "firewall_op": firewall_op,
+            "firewall_ip": firewall_ip,
             "ntp_policy": params.get("ntp_policy") or "keep",
             "ntp_servers": ", ".join(params.get("ntp_servers") or []),
             "min_free_gb": params.get("min_free_gb") or APT_MIN_FREE_GB,
             "sync_rtc": bool(params.get("sync_rtc")),
             "force": bool(params.get("force")),
         }
+    params = schedule.params or {}
+    has_wallpaper = bool(params.get("wallpaper_path"))
+    has_new_password_secret = bool(params.get("new_password_enc"))
+    wallpaper_name = str(params.get("wallpaper_name") or "")
 
     inventory_groups = []
     for group in HostGroup.all(db_path=db_path):
@@ -3183,6 +3351,12 @@ def schedule_edit(schedule_id: int):
         default_min_free_gb=APT_MIN_FREE_GB,
         min_free_gb_floor=APT_MIN_FREE_GB_FLOOR,
         min_free_gb_ceiling=APT_MIN_FREE_GB_CEILING,
+        has_wallpaper=has_wallpaper,
+        wallpaper_name=wallpaper_name,
+        has_new_password_secret=has_new_password_secret,
+        os_password_default_user=OS_PASSWORD_DEFAULT_USER,
+        os_password_min_length=OS_PASSWORD_MIN_LENGTH,
+        os_password_max_length=OS_PASSWORD_MAX_LENGTH,
     )
 
 
@@ -3383,6 +3557,22 @@ def launch_scheduled(schedule, params: dict[str, Any]) -> bool:
         )
         return False
 
+    action = str(params.get("action") or "TZ").upper()
+    scheduled_new_password = ""
+    if action == "PASSWORD":
+        scheduled_new_password = scheduler.decrypt_secret(
+            params.get("new_password_enc", "")
+        )
+        if not scheduled_new_password:
+            Schedule.mark_run(
+                schedule["id"],
+                error="La nueva contraseña programada no se puede descifrar; "
+                "edita la programación y vuelve a indicarla.",
+                disable=True,
+                db_path=db_path,
+            )
+            return False
+
     # Defensa en profundidad: una fila antigua o editada a mano no debe
     # saltarse las reglas que la ejecución manual aplica. La plataforma se
     # resuelve con el grupo actual: si cambió, el disparo se rechaza.
@@ -3402,6 +3592,10 @@ def launch_scheduled(schedule, params: dict[str, Any]) -> bool:
         platform=target_group.os_flavor if target_group else "",
         group_name=target_group.name if target_group else "",
         min_free_gb_raw=str(params.get("min_free_gb", "")),
+        target_user_raw=params.get("value", "") if action == "PASSWORD" else "",
+        new_password=scheduled_new_password,
+        new_password_confirm=scheduled_new_password,
+        require_password=action == "PASSWORD",
     )
     if errors or validated is None:
         Schedule.mark_run(
@@ -3450,6 +3644,29 @@ def launch_scheduled(schedule, params: dict[str, Any]) -> bool:
         )
         return False
 
+    # La imagen programada se conserva para futuras ejecuciones: se copia a un
+    # temporal que el propio lote borrará al terminar.
+    wallpaper_run_path = ""
+    wallpaper_uri = ""
+    wallpaper_name = str(params.get("wallpaper_name") or "")
+    if validated["action"] == "WALLPAPER":
+        try:
+            wallpaper_run_path = clone_wallpaper_for_run(
+                params.get("wallpaper_path")
+            )
+        except (OSError, ValueError) as exc:
+            Schedule.mark_run(
+                schedule["id"],
+                error=str(exc)[:300],
+                disable=True,
+                db_path=db_path,
+            )
+            return False
+        wallpaper_ext = str(params.get("wallpaper_ext") or "") or (
+            os.path.splitext(wallpaper_run_path)[1].lstrip(".")
+        )
+        wallpaper_uri = remote_wallpaper_uri(wallpaper_ext)
+
     tid = create_task()
     update_task(
         tid,
@@ -3485,9 +3702,14 @@ def launch_scheduled(schedule, params: dict[str, Any]) -> bool:
             operator=f"agenda:{schedule['name']}",
             task_id=schedule["task_id"],
             min_free_gb=validated.get("min_free_gb"),
+            wallpaper_path=wallpaper_run_path,
+            wallpaper_uri=wallpaper_uri,
+            wallpaper_name=wallpaper_name,
+            new_password=scheduled_new_password,
         )
     except JobQueueFull as exc:
         remove_task(tid)
+        remove_wallpaper(wallpaper_run_path)
         # Fallo transitorio de capacidad: no se desactiva la programación; se
         # pospone el siguiente intento para no martillear la cola.
         Schedule.mark_run(
@@ -3497,6 +3719,9 @@ def launch_scheduled(schedule, params: dict[str, Any]) -> bool:
             db_path=db_path,
         )
         return False
+    except Exception:
+        remove_wallpaper(wallpaper_run_path)
+        raise
 
     schedule_row = Schedule.get(schedule["id"], db_path=db_path)
     next_run = schedule_row.next_run_from() if schedule_row else None

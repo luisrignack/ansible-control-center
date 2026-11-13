@@ -177,6 +177,23 @@ una. Para crear una programación nueva, abre la tarea desde el catálogo y usa
 lateral; ambos caminos reutilizan la misma validación y la misma ventana de
 mantenimiento.
 
+Todas las tareas activas son programables con sus propios parámetros:
+
+- **Zona horaria** y **Actualización del sistema**: valor fijo o umbral de
+  espacio, según la tarjeta.
+- **Contraseña administrativa**: usuario y nueva contraseña. El secreto se
+  guarda cifrado en la programación y solo se descifra al disparar el lote; la
+  edición permite conservarlo sin volver a escribirlo. Al ser una tarea
+  destructiva, la programación requiere rol admin y se somete a la ventana de
+  mantenimiento, sin aprobación manual interactiva.
+- **Tapiz oficial**: la imagen se conserva en el directorio privado
+  `data/wallpapers/schedules/`. En cada ejecución se copia a un temporal que se
+  borra al terminar, de modo que las ejecuciones repetidas siguen teniendo
+  imagen. Al editar se puede reemplazar; al eliminar la programación se borra
+  la copia persistente.
+- **Firewall**: la operación (`enable`, `disable` o `allow:<ip|red>`) se guarda
+  y se revalida al disparar, incluida la prohibición de abrir a `0.0.0.0/0`.
+
 ### 2.5. Durante la ejecución
 
 - La página `/progress/<task_id>` muestra progreso, resumen de hitos y la

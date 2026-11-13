@@ -78,13 +78,13 @@ def _login(client):
 # ---------------------------------------------------------------------------
 # Catálogo
 # ---------------------------------------------------------------------------
-def test_tapiz_card_is_active_and_not_schedulable():
+def test_tapiz_card_is_active_and_schedulable():
     task = get_task("tapiz")
     assert task is not None
     assert task["status"] == "active"
     assert task["actions"] == ["WALLPAPER"]
     assert task["platforms"] == ["linux"]
-    assert task["schedulable"] is False
+    assert task["schedulable"] is True
     assert task["playbook"] == "tapiz.yml"
 
 

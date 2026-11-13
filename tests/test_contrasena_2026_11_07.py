@@ -66,7 +66,7 @@ def _login(client):
 # ---------------------------------------------------------------------------
 # Catálogo
 # ---------------------------------------------------------------------------
-def test_password_card_is_active_admin_only_and_not_schedulable():
+def test_password_card_is_active_admin_only_and_schedulable():
     task = get_task("contrasena")
     assert task is not None
     assert task["status"] == "active"
@@ -74,11 +74,11 @@ def test_password_card_is_active_admin_only_and_not_schedulable():
     assert task["platforms"] == ["linux"]
     assert task["min_role"] == "admin"
     assert task["destructive"] is True
-    assert task["schedulable"] is False
+    assert task["schedulable"] is True
     assert task["playbook"] == "contrasena.yml"
 
 
-def test_password_card_is_not_offered_for_scheduling():
+def test_password_schedule_requires_the_new_password():
     validated, errors = app_module._validate_scheduled_params(
         get_task("contrasena"),
         admin_user="root",
@@ -86,9 +86,28 @@ def test_password_card_is_not_offered_for_scheduling():
         value="ladmin",
         ntp_policy="keep",
         ntp_servers_raw="",
+        target_user_raw="ladmin",
+        require_password=True,
     )
     assert validated is None
-    assert any("programar" in error.lower() for error in errors)
+    assert any("contraseña" in error.lower() for error in errors)
+
+    validated, errors = app_module._validate_scheduled_params(
+        get_task("contrasena"),
+        admin_user="root",
+        action="PASSWORD",
+        value="ladmin",
+        ntp_policy="keep",
+        ntp_servers_raw="",
+        target_user_raw="ladmin",
+        new_password="clave-segura-123",
+        new_password_confirm="clave-segura-123",
+        require_password=True,
+    )
+    assert errors == []
+    assert validated is not None
+    assert validated["action"] == "PASSWORD"
+    assert validated["value"] == "ladmin"
 
 
 # ---------------------------------------------------------------------------

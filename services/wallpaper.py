@@ -12,6 +12,7 @@ puede usar como fondo; no se admite SVG porque puede contener scripts.
 from __future__ import annotations
 
 import os
+import shutil
 import time
 import uuid
 from pathlib import Path
@@ -20,6 +21,10 @@ from typing import Any
 from config import DATA_DIR, MAX_CONTENT_LENGTH
 
 WALLPAPER_SUBDIR = "wallpapers"
+# Las imágenes de programaciones viven en un subdirectorio persistente: la
+# poda automática solo recorre archivos directos de ``wallpapers`` y no debe
+# borrar la imagen de una ejecución futura.
+SCHEDULE_WALLPAPER_SUBDIR = "schedules"
 REMOTE_WALLPAPER_DIR = "/usr/local/share/backgrounds"
 REMOTE_WALLPAPER_BASENAME = "acc-tapiz"
 
@@ -46,6 +51,11 @@ def wallpaper_dir(data_dir: Path | None = None) -> Path:
     """Directorio privado donde viven las imágenes subidas."""
     root = Path(data_dir) if data_dir is not None else Path(DATA_DIR)
     return root / WALLPAPER_SUBDIR
+
+
+def schedule_wallpaper_dir(data_dir: Path | None = None) -> Path:
+    """Subdirectorio persistente para las imágenes de programaciones."""
+    return wallpaper_dir(data_dir) / SCHEDULE_WALLPAPER_SUBDIR
 
 
 def detect_image_type(raw: bytes) -> tuple[str, str] | None:
@@ -99,12 +109,16 @@ def prune_wallpapers(max_age_hours: int = 24, data_dir: Path | None = None) -> N
 def save_wallpaper(
     upload: Any,
     data_dir: Path | None = None,
+    *,
+    persistent: bool = False,
 ) -> dict[str, Any]:
     """Valida y guarda una imagen subida.
 
-    Devuelve un diccionario con ``path``, ``name``, ``mime``, ``ext`` y
-    ``size``. Lanza ``ValueError`` con un mensaje apto para el usuario si el
-    archivo está vacío, supera el límite o no es una imagen admitida.
+    Con ``persistent=True`` la imagen se guarda en el subdirectorio de
+    programaciones y sobrevive a la poda de restos temporales. Devuelve un
+    diccionario con ``path``, ``name``, ``mime``, ``ext`` y ``size``. Lanza
+    ``ValueError`` con un mensaje apto para el usuario si el archivo está
+    vacío, supera el límite o no es una imagen admitida.
     """
     raw = upload.read(MAX_CONTENT_LENGTH + 1) if upload is not None else b""
     if not raw:
@@ -123,13 +137,16 @@ def save_wallpaper(
         )
     extension, mime = detected
 
-    directory = wallpaper_dir(data_dir)
+    directory = (
+        schedule_wallpaper_dir(data_dir) if persistent else wallpaper_dir(data_dir)
+    )
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
         directory.chmod(0o700)
     except OSError:
         pass
-    prune_wallpapers(data_dir=data_dir)
+    if not persistent:
+        prune_wallpapers(data_dir=data_dir)
 
     destination = directory / f"{uuid.uuid4().hex}.{extension}"
     fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -152,16 +169,55 @@ def save_wallpaper(
     }
 
 
+def clone_wallpaper_for_run(path: str | None, data_dir: Path | None = None) -> str:
+    """Copia una imagen programada a un temporal de un solo uso.
+
+    Así la programación conserva su imagen para futuras ejecuciones mientras
+    ``execute_with_progress`` borra únicamente la copia temporal al terminar.
+    """
+    if not path:
+        raise ValueError("La programación no conserva la imagen del tapiz.")
+    source = Path(path).resolve(strict=False)
+    scheduled = schedule_wallpaper_dir(data_dir).resolve(strict=False)
+    if source.parent != scheduled or not source.is_file():
+        raise ValueError(
+            "La imagen del tapiz programada ya no está disponible. Edita la "
+            "programación y vuelve a subirla."
+        )
+
+    directory = wallpaper_dir(data_dir)
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        directory.chmod(0o700)
+    except OSError:
+        pass
+    destination = directory / f"{uuid.uuid4().hex}{source.suffix.lower()}"
+    fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as target, source.open("rb") as origin:
+            shutil.copyfileobj(origin, target)
+    except Exception:
+        try:
+            destination.unlink()
+        except OSError:
+            pass
+        raise
+    return str(destination)
+
+
 def remove_wallpaper(path: str | None, data_dir: Path | None = None) -> None:
-    """Borra una imagen temporal si está dentro del directorio de tapices."""
+    """Borra una imagen temporal o persistente si está en un directorio propio."""
     if not path:
         return
-    directory = wallpaper_dir(data_dir).resolve(strict=False)
+    allowed = {
+        wallpaper_dir(data_dir).resolve(strict=False),
+        schedule_wallpaper_dir(data_dir).resolve(strict=False),
+    }
     try:
         candidate = Path(path).resolve(strict=False)
     except OSError:
         return
-    if candidate.parent != directory:
+    if candidate.parent not in allowed:
         return
     try:
         candidate.unlink()

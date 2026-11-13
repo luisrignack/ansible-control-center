@@ -381,9 +381,10 @@
                         <div class="form-text">
                             Mínimo {{ os_password_min_length }} caracteres. Debe repetirse
                             igual para evitar errores de escritura. La contraseña se envía
-                            al host por un canal privado y <strong>no se guarda</strong> en
-                            la base de datos, el historial ni el vault. La vista previa no
-                            necesita contraseña.
+                            al host por un canal privado. En una ejecución inmediata
+                            <strong>no se guarda</strong> en la base de datos ni en el
+                            historial; al programar, se guarda cifrada y solo se descifra
+                            al ejecutar. La vista previa no necesita contraseña.
                         </div>
                     </div>
                     {% endif %}
@@ -892,7 +893,9 @@ function validatePasswordFields(event) {
     const user = document.getElementById('targetUser');
     const password = document.getElementById('newPassword');
     const confirm = document.getElementById('newPasswordConfirm');
-    const execute = !!(event.submitter && event.submitter.value === 'execute');
+    const execute = !!(event.submitter
+        && (event.submitter.value === 'execute'
+            || event.submitter.value === 'schedule'));
     for (const field of [user, password, confirm]) {
         if (field) field.classList.remove('is-invalid');
     }

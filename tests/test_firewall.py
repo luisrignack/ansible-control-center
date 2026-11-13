@@ -41,7 +41,7 @@ def test_firewall_card_is_active_and_admin_only():
     assert task["actions"] == ["FIREWALL"]
     assert task["min_role"] == "admin"
     assert task["playbook"] == "firewall.yml"
-    assert task["schedulable"] is False
+    assert task["schedulable"] is True
     assert task["destructive"] is False
 
 

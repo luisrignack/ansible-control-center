@@ -86,16 +86,18 @@ TASK_CATALOG: list[dict[str, Any]] = [
             "Rota la contraseña de un usuario local en los hosts objetivo. El "
             "operador indica el usuario (ladmin por defecto) y la nueva "
             "contraseña, que debe repetirse para evitar errores de escritura. "
-            "La contraseña no se guarda en el vault ni en la base de datos."
+            "En una ejecución manual la contraseña no se persiste; si se "
+            "programa, se guarda cifrada y solo se descifra al ejecutar."
         ),
         "playbook": "contrasena.yml",
         "status": STATUS_ACTIVE,
         "min_role": "admin",
         "destructive": True,
         "platforms": ["linux"],
-        # La contraseña no se persiste: una programación no puede transportar
-        # ni cifrar el secreto. Se ejecuta solo manualmente desde su tarjeta.
-        "schedulable": False,
+        # La nueva contraseña se guarda cifrada junto a la programación y
+        # solo se descifra al disparar el lote. Requiere rol admin y ventana
+        # de mantenimiento, igual que el resto de programaciones.
+        "schedulable": True,
         "actions": ["PASSWORD"],
         "chips": [
             "Operativa",
@@ -126,9 +128,9 @@ TASK_CATALOG: list[dict[str, Any]] = [
         "min_role": "operator",
         "destructive": False,
         "platforms": ["linux"],
-        # Una programación no puede transportar la imagen subida: se limita
-        # a la ejecución manual desde la tarjeta.
-        "schedulable": False,
+        # La imagen se conserva en el directorio privado de programaciones y
+        # se copia a un temporal en cada ejecución.
+        "schedulable": True,
         "actions": ["WALLPAPER"],
         "chips": [
             "Operativa",
@@ -193,9 +195,9 @@ TASK_CATALOG: list[dict[str, Any]] = [
         "min_role": "admin",
         "destructive": False,
         "platforms": ["linux"],
-        # El formulario combina operación y IP, y el secreto del vault no se
-        # persiste en una programación: se ejecuta desde su tarjeta.
-        "schedulable": False,
+        # La operación queda guardada como ``enable``, ``disable`` o
+        # ``allow:<ip|red>`` y se revalida al disparar el lote.
+        "schedulable": True,
         "actions": ["FIREWALL"],
         "chips": [
             "Operativa",

@@ -3,13 +3,16 @@
 # programaciones, notificaciones, doble aprobación, re-ejecutar y clave SSH.
 from __future__ import annotations
 
+import io
 import time
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
 import app as app_module
 import services.scheduler as scheduler_module
+import services.wallpaper as wallpaper_module
 from models.batch import ExecutionBatch
 from models.ops import (
     ApprovalRequest,
@@ -19,6 +22,17 @@ from models.ops import (
 )
 from models.user import User
 from services.notifier import batch_has_issues
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+
+
+class _Upload:
+    def __init__(self, raw: bytes, filename: str = "fondo.png"):
+        self._raw = raw
+        self.filename = filename
+
+    def read(self, size: int = -1) -> bytes:
+        return self._raw if size < 0 else self._raw[:size]
 
 
 @pytest.fixture()
@@ -872,6 +886,339 @@ def test_schedule_from_task_form_rejects_temporary_passwords(client):
     assert Schedule.all(db_path=app_module.get_db_path()) == []
 
 
+def test_schedule_create_password_encrypts_new_secret(client):
+    _login(client)
+
+    response = _post(
+        client,
+        "/",
+        _task_schedule_payload(
+            task="contrasena",
+            schedule_name="rotación",
+            action="PASSWORD",
+            target_user="ladmin",
+            new_password="Clave-Nueva-123",
+            new_password_confirm="Clave-Nueva-123",
+        ),
+        follow_redirects=True,
+    )
+
+    body = response.get_data(as_text=True)
+    assert "Programación &#39;rotación&#39; creada" in body
+    assert "destructiva" in body
+    schedule = Schedule.all(db_path=app_module.get_db_path())[0]
+    assert schedule.task_id == "contrasena"
+    assert schedule.params["action"] == "PASSWORD"
+    assert schedule.params["value"] == "ladmin"
+    assert schedule.params["new_password_enc"]
+    assert "Clave-Nueva-123" not in str(schedule.params)
+    assert (
+        scheduler_module.decrypt_secret(schedule.params["new_password_enc"])
+        == "Clave-Nueva-123"
+    )
+
+
+def test_schedule_create_firewall_stores_normalized_operation(client):
+    _login(client)
+
+    response = _post(
+        client,
+        "/",
+        _task_schedule_payload(
+            task="firewall",
+            schedule_name="regla de red",
+            action="FIREWALL",
+            firewall_op="allow",
+            firewall_ip="10.0.0.0/24",
+        ),
+        follow_redirects=True,
+    )
+
+    assert "Programación &#39;regla de red&#39; creada" in response.get_data(
+        as_text=True
+    )
+    schedule = Schedule.all(db_path=app_module.get_db_path())[0]
+    assert schedule.task_id == "firewall"
+    assert schedule.params["value"] == "allow:10.0.0.0/24"
+
+
+def test_schedule_create_firewall_rejects_open_network(client):
+    _login(client)
+
+    response = _post(
+        client,
+        "/",
+        _task_schedule_payload(
+            task="firewall",
+            action="FIREWALL",
+            firewall_op="allow",
+            firewall_ip="0.0.0.0/0",
+        ),
+        follow_redirects=True,
+    )
+
+    assert "cualquier origen" in response.get_data(as_text=True)
+    assert Schedule.all(db_path=app_module.get_db_path()) == []
+
+
+def test_schedule_create_tapiz_persists_private_image(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(wallpaper_module, "DATA_DIR", str(tmp_path))
+    _login(client)
+    payload = _task_schedule_payload(
+        task="tapiz",
+        schedule_name="fondo oficial",
+        action="WALLPAPER",
+        value="",
+    )
+    payload["wallpaper_file"] = (io.BytesIO(PNG_BYTES), "fondo.png")
+
+    response = _post(
+        client,
+        "/",
+        payload,
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+
+    assert "Programación &#39;fondo oficial&#39; creada" in response.get_data(
+        as_text=True
+    )
+    schedule = Schedule.all(db_path=app_module.get_db_path())[0]
+    saved_path = Path(schedule.params["wallpaper_path"])
+    assert saved_path.is_file()
+    assert saved_path.parent.name == "schedules"
+    assert schedule.params["wallpaper_name"] == "fondo.png"
+    assert schedule.params["wallpaper_ext"] == "png"
+    assert schedule.params["value"] == "fondo.png"
+    wallpaper_module.remove_wallpaper(str(saved_path), data_dir=tmp_path)
+
+
+def test_schedule_edit_preserves_and_replaces_password_secret(client):
+    db_path = app_module.get_db_path()
+    old_secret = scheduler_module.encrypt_secret("Clave-Vieja-123")
+    schedule = Schedule.create(
+        "rotación",
+        "contrasena",
+        datetime.now(UTC) + timedelta(hours=1),
+        {
+            "target": "10.42.0.50",
+            "target_mode": "manual",
+            "task_id": "contrasena",
+            "admin_user": "root",
+            "action": "PASSWORD",
+            "value": "ladmin",
+            "ntp_policy": "keep",
+            "master_password_enc": scheduler_module.encrypt_secret("clave-maestra"),
+            "new_password_enc": old_secret,
+        },
+        db_path=db_path,
+    )
+    _login(client)
+    page = client.get(f"/programaciones/{schedule.id}/editar").get_data(as_text=True)
+    assert "Déjala en blanco para conservar" in page
+
+    run_at = (datetime.now(UTC) + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M")
+    base = {
+        "name": "rotación editada",
+        "task_id": "contrasena",
+        "run_at": run_at,
+        "recurrence": "once",
+        "target_mode": "manual",
+        "target_ip": "10.42.0.50",
+        "admin_user": "root",
+        "action": "PASSWORD",
+        "target_user": "ladmin",
+        "ntp_policy": "keep",
+    }
+    response = _post(
+        client,
+        f"/programaciones/{schedule.id}/editar",
+        base,
+        follow_redirects=True,
+    )
+    assert "actualizada" in response.get_data(as_text=True)
+    updated = Schedule.get(schedule.id, db_path=db_path)
+    assert updated is not None
+    assert updated.params["new_password_enc"] == old_secret
+
+    response = _post(
+        client,
+        f"/programaciones/{schedule.id}/editar",
+        {
+            **base,
+            "new_password": "Clave-Nueva-456",
+            "new_password_confirm": "Clave-Nueva-456",
+        },
+        follow_redirects=True,
+    )
+    assert "actualizada" in response.get_data(as_text=True)
+    updated = Schedule.get(schedule.id, db_path=db_path)
+    assert updated is not None
+    assert updated.params["new_password_enc"] != old_secret
+    assert (
+        scheduler_module.decrypt_secret(updated.params["new_password_enc"])
+        == "Clave-Nueva-456"
+    )
+
+
+def test_schedule_edit_and_delete_manage_persistent_wallpaper(
+    client, monkeypatch, tmp_path
+):
+    monkeypatch.setattr(wallpaper_module, "DATA_DIR", str(tmp_path))
+    first = wallpaper_module.save_wallpaper(
+        _Upload(PNG_BYTES, "uno.png"), persistent=True
+    )
+    schedule = Schedule.create(
+        "fondo",
+        "tapiz",
+        datetime.now(UTC) + timedelta(hours=1),
+        {
+            "target": "10.42.0.50",
+            "target_mode": "manual",
+            "task_id": "tapiz",
+            "admin_user": "root",
+            "action": "WALLPAPER",
+            "value": first["name"],
+            "ntp_policy": "keep",
+            "wallpaper_path": first["path"],
+            "wallpaper_name": first["name"],
+            "wallpaper_ext": first["ext"],
+            "master_password_enc": scheduler_module.encrypt_secret("clave-maestra"),
+        },
+        db_path=app_module.get_db_path(),
+    )
+    _login(client)
+    base = {
+        "name": "fondo editado",
+        "task_id": "tapiz",
+        "run_at": (datetime.now(UTC) + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M"),
+        "recurrence": "once",
+        "target_mode": "manual",
+        "target_ip": "10.42.0.50",
+        "admin_user": "root",
+        "action": "WALLPAPER",
+        "ntp_policy": "keep",
+    }
+
+    response = _post(
+        client,
+        f"/programaciones/{schedule.id}/editar",
+        base,
+        follow_redirects=True,
+    )
+    assert "actualizada" in response.get_data(as_text=True)
+    updated = Schedule.get(schedule.id, db_path=app_module.get_db_path())
+    assert updated is not None
+    assert updated.params["wallpaper_path"] == first["path"]
+    assert Path(first["path"]).is_file()
+
+    response = _post(
+        client,
+        f"/programaciones/{schedule.id}/editar",
+        {**base, "wallpaper_file": (io.BytesIO(PNG_BYTES + b"x"), "dos.png")},
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert "actualizada" in response.get_data(as_text=True)
+    updated = Schedule.get(schedule.id, db_path=app_module.get_db_path())
+    assert updated is not None
+    new_path = updated.params["wallpaper_path"]
+    assert new_path != first["path"]
+    assert not Path(first["path"]).exists()
+    assert Path(new_path).is_file()
+
+    response = _post(
+        client,
+        "/programaciones",
+        {"op": "delete", "schedule_id": str(schedule.id)},
+        follow_redirects=True,
+    )
+    assert "eliminada" in response.get_data(as_text=True)
+    assert not Path(new_path).exists()
+
+
+def test_launch_scheduled_password_passes_decrypted_secret(client, monkeypatch):
+    db_path = app_module.get_db_path()
+    schedule = Schedule.create(
+        "rotación",
+        "contrasena",
+        datetime.now(UTC) + timedelta(hours=1),
+        {
+            "target": "10.42.0.50",
+            "target_mode": "manual",
+            "task_id": "contrasena",
+            "admin_user": "root",
+            "action": "PASSWORD",
+            "value": "ladmin",
+            "ntp_policy": "keep",
+            "master_password_enc": scheduler_module.encrypt_secret("clave-maestra"),
+            "new_password_enc": scheduler_module.encrypt_secret("Clave-Nueva-123"),
+        },
+        db_path=db_path,
+    )
+    calls: list[dict] = []
+
+    class FakeQueue:
+        def submit(self, queue_task_id, func, /, *args, **kwargs):
+            calls.append(kwargs)
+
+    monkeypatch.setattr(app_module, "get_job_queue", lambda: FakeQueue())
+
+    launched = app_module.launch_scheduled(
+        schedule.to_dict(), dict(schedule.params)
+    )
+
+    assert launched is True
+    assert calls[0]["new_password"] == "Clave-Nueva-123"
+    assert calls[0]["task_id"] == "contrasena"
+
+
+def test_launch_scheduled_wallpaper_clones_image(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(wallpaper_module, "DATA_DIR", str(tmp_path))
+    saved = wallpaper_module.save_wallpaper(
+        _Upload(PNG_BYTES, "fondo.png"), persistent=True
+    )
+    schedule = Schedule.create(
+        "fondo",
+        "tapiz",
+        datetime.now(UTC) + timedelta(hours=1),
+        {
+            "target": "10.42.0.50",
+            "target_mode": "manual",
+            "task_id": "tapiz",
+            "admin_user": "root",
+            "action": "WALLPAPER",
+            "value": saved["name"],
+            "ntp_policy": "keep",
+            "wallpaper_path": saved["path"],
+            "wallpaper_name": saved["name"],
+            "wallpaper_ext": saved["ext"],
+            "master_password_enc": scheduler_module.encrypt_secret("clave-maestra"),
+        },
+        db_path=app_module.get_db_path(),
+    )
+    calls: list[dict] = []
+
+    class FakeQueue:
+        def submit(self, queue_task_id, func, /, *args, **kwargs):
+            calls.append(kwargs)
+
+    monkeypatch.setattr(app_module, "get_job_queue", lambda: FakeQueue())
+
+    launched = app_module.launch_scheduled(
+        schedule.to_dict(), dict(schedule.params)
+    )
+
+    assert launched is True
+    run_path = calls[0]["wallpaper_path"]
+    assert run_path != saved["path"]
+    assert Path(run_path).is_file()
+    assert Path(saved["path"]).is_file()
+    assert calls[0]["wallpaper_name"] == "fondo.png"
+    assert calls[0]["wallpaper_uri"].endswith(".png")
+    wallpaper_module.remove_wallpaper(run_path, data_dir=tmp_path)
+
+
 def test_schedules_page_filters_by_group_and_has_no_create_form(client):
     db_path = app_module.get_db_path()
     group = HostGroup.create("Sucursal", db_path=db_path)
@@ -1102,12 +1449,10 @@ def test_inventory_shows_window_help_and_schedule_shortcut(client):
 
 def test_task_page_offers_scheduling_only_to_admin_on_schedulable_tasks(client):
     _login(client)
-    body = client.get("/tarea/zona-todas").get_data(as_text=True)
-    assert "Planificar esta operación" in body
-    assert "Crear programación" in body
-
-    body = client.get("/tarea/tapiz").get_data(as_text=True)
-    assert "Planificar esta operación" not in body
+    for task_id in ("zona-todas", "apt-upgrade", "contrasena", "tapiz", "firewall"):
+        body = client.get(f"/tarea/{task_id}").get_data(as_text=True)
+        assert "Planificar esta operación" in body
+        assert "Crear programación" in body
 
     User.create_or_update(
         "operador",

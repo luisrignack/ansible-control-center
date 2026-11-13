@@ -49,7 +49,8 @@
         </span>
     </div>
     <div class="card-body p-4">
-        <form method="post" action="{{ url_for('schedule_edit', schedule_id=schedule.id) }}" class="row g-3">
+        <form method="post" action="{{ url_for('schedule_edit', schedule_id=schedule.id) }}"
+            class="row g-3" enctype="multipart/form-data">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="col-md-4">
                 <label for="editName" class="form-label fw-medium">Nombre</label>
@@ -120,7 +121,8 @@
                     <div class="banner-text">
                         La contraseña maestra del vault no se muestra ni se modifica
                         aquí: se reutiliza la que quedó cifrada al crear la
-                        programación.
+                        programación. La nueva contraseña de una tarea PASSWORD
+                        también se conserva cifrada si no se indica otra.
                     </div>
                 </div>
             </div>
@@ -130,17 +132,20 @@
                 <select class="form-select" id="editAction" name="action">
                     <option value="TZ" {% if values.get('action') == 'TZ' or not values.get('action') %}selected{% endif %}>Zona Horaria (TZ)</option>
                     <option value="TIME" {% if values.get('action') == 'TIME' %}selected{% endif %}>Hora Exacta (TIME)</option>
+                    <option value="WALLPAPER" {% if values.get('action') == 'WALLPAPER' %}selected{% endif %}>Aplicar tapiz</option>
                     <option value="APT" {% if values.get('action') == 'APT' %}selected{% endif %}>Actualización segura (APT)</option>
+                    <option value="PASSWORD" {% if values.get('action') == 'PASSWORD' %}selected{% endif %}>Cambiar contraseña</option>
+                    <option value="FIREWALL" {% if values.get('action') == 'FIREWALL' %}selected{% endif %}>Firewall</option>
                 </select>
             </div>
-            <div class="col-md-5">
+            <div class="col-md-5" id="editValueField">
                 <label for="editValue" class="form-label fw-medium">Valor</label>
                 <input type="text" class="form-control" id="editValue" name="value"
                     value="{{ values.get('value', '') }}"
                     placeholder="America/Caracas o 2026-01-01T05:00">
                 <div class="form-text">Las tareas con valor fijo lo imponen al guardar.</div>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-4" id="editNtpPolicyField">
                 <label for="editNtpPolicy" class="form-label fw-medium">NTP</label>
                 <select class="form-select" id="editNtpPolicy" name="ntp_policy">
                     <option value="keep" {% if values.get('ntp_policy') == 'keep' or not values.get('ntp_policy') %}selected{% endif %}>Mantener NTP</option>
@@ -149,13 +154,79 @@
                     <option value="configure" {% if values.get('ntp_policy') == 'configure' %}selected{% endif %}>Configurar servidores</option>
                 </select>
             </div>
-            <div class="col-md-8">
+            <div class="col-md-8" id="editNtpServersField">
                 <label for="editNtpServers" class="form-label fw-medium">Servidores NTP</label>
                 <input type="text" class="form-control" id="editNtpServers" name="ntp_servers"
                     value="{{ values.get('ntp_servers', '') }}"
                     placeholder="ntp1.example.com, ntp2.example.com">
                 <div class="form-text">Solo se usa con la política «Configurar servidores».</div>
             </div>
+
+            <div class="col-md-4 d-none" id="editPasswordUserField">
+                <label for="editTargetUser" class="form-label fw-medium">Usuario del sistema</label>
+                <input type="text" class="form-control" id="editTargetUser"
+                    name="target_user"
+                    value="{{ values.get('target_user', os_password_default_user) }}"
+                    pattern="[a-z_][a-z0-9_.-]{0,31}" autocomplete="off"
+                    spellcheck="false">
+                <div class="form-text">Por defecto <code>{{ os_password_default_user }}</code>.</div>
+            </div>
+            <div class="col-md-4 d-none" id="editPasswordSecretField">
+                <label for="editNewPassword" class="form-label fw-medium">Nueva contraseña</label>
+                <input type="password" class="form-control" id="editNewPassword"
+                    name="new_password" autocomplete="new-password"
+                    minlength="{{ os_password_min_length }}"
+                    maxlength="{{ os_password_max_length }}"
+                    data-has-secret="{{ '1' if has_new_password_secret else '0' }}">
+                <div class="form-text">
+                    {% if has_new_password_secret %}
+                    Déjala en blanco para conservar la contraseña cifrada actual.
+                    {% else %}
+                    Mínimo {{ os_password_min_length }} caracteres.
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-md-4 d-none" id="editPasswordConfirmField">
+                <label for="editNewPasswordConfirm" class="form-label fw-medium">Repetir contraseña</label>
+                <input type="password" class="form-control" id="editNewPasswordConfirm"
+                    name="new_password_confirm" autocomplete="new-password"
+                    minlength="{{ os_password_min_length }}"
+                    maxlength="{{ os_password_max_length }}">
+            </div>
+
+            <div class="col-md-4 d-none" id="editFirewallOpField">
+                <label for="editFirewallOp" class="form-label fw-medium">Operación de firewall</label>
+                <select class="form-select" id="editFirewallOp" name="firewall_op">
+                    <option value="enable" {% if values.get('firewall_op') == 'enable' or not values.get('firewall_op') %}selected{% endif %}>Activar el firewall</option>
+                    <option value="disable" {% if values.get('firewall_op') == 'disable' %}selected{% endif %}>Desactivar el firewall</option>
+                    <option value="allow" {% if values.get('firewall_op') == 'allow' %}selected{% endif %}>Permitir una IP o red</option>
+                </select>
+            </div>
+            <div class="col-md-5 d-none" id="editFirewallIpField">
+                <label for="editFirewallIp" class="form-label fw-medium">IP o red a permitir</label>
+                <input type="text" class="form-control" id="editFirewallIp"
+                    name="firewall_ip" value="{{ values.get('firewall_ip', '') }}"
+                    placeholder="Ej: 192.168.1.25 o 10.0.0.0/24"
+                    autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="col-12 d-none" id="editWallpaperField">
+                <label for="editWallpaperFile" class="form-label fw-medium">Imagen del tapiz</label>
+                <input type="file" class="form-control" id="editWallpaperFile"
+                    name="wallpaper_file"
+                    accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
+                    data-has-wallpaper="{{ '1' if has_wallpaper else '0' }}">
+                <div class="form-text">
+                    {% if has_wallpaper %}
+                    Imagen actual: <strong>{{ wallpaper_name or 'tapiz' }}</strong>.
+                    Selecciona otra solo si quieres reemplazarla.
+                    {% else %}
+                    Esta programación aún no conserva una imagen válida.
+                    {% endif %}
+                    Formatos: PNG, JPEG, WebP, GIF o BMP.
+                </div>
+            </div>
+
             <div class="col-md-4 d-none" id="editMinFreeGbField">
                 <label for="editMinFreeGb" class="form-label fw-medium">Espacio mínimo (GB)</label>
                 <input type="number" step="0.5" min="{{ min_free_gb_floor }}"
@@ -164,7 +235,7 @@
                     value="{{ values.get('min_free_gb', default_min_free_gb) }}">
                 <div class="form-text">Solo para APT.</div>
             </div>
-            <div class="col-12">
+            <div class="col-12" id="editTimeOptionsField">
                 <div class="d-flex flex-wrap gap-3">
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" value="1"
@@ -219,23 +290,61 @@
     var action = document.getElementById('editAction');
     var task = document.getElementById('editTask');
     var valueInput = document.getElementById('editValue');
+    var valueField = document.getElementById('editValueField');
     var minFreeField = document.getElementById('editMinFreeGbField');
+    var ntpPolicyField = document.getElementById('editNtpPolicyField');
+    var ntpServersField = document.getElementById('editNtpServersField');
+    var timeOptionsField = document.getElementById('editTimeOptionsField');
+    var passwordUserField = document.getElementById('editPasswordUserField');
+    var passwordSecretField = document.getElementById('editPasswordSecretField');
+    var passwordConfirmField = document.getElementById('editPasswordConfirmField');
+    var firewallOpField = document.getElementById('editFirewallOpField');
+    var firewallIpField = document.getElementById('editFirewallIpField');
+    var firewallOp = document.getElementById('editFirewallOp');
+    var wallpaperField = document.getElementById('editWallpaperField');
+
+    function updateFirewallFields() {
+        var isFirewall = action && action.value === 'FIREWALL';
+        var allow = isFirewall && firewallOp && firewallOp.value === 'allow';
+        if (firewallOpField) firewallOpField.classList.toggle('d-none', !isFirewall);
+        if (firewallIpField) firewallIpField.classList.toggle('d-none', !allow);
+        var ipInput = document.getElementById('editFirewallIp');
+        if (ipInput) ipInput.required = allow;
+    }
+
     function updateAction() {
         if (!action || !valueInput) return;
-        var isApt = action.value === 'APT';
+        var current = action.value;
+        var isTime = current === 'TZ' || current === 'TIME';
+        var isApt = current === 'APT';
+        var isPassword = current === 'PASSWORD';
+        var isWallpaper = current === 'WALLPAPER';
+        if (valueField) valueField.classList.toggle('d-none', !isTime);
+        valueInput.disabled = !isTime;
+        valueInput.required = isTime;
         if (minFreeField) minFreeField.classList.toggle('d-none', !isApt);
-        valueInput.disabled = isApt;
-        valueInput.required = !isApt;
-        if (isApt) {
-            valueInput.value = 'safe';
-        } else if (valueInput.value === 'safe') {
-            valueInput.value = '';
-        }
+        if (ntpPolicyField) ntpPolicyField.classList.toggle('d-none', !isTime);
+        if (ntpServersField) ntpServersField.classList.toggle('d-none', !isTime);
+        if (timeOptionsField) timeOptionsField.classList.toggle('d-none', current !== 'TIME');
+        if (passwordUserField) passwordUserField.classList.toggle('d-none', !isPassword);
+        if (passwordSecretField) passwordSecretField.classList.toggle('d-none', !isPassword);
+        if (passwordConfirmField) passwordConfirmField.classList.toggle('d-none', !isPassword);
+        if (wallpaperField) wallpaperField.classList.toggle('d-none', !isWallpaper);
+        var passwordInput = document.getElementById('editNewPassword');
+        var passwordConfirm = document.getElementById('editNewPasswordConfirm');
+        var hasSecret = passwordInput && passwordInput.dataset.hasSecret === '1';
+        if (passwordInput) passwordInput.required = isPassword && !hasSecret;
+        if (passwordConfirm) passwordConfirm.required = isPassword && !hasSecret;
+        var wallpaperInput = document.getElementById('editWallpaperFile');
+        var hasWallpaper = wallpaperInput && wallpaperInput.dataset.hasWallpaper === '1';
+        if (wallpaperInput) wallpaperInput.required = isWallpaper && !hasWallpaper;
+        updateFirewallFields();
     }
     if (action) {
         action.addEventListener('change', updateAction);
         updateAction();
     }
+    if (firewallOp) firewallOp.addEventListener('change', updateFirewallFields);
     if (task && action) {
         task.addEventListener('change', function () {
             var option = task.selectedOptions[0];
