@@ -8,6 +8,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+### Cambiado
+
+- El favicon de la aplicación pasa a ser el icono institucional de ETECSA,
+  en 32, 48 y 180 px (este último para `apple-touch-icon`). Origen:
+  <https://www.etecsa.cu/sites/default/files/favicon-01_0.png>.
+
 ## [0.9.2] — 2026-11-13
 
 ### Añadido

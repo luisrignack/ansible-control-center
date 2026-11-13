@@ -386,7 +386,11 @@ def test_about_requires_login(client):
 # Favicon
 # ---------------------------------------------------------------------------
 def test_favicon_static_served(client):
-    for path in ("img/ansible-48.png", "img/ansible-96.png"):
+    for path in (
+        "img/favicon-etecsa-32.png",
+        "img/favicon-etecsa-48.png",
+        "img/favicon-etecsa-180.png",
+    ):
         response = client.get(f"/static/{path}")
         assert response.status_code == 200
         assert response.data[:8] == b"\x89PNG\r\n\x1a\n"
@@ -396,8 +400,12 @@ def test_favicon_linked_in_base_template(client):
     _login(client)
     response = client.get("/acerca-de")
     body = response.get_data(as_text=True)
-    assert "img/ansible-48.png" in body
+    assert "img/favicon-etecsa-48.png" in body
     assert 'rel="icon"' in body
+
+    # El favicon de ETECSA sustituye al icono anterior de Ansible.
+    assert "img/ansible-48.png" not in body
+    assert "img/ansible-96.png" not in body
 
 
 # ---------------------------------------------------------------------------
