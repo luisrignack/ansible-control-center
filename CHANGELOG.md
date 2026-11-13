@@ -8,6 +8,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.2] — 2026-11-13
+
 ### Añadido
 
 - Los informes PDF de ejecución y de migración incorporan el icono azul
