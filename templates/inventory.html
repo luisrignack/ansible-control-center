@@ -106,8 +106,8 @@
                 {% set schedule_count = schedule_counts.get(group.id, 0) %}
                 <a class="btn btn-sm btn-secondary"
                    href="{{ url_for('programaciones', group=group.id) }}"
-                   title="Planificar una tarea para este grupo">
-                    <i class="bi bi-calendar2-plus" aria-hidden="true"></i> Planificar
+                   title="Ver las programaciones de este grupo">
+                    <i class="bi bi-calendar2-week" aria-hidden="true"></i> Programaciones
                 </a>
                 <a class="badge {% if schedule_count %}badge-accent{% else %}bg-secondary{% endif %}"
                    href="{{ url_for('programaciones', group=group.id) }}"

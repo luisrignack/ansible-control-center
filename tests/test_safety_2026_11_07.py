@@ -433,11 +433,12 @@ def test_schedule_creation_rejects_outside_window(client, db_path):
 
     response = _post(
         client,
-        "/programaciones",
+        "/",
         {
-            "op": "create",
-            "name": "Fuera de ventana",
-            "task_id": _active_task()["id"],
+            "mode": "schedule",
+            "schedule_intent": "schedule",
+            "task": _active_task()["id"],
+            "schedule_name": "Fuera de ventana",
             "run_at": run_at,
             "recurrence": "once",
             "target_mode": "group",
@@ -447,6 +448,7 @@ def test_schedule_creation_rejects_outside_window(client, db_path):
             "value": "UTC",
             "ntp_policy": "keep",
             "master_password": "vault-pass",
+            "password_origin": "stored",
         },
     )
 

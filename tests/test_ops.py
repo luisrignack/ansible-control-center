@@ -737,31 +737,12 @@ def _future_run_at() -> str:
     return (datetime.now(UTC) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M")
 
 
-def _schedule_payload(**overrides):
-    data = {
-        "op": "create",
-        "name": "ventana",
-        "task_id": "zona-todas",
-        "run_at": _future_run_at(),
-        "recurrence": "once",
-        "target_mode": "manual",
-        "target_ip": "10.42.0.50",
-        "admin_user": "root",
-        "master_password": "clave-maestra",
-        "action": "TZ",
-        "value": "UTC",
-        "ntp_policy": "keep",
-    }
-    data.update(overrides)
-    return data
-
-
-def test_schedule_create_uses_op_and_forces_fixed_value(client):
+def test_schedule_create_uses_task_form_and_forces_fixed_value(client):
     _login(client)
     response = _post(
         client,
-        "/programaciones",
-        _schedule_payload(value="Europe/Madrid"),
+        "/",
+        _task_schedule_payload(schedule_name="ventana", value="Europe/Madrid"),
         follow_redirects=True,
     )
     assert "Programación &#39;ventana&#39; creada" in response.get_data(as_text=True)
@@ -775,8 +756,8 @@ def test_schedule_create_rejects_action_not_allowed_by_task(client):
     _login(client)
     response = _post(
         client,
-        "/programaciones",
-        _schedule_payload(action="TIME", value="2026-12-01T10:00"),
+        "/",
+        _task_schedule_payload(action="TIME", value="2026-12-01T10:00"),
         follow_redirects=True,
     )
     assert "no admite la acción TIME" in response.get_data(as_text=True)
@@ -803,8 +784,8 @@ def test_schedule_create_rejects_unknown_timezone(client, monkeypatch):
     )
     response = _post(
         client,
-        "/programaciones",
-        _schedule_payload(task_id="tz-libre", value="America/Atlantida"),
+        "/",
+        _task_schedule_payload(task="tz-libre", value="America/Atlantida"),
         follow_redirects=True,
     )
     assert "Zona horaria desconocida" in response.get_data(as_text=True)
@@ -891,34 +872,198 @@ def test_schedule_from_task_form_rejects_temporary_passwords(client):
     assert Schedule.all(db_path=app_module.get_db_path()) == []
 
 
-def test_schedules_page_filters_and_prefills_group(client):
+def test_schedules_page_filters_by_group_and_has_no_create_form(client):
     db_path = app_module.get_db_path()
     group = HostGroup.create("Sucursal", db_path=db_path)
     other = HostGroup.create("Otra sede", db_path=db_path)
+    run_at = datetime.now(UTC) + timedelta(hours=1)
+    params = {
+        "target_mode": "group",
+        "task_id": "zona-todas",
+        "admin_user": "root",
+        "action": "TZ",
+        "value": "America/Caracas",
+        "ntp_policy": "keep",
+    }
+    first = Schedule.create(
+        "de sucursal",
+        "zona-todas",
+        run_at,
+        {**params, "target": f"inventory:{group.id}", "target_group_id": group.id},
+        db_path=db_path,
+    )
+    Schedule.create(
+        "de otra sede",
+        "zona-todas",
+        run_at,
+        {**params, "target": f"inventory:{other.id}", "target_group_id": other.id},
+        db_path=db_path,
+    )
     _login(client)
-    _post(
-        client,
-        "/programaciones",
-        _schedule_payload(
-            name="de sucursal", target_mode="group", target_group=str(group.id)
-        ),
-        follow_redirects=True,
-    )
-    _post(
-        client,
-        "/programaciones",
-        _schedule_payload(
-            name="de otra sede", target_mode="group", target_group=str(other.id)
-        ),
-        follow_redirects=True,
-    )
 
     body = client.get(f"/programaciones?group={group.id}").get_data(as_text=True)
 
     assert "Filtrado por grupo" in body
     assert "de sucursal" in body
     assert "de otra sede" not in body
-    assert f'value="{group.id}" selected' in body
+    assert "Programaciones por ejecutar" in body
+    assert "Nueva programación" not in body
+    assert "Crear programación" not in body
+    assert f"/programaciones/{first.id}/editar" in body
+
+
+def test_schedule_edit_updates_time_and_preserves_secret(client):
+    db_path = app_module.get_db_path()
+    group = HostGroup.create("Aulas", db_path=db_path)
+    encrypted = scheduler_module.encrypt_secret("clave-maestra")
+    schedule = Schedule.create(
+        "ventana original",
+        "zona-todas",
+        datetime.now(UTC) + timedelta(hours=1),
+        {
+            "target": "10.42.0.50",
+            "target_mode": "manual",
+            "target_group_id": None,
+            "task_id": "zona-todas",
+            "admin_user": "root",
+            "action": "TZ",
+            "value": "America/Caracas",
+            "ntp_policy": "keep",
+            "master_password_enc": encrypted,
+        },
+        db_path=db_path,
+    )
+    _login(client)
+
+    page = client.get(f"/programaciones/{schedule.id}/editar").get_data(as_text=True)
+    assert "Editar programación" in page
+    assert "ventana original" in page
+    assert 'name="master_password"' not in page
+
+    new_run_at = (datetime.now(UTC) + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M")
+    response = _post(
+        client,
+        f"/programaciones/{schedule.id}/editar",
+        {
+            "name": "ventana editada",
+            "task_id": "zona-todas",
+            "run_at": new_run_at,
+            "recurrence": "weekly",
+            "target_mode": "group",
+            "target_group": str(group.id),
+            "admin_user": "root",
+            "action": "TZ",
+            "value": "Europe/Madrid",
+            "ntp_policy": "keep",
+            "min_free_gb": "",
+            "sync_rtc": "",
+            "force": "",
+        },
+        follow_redirects=True,
+    )
+
+    assert "Programación &#39;ventana editada&#39; actualizada" in response.get_data(
+        as_text=True
+    )
+    updated = Schedule.get(schedule.id, db_path=db_path)
+    assert updated is not None
+    assert updated.name == "ventana editada"
+    assert updated.recurrence == "weekly"
+    assert updated.run_at.startswith(new_run_at)
+    assert updated.params["target_mode"] == "group"
+    assert updated.params["target_group_id"] == group.id
+    assert updated.params["value"] == "America/Caracas"
+    assert updated.params["master_password_enc"] == encrypted
+
+
+def test_schedule_edit_rejects_outside_window(client):
+    db_path = app_module.get_db_path()
+    today = datetime.now(UTC).isoweekday()
+    group = HostGroup.create(
+        "Crítico",
+        criticality="critical",
+        window_days=str(today),
+        window_start="00:00",
+        window_end="00:01",
+        db_path=db_path,
+    )
+    host, error = InventoryHost.add(
+        group.id, "10.0.0.5", criticality="critical", db_path=db_path
+    )
+    assert error is None and host is not None
+    schedule = Schedule.create(
+        "fuera de ventana",
+        "zona-todas",
+        datetime.now(UTC) + timedelta(days=1),
+        {
+            "target": f"inventory:{group.id}",
+            "target_mode": "group",
+            "target_group_id": group.id,
+            "task_id": "zona-todas",
+            "admin_user": "root",
+            "action": "TZ",
+            "value": "America/Caracas",
+            "ntp_policy": "keep",
+            "master_password_enc": scheduler_module.encrypt_secret("clave"),
+        },
+        db_path=db_path,
+    )
+    _login(client)
+    run_at = (datetime.now(UTC) + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M")
+
+    response = _post(
+        client,
+        f"/programaciones/{schedule.id}/editar",
+        {
+            "name": "intento fuera de ventana",
+            "task_id": "zona-todas",
+            "run_at": run_at,
+            "recurrence": "once",
+            "target_mode": "group",
+            "target_group": str(group.id),
+            "admin_user": "root",
+            "action": "TZ",
+            "value": "America/Caracas",
+            "ntp_policy": "keep",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "fuera de la ventana de mantenimiento" in response.get_data(as_text=True)
+    unchanged = Schedule.get(schedule.id, db_path=db_path)
+    assert unchanged is not None
+    assert unchanged.name == "fuera de ventana"
+
+
+def test_schedule_edit_requires_admin(client):
+    db_path = app_module.get_db_path()
+    schedule = Schedule.create(
+        "solo admin",
+        "zona-todas",
+        datetime.now(UTC) + timedelta(hours=1),
+        {
+            "target": "10.42.0.50",
+            "target_mode": "manual",
+            "task_id": "zona-todas",
+            "admin_user": "root",
+            "action": "TZ",
+            "value": "America/Caracas",
+            "ntp_policy": "keep",
+            "master_password_enc": scheduler_module.encrypt_secret("clave"),
+        },
+        db_path=db_path,
+    )
+    User.create_or_update(
+        "operador",
+        "operador-clave-456",
+        role="operator",
+        db_path=db_path,
+    )
+    _login(client, "operador", "operador-clave-456")
+
+    response = client.get(f"/programaciones/{schedule.id}/editar")
+
+    assert response.status_code == 403
 
 
 def test_inventory_shows_window_help_and_schedule_shortcut(client):

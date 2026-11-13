@@ -169,12 +169,13 @@ La política se configura desde `/inventario` (tarjeta de cada grupo y selector
 por host). El formulario de ejecución muestra la criticidad y la ventana del
 grupo seleccionado antes de enviar.
 
-Cada tarjeta del inventario incluye **Planificar**, que abre
-`/programaciones` filtrado por ese grupo y con el grupo preseleccionado. Desde
-la vista de una tarea programable, el administrador puede elegir **Programar**
-en «¿Cuándo ejecutar?» o usar el recuadro **Programación** del panel lateral;
-ambos caminos reutilizan la misma validación y la misma ventana de
-mantenimiento que el alta desde `/programaciones`.
+Cada tarjeta del inventario incluye **Programaciones**, que abre el listado
+filtrado por ese grupo. La vista `/programaciones` muestra únicamente las
+ejecuciones pendientes y permite editar fecha, repetición y parámetros de cada
+una. Para crear una programación nueva, abre la tarea desde el catálogo y usa
+**Programar** en «¿Cuándo ejecutar?» o el recuadro **Programación** del panel
+lateral; ambos caminos reutilizan la misma validación y la misma ventana de
+mantenimiento.
 
 ### 2.5. Durante la ejecución
 

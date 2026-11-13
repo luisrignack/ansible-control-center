@@ -2754,16 +2754,18 @@ def _schedulable_tasks() -> dict[str, dict[str, Any]]:
     }
 
 
-def _create_schedule_from_form(
+def _validate_schedule_form(
     tasks: dict[str, dict[str, Any]],
     db_path: str,
     form,
-) -> tuple[str | None, list[str], list[str]]:
-    """Valida y crea una programación desde un formulario.
+    *,
+    existing: Schedule | None = None,
+) -> tuple[dict[str, Any] | None, list[str], list[str]]:
+    """Valida los campos comunes de alta y edición de programaciones.
 
-    Devuelve ``(nombre_creado, errores, avisos)``. No redirige ni escribe
-    flashes para que lo puedan usar tanto ``/programaciones`` como el modo
-    "Programar" del formulario de ejecución, sin duplicar validaciones.
+    Devuelve ``(datos, errores, avisos)``. Los datos incluyen nombre, tarea,
+    fecha, recurrencia y parámetros operativos sin secretos. En el alta se
+    exige la contraseña maestra; en la edición se conserva la ya cifrada.
     """
     errors: list[str] = []
     warnings: list[str] = []
@@ -2787,7 +2789,7 @@ def _create_schedule_from_form(
             warnings,
         )
     master_password = form.get("master_password", "")
-    if not master_password:
+    if existing is None and not master_password:
         return (
             None,
             [
@@ -2875,22 +2877,86 @@ def _create_schedule_from_form(
             "min_free_gb": validated["min_free_gb"],
         }
     )
+    return {
+        "name": name,
+        "task_id": task_id,
+        "run_at": run_at,
+        "recurrence": recurrence,
+        "params": schedule_params,
+        "master_password": master_password,
+    }, errors, warnings
+
+
+def _create_schedule_from_form(
+    tasks: dict[str, dict[str, Any]],
+    db_path: str,
+    form,
+) -> tuple[str | None, list[str], list[str]]:
+    """Valida y crea una programación desde un formulario.
+
+    Devuelve ``(nombre_creado, errores, avisos)``. No redirige ni escribe
+    flashes para que lo usen el formulario de ejecución y las pruebas sin
+    duplicar validaciones.
+    """
+    data, errors, warnings = _validate_schedule_form(tasks, db_path, form)
+    if data is None:
+        return None, errors, warnings
     try:
         Schedule.create(
-            name,
-            task_id,
-            run_at,
+            data["name"],
+            data["task_id"],
+            data["run_at"],
             {
-                **schedule_params,
-                "master_password_enc": scheduler.encrypt_secret(master_password),
+                **data["params"],
+                "master_password_enc": scheduler.encrypt_secret(
+                    data["master_password"]
+                ),
             },
-            recurrence=recurrence,
+            recurrence=data["recurrence"],
             created_by=getattr(current_user, "username", "") or "",
             db_path=db_path,
         )
     except ValueError as exc:
         return None, [str(exc)], warnings
-    return name, errors, warnings
+    return data["name"], errors, warnings
+
+
+def _update_schedule_from_form(
+    schedule: Schedule,
+    tasks: dict[str, dict[str, Any]],
+    db_path: str,
+    form,
+) -> tuple[str | None, list[str], list[str]]:
+    """Valida y actualiza una programación conservando su secreto cifrado."""
+    data, errors, warnings = _validate_schedule_form(
+        tasks, db_path, form, existing=schedule
+    )
+    if data is None:
+        return None, errors, warnings
+    encrypted = (schedule.params or {}).get("master_password_enc")
+    if not encrypted:
+        return (
+            None,
+            [
+                (
+                    "La programación no conserva la contraseña cifrada. Elimínala "
+                    "y vuelve a crearla desde la tarjeta de la tarea."
+                )
+            ],
+            warnings,
+        )
+    try:
+        Schedule.update(
+            schedule.id,
+            data["name"],
+            data["run_at"],
+            {**data["params"], "master_password_enc": encrypted},
+            recurrence=data["recurrence"],
+            db_path=db_path,
+        )
+    except ValueError as exc:
+        return None, [str(exc)], warnings
+    return data["name"], errors, warnings
 
 
 def _handle_schedule_from_task_form():
@@ -2949,11 +3015,11 @@ def programaciones():
     if request.method == "POST":
         if not current_user.has_role("admin"):
             abort(403)
-        # ``op`` identifica la operación del formulario (crear/activar/
-        # eliminar); ``action`` es la acción operativa de la programación
-        # (TZ/TIME). Antes ambos usaban ``action`` y el formulario de alta
-        # enviaba dos valores: la programación quedaba guardada con
-        # ``action="create"`` y fallaba al dispararse.
+        # ``op`` identifica la operación del formulario (activar/eliminar);
+        # ``action`` es la acción operativa de la programación (TZ/TIME/APT).
+        # Antes ambos usaban ``action`` y el formulario de alta enviaba dos
+        # valores: la programación quedaba guardada con ``action="create"`` y
+        # fallaba al dispararse.
         action = request.form.get("op", "").strip()
         if action == "toggle":
             schedule = (
@@ -2981,20 +3047,6 @@ def programaciones():
             else:
                 Schedule.delete(schedule.id, db_path=db_path)
                 flash(f"Programación '{schedule.name}' eliminada.", "success")
-        elif action == "create":
-            created, errors, warnings = _create_schedule_from_form(
-                tasks, db_path, request.form
-            )
-            for error in errors:
-                flash(error, "danger")
-            for warning in warnings:
-                flash(warning, "warning")
-            if created is not None:
-                flash(
-                    f"Programación '{created}' creada. Se ejecutará sola (UTC) "
-                    "mientras esté activa.",
-                    "success",
-                )
         else:
             flash("Acción de programación no válida.", "warning")
         return redirect(url_for("programaciones"))
@@ -3013,6 +3065,13 @@ def programaciones():
         item["group_name"] = group["name"] if group else ""
         item["group_criticality"] = group.get("criticality_label", "") if group else ""
         item["group_window"] = group.get("window_label", "") if group else ""
+    # Las programaciones activas más próximas primero; las inactivas al final.
+    schedules.sort(
+        key=lambda item: (
+            0 if item.get("enabled") else 1,
+            item.get("run_at") or "9999-12-31T23:59",
+        )
+    )
 
     filter_group_raw = request.args.get("group", "").strip()
     filter_group_id = int(filter_group_raw) if filter_group_raw.isdigit() else None
@@ -3030,17 +3089,92 @@ def programaciones():
     return render_template(
         "schedules.html",
         schedules=schedules,
-        tasks=[{"id": key, "name": value["name"]} for key, value in tasks.items()],
-        inventory_groups=groups,
         filter_group_id=filter_group_id,
         filter_group_name=filter_group_name,
-        prefill={
-            "target_mode": "group" if filter_group_id is not None else "manual",
-            "target_group": str(filter_group_id) if filter_group_id is not None else "",
-            "task_id": request.args.get("task_id", "").strip(),
-            "action": request.args.get("action", "").strip().upper(),
-            "value": request.args.get("value", "").strip(),
+        recurrence_labels={
+            "once": "Una vez",
+            "daily": "Diaria",
+            "weekly": "Semanal",
         },
+    )
+
+
+@app.route("/programaciones/<int:schedule_id>/editar", methods=["GET", "POST"])
+@login_required
+def schedule_edit(schedule_id: int):
+    """Edita una programación existente conservando su secreto cifrado."""
+    if not current_user.has_role("admin"):
+        abort(403)
+    db_path = get_db_path()
+    schedule = Schedule.get(schedule_id, db_path=db_path)
+    if schedule is None:
+        flash("La programación no existe.", "warning")
+        return redirect(url_for("programaciones"))
+
+    tasks = _schedulable_tasks()
+    if schedule.task_id not in tasks:
+        flash(
+            f"La tarea '{schedule.task_id}' ya no está disponible para "
+            "programar. Elimina esta programación o vuelve a crearla desde "
+            "el catálogo.",
+            "warning",
+        )
+        return redirect(url_for("programaciones"))
+    errors: list[str] = []
+    warnings: list[str] = []
+    values: dict[str, Any] = {}
+    if request.method == "POST":
+        updated, errors, warnings = _update_schedule_from_form(
+            schedule, tasks, db_path, request.form
+        )
+        if updated is not None:
+            for warning in warnings:
+                flash(warning, "warning")
+            flash(f"Programación '{updated}' actualizada.", "success")
+            return redirect(url_for("programaciones"))
+        values = dict(request.form)
+    if not values:
+        params = schedule.params or {}
+        target_mode = str(params.get("target_mode") or "manual")
+        values = {
+            "name": schedule.name,
+            "task_id": schedule.task_id,
+            "run_at": (schedule.run_at or "")[:16],
+            "recurrence": schedule.recurrence,
+            "target_mode": target_mode,
+            "target_ip": params.get("target") if target_mode != "group" else "",
+            "target_group": str(params.get("target_group_id") or ""),
+            "admin_user": params.get("admin_user") or TARGET_ADMIN_USERNAME,
+            "action": params.get("action") or "TZ",
+            "value": params.get("value") or "",
+            "ntp_policy": params.get("ntp_policy") or "keep",
+            "ntp_servers": ", ".join(params.get("ntp_servers") or []),
+            "min_free_gb": params.get("min_free_gb") or APT_MIN_FREE_GB,
+            "sync_rtc": bool(params.get("sync_rtc")),
+            "force": bool(params.get("force")),
+        }
+
+    inventory_groups = []
+    for group in HostGroup.all(db_path=db_path):
+        data = group.to_dict()
+        data["safety"] = _safety_for_group(group)
+        inventory_groups.append(data)
+    return render_template(
+        "schedule_edit.html",
+        schedule=schedule,
+        values=values,
+        errors=errors,
+        warnings=warnings,
+        tasks=[
+            {
+                "id": key,
+                "name": value["name"],
+                "actions": value.get("actions") or [],
+                "fixed_value": value.get("fixed_value", ""),
+            }
+            for key, value in tasks.items()
+        ],
+        inventory_groups=inventory_groups,
         recurrence_labels={
             "once": "Una vez",
             "daily": "Diaria",

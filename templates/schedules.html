@@ -22,125 +22,19 @@
     <div>
         <div class="eyebrow">Operación</div>
         <h1>Programaciones</h1>
-        <p class="sub">Ventanas de mantenimiento: ejecuta una tarea del catálogo a una hora concreta, como una programación de una vez, diaria o semanal.</p>
+        <p class="sub">
+            Listado de tareas programadas por ejecutar. Para crear una nueva,
+            abre la tarea desde el catálogo y usa <strong>Programar</strong>.
+        </p>
     </div>
+    <a class="btn btn-secondary" href="{{ url_for('index') }}">
+        <i class="bi bi-grid" aria-hidden="true"></i> Ir al catálogo
+    </a>
 </div>
-
-{% if current_user.has_role('admin') %}
-<div class="card fade-in mb-4">
-    <div class="card-header">
-        <h2 class="card-title"><i class="bi bi-calendar2-plus" aria-hidden="true"></i> Nueva programación</h2>
-        <span class="badge badge-accent">Se ejecuta desatendida</span>
-    </div>
-    <div class="card-body p-4">
-        <form method="post" action="{{ url_for('programaciones') }}" class="row g-3">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="op" value="create">
-            <div class="col-md-3">
-                <label for="scheduleName" class="form-label fw-medium">Nombre</label>
-                <input type="text" class="form-control" id="scheduleName" name="name"
-                    placeholder="ej. Ventana domingo" maxlength="80" required>
-            </div>
-            <div class="col-md-3">
-                <label for="scheduleTask" class="form-label fw-medium">Tarea</label>
-                <select class="form-select" id="scheduleTask" name="task_id" required>
-                    {% for task in tasks %}
-                    <option value="{{ task.id }}" {% if prefill.task_id == task.id %}selected{% endif %}>{{ task.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="col-md-3">
-                <label for="scheduleRunAt" class="form-label fw-medium">Primera ejecución (UTC)</label>
-                <input type="datetime-local" class="form-control" id="scheduleRunAt" name="run_at" required>
-                <div class="form-text">La hora se interpreta en UTC (hora del servidor).</div>
-            </div>
-            <div class="col-md-3">
-                <label for="scheduleRecurrence" class="form-label fw-medium">Repetir</label>
-                <select class="form-select" id="scheduleRecurrence" name="recurrence">
-                    <option value="once">Una vez</option>
-                    <option value="daily">Diaria (24 h)</option>
-                    <option value="weekly">Semanal (7 días)</option>
-                </select>
-            </div>
-            <div class="col-md-4">
-                <label class="form-label fw-medium d-block">Objetivo</label>
-                <div class="d-flex gap-2 mb-2">
-                    <div class="form-check">
-                        <input class="form-check-input" type="radio" name="target_mode" id="scheduleTargetManual"
-                            value="manual" {% if prefill.target_mode != 'group' %}checked{% endif %}>
-                        <label class="form-check-label" for="scheduleTargetManual">IP manual</label>
-                    </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="radio" name="target_mode" id="scheduleTargetGroup"
-                            value="group" {% if prefill.target_mode == 'group' %}checked{% endif %}>
-                        <label class="form-check-label" for="scheduleTargetGroup">Grupo</label>
-                    </div>
-                </div>
-                <input type="text" class="form-control" id="scheduleTargetIp" name="target_ip"
-                    placeholder="172.17.128.118-172.17.128.235">
-                <select class="form-select d-none" id="scheduleTargetGroupSelect" name="target_group">
-                    <option value="">Selecciona un grupo…</option>
-                    {% for group in inventory_groups %}
-                    <option value="{{ group.id }}" {% if prefill.target_group == group.id|string %}selected{% endif %}>{{ group.name }} · {{ group.host_count }} host(s){% if group.window_label %} · {{ group.window_label }}{% endif %}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="col-md-4">
-                <label for="scheduleAdminUser" class="form-label fw-medium">Usuario admin</label>
-                <input type="text" class="form-control" id="scheduleAdminUser" name="admin_user"
-                    placeholder="root" value="root" required>
-            </div>
-            <div class="col-md-4">
-                <label for="scheduleMasterPassword" class="form-label fw-medium">
-                    <i class="bi bi-shield-lock me-1"></i> Contraseña maestra del vault
-                </label>
-                <input type="password" class="form-control" id="scheduleMasterPassword"
-                    name="master_password" required autocomplete="new-password">
-                <div class="form-text">Se guarda cifrada (Fernet) y nunca se vuelve a mostrar.</div>
-            </div>
-            <div class="col-md-3">
-                <label for="scheduleAction" class="form-label fw-medium">Acción</label>
-                <select class="form-select" id="scheduleAction" name="action">
-                    <option value="TZ" {% if prefill.action == 'TZ' or not prefill.action %}selected{% endif %}>Zona Horaria (TZ)</option>
-                    <option value="TIME" {% if prefill.action == 'TIME' %}selected{% endif %}>Hora Exacta (TIME)</option>
-                    <option value="APT" {% if prefill.action == 'APT' %}selected{% endif %}>Actualización segura del sistema (APT)</option>
-                </select>
-            </div>
-            <div class="col-md-5">
-                <label for="scheduleValue" class="form-label fw-medium">Valor</label>
-                <input type="text" class="form-control" id="scheduleValue" name="value"
-                    value="{{ prefill.value }}"
-                    placeholder="America/Caracas o 2026-01-01T05:00">
-            </div>
-            <div class="col-md-4">
-                <label for="scheduleNtpPolicy" class="form-label fw-medium">NTP</label>
-                <select class="form-select" id="scheduleNtpPolicy" name="ntp_policy">
-                    <option value="keep">Mantener NTP</option>
-                    <option value="off">Desactivar</option>
-                    <option value="restore">Restaurar al terminar</option>
-                </select>
-            </div>
-            <div class="col-md-3 d-none" id="scheduleMinFreeGbField">
-                <label for="scheduleMinFreeGb" class="form-label fw-medium">
-                    Espacio mínimo (GB)
-                </label>
-                <input type="number" step="0.5" min="{{ min_free_gb_floor }}"
-                    max="{{ min_free_gb_ceiling }}" class="form-control"
-                    id="scheduleMinFreeGb" name="min_free_gb"
-                    value="{{ default_min_free_gb }}">
-                <div class="form-text">Solo para APT.</div>
-            </div>
-            <div class="col-12">
-                <button type="submit" class="btn btn-acento">Crear programación</button>
-            </div>
-        </form>
-    </div>
-</div>
-{% endif %}
 
 <div class="card fade-in">
     <div class="card-header">
-        <h2 class="card-title"><i class="bi bi-calendar2-week" aria-hidden="true"></i> Programaciones existentes</h2>
+        <h2 class="card-title"><i class="bi bi-calendar2-week" aria-hidden="true"></i> Programaciones por ejecutar</h2>
         <span class="badge bg-secondary">{{ schedules | length }}</span>
     </div>
     <div class="card-body p-0">
@@ -151,10 +45,10 @@
                         <th scope="col">Nombre</th>
                         <th scope="col">Tarea</th>
                         <th scope="col">Objetivo</th>
-                        <th scope="col">Próxima</th>
+                        <th scope="col">Próxima (UTC)</th>
                         <th scope="col">Repetir</th>
                         <th scope="col">Estado</th>
-                        {% if current_user.has_role('admin') %}<th scope="col"></th>{% endif %}
+                        {% if current_user.has_role('admin') %}<th scope="col" class="text-end">Acciones</th>{% endif %}
                     </tr>
                 </thead>
                 <tbody>
@@ -171,7 +65,7 @@
                             </small>
                             {% endif %}
                         </small></td>
-                        <td><small>{{ item.run_at[:16] if item.run_at else '—' }} UTC</small></td>
+                        <td><small>{{ item.run_at[:16] if item.run_at else '—' }}</small></td>
                         <td><small>{{ recurrence_labels.get(item.recurrence, item.recurrence) }}</small></td>
                         <td>
                             <span class="badge {% if item.enabled %}bg-success{% else %}bg-secondary{% endif %}">
@@ -185,7 +79,11 @@
                             {% endif %}
                         </td>
                         {% if current_user.has_role('admin') %}
-                        <td class="text-end">
+                        <td class="text-end text-nowrap">
+                            <a class="icon-btn" href="{{ url_for('schedule_edit', schedule_id=item.id) }}"
+                                title="Editar programación" aria-label="Editar {{ item.name }}">
+                                <i class="bi bi-pencil-square" aria-hidden="true"></i>
+                            </a>
                             <form method="post" action="{{ url_for('programaciones') }}" class="d-inline">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="op" value="toggle">
@@ -210,7 +108,12 @@
                     {% else %}
                     <tr>
                         <td colspan="7" class="text-center py-4">
-                            <small class="text-secondary">No hay programaciones aún.</small>
+                            <div class="mb-2"><i class="bi bi-calendar2-x" aria-hidden="true"></i></div>
+                            <small class="text-secondary">
+                                No hay programaciones por ejecutar. Abre una tarea
+                                del <a href="{{ url_for('index') }}">catálogo</a> y usa
+                                <strong>Programar</strong>.
+                            </small>
                         </td>
                     </tr>
                     {% endfor %}
@@ -219,45 +122,4 @@
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block extra_scripts %}
-{% if current_user.has_role('admin') %}
-<script nonce="{{ csp_nonce }}">
-(function () {
-    var manual = document.getElementById('scheduleTargetManual');
-    var group = document.getElementById('scheduleTargetGroup');
-    var manualInput = document.getElementById('scheduleTargetIp');
-    var groupSelect = document.getElementById('scheduleTargetGroupSelect');
-    if (!manual || !group) return;
-    function update() {
-        manualInput.classList.toggle('d-none', !manual.checked);
-        manualInput.required = manual.checked;
-        groupSelect.classList.toggle('d-none', manual.checked);
-        groupSelect.required = group.checked;
-    }
-    manual.addEventListener('change', update);
-    group.addEventListener('change', update);
-    update();
-
-    var actionSelect = document.getElementById('scheduleAction');
-    var minFreeField = document.getElementById('scheduleMinFreeGbField');
-    var valueInput = document.getElementById('scheduleValue');
-    if (actionSelect) {
-        var updateAction = function () {
-            var isApt = actionSelect.value === 'APT';
-            if (minFreeField) minFreeField.classList.toggle('d-none', !isApt);
-            if (valueInput) {
-                valueInput.disabled = isApt;
-                valueInput.required = !isApt;
-                if (isApt) valueInput.value = 'safe';
-                else if (valueInput.value === 'safe') valueInput.value = '';
-            }
-        };
-        actionSelect.addEventListener('change', updateAction);
-        updateAction();
-    }
-})();
-</script>
-{% endif %}
 {% endblock %}

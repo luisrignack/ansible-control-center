@@ -653,6 +653,58 @@ class Schedule:
         return Schedule(row)
 
     @classmethod
+    def update(
+        cls,
+        schedule_id: int,
+        name: str,
+        run_at: datetime,
+        params: dict[str, Any],
+        recurrence: str = SCHEDULE_ONESHOT,
+        db_path: str | None = None,
+    ) -> Schedule:
+        """Actualiza una programación existente sin tocar su estado.
+
+        Se revalida nombre, recurrencia y fecha futura igual que en el alta.
+        La reserva de ejecución se limpia para que el scheduler vuelva a
+        evaluar la nueva hora sin esperar a que caduque.
+        """
+        if db_path is None:
+            db_path = _default_db_path()
+        name = (name or "").strip()
+        if not name or len(name) > 80:
+            raise ValueError("El nombre de la programación es obligatorio.")
+        if recurrence not in SCHEDULE_RECURRENCES:
+            raise ValueError("Recurrencia no válida.")
+        if run_at.tzinfo is None:
+            run_at = run_at.replace(tzinfo=UTC)
+        if run_at < datetime.now(UTC) - timedelta(seconds=120):
+            raise ValueError("La fecha/hora debe estar en el futuro (UTC).")
+        with get_connection(db_path) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE schedules
+                SET name = ?, run_at = ?, recurrence = ?, params = ?,
+                    claimed_at = NULL, claimed_by = NULL
+                WHERE id = ?
+                """,
+                (
+                    name,
+                    run_at.isoformat(timespec="seconds"),
+                    recurrence,
+                    json.dumps(params, ensure_ascii=False),
+                    int(schedule_id),
+                ),
+            )
+            if int(cursor.rowcount or 0) != 1:
+                raise ValueError("La programación no existe.")
+        updated = cls.get(schedule_id, db_path=db_path)
+        if updated is None:  # pragma: no cover - el UPDATE acaba de ejecutarse
+            raise RuntimeError(
+                f"No se pudo recuperar la programación actualizada: {schedule_id}"
+            )
+        return updated
+
+    @classmethod
     def set_enabled(
         cls,
         schedule_id: int,
