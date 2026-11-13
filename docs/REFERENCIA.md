@@ -25,7 +25,9 @@ contrato de los playbooks.
 | POST | `/modulos/restaurar` | Sí | Devuelve todas las tarjetas al panel |
 | GET | `/batches/<batch_id>` | Sí | Detalle del lote |
 | GET | `/preview/<batch_id>` | Sí | Redirección a `/batches/<batch_id>` |
-| GET, POST | `/passwords` | Sí | Gestión del vault |
+| GET, POST | `/passwords` | Sí | Vault compartido: lectura para todos; alta/borrado solo `admin` |
+| GET, POST | `/inventario` | Sí | Grupos propios y compartidos; edición `admin`/`operator` |
+| GET, POST | `/programaciones` | Sí | Programaciones propias y compartidas; alta/edición `admin` |
 | GET | `/history` | Sí | Historial de lotes |
 
 Errores: `400`, `404`, `429`, `500`. Las peticiones AJAX/JSON reciben JSON en
@@ -59,6 +61,9 @@ Campos aceptados por `/`, `/preview` y `/execute`:
 | `encrypt` | `passwords_textarea`, `master_password` | Cifra y añade al vault |
 | `delete` | `password_id`, `master_password` | Elimina del vault y SQLite |
 | `load_file` | `password_file`, `master_password` | Importa `.txt` o vault `.yml/.yaml` |
+
+Las tres acciones requieren rol `admin`. Cualquier usuario autenticado puede
+consultar el listado y usar el vault al ejecutar tareas.
 
 ---
 
@@ -190,7 +195,8 @@ Cada entrada descifrada contiene: `index`, `password`, `original`,
 | `get_connection(db_path)` | Context manager con commit/rollback |
 | `init_schema(db_path)` | Migraciones idempotentes; fija `user_version` |
 
-`SCHEMA_VERSION = 12`.
+`SCHEMA_VERSION = 19`. La v19 añade `owner_user_id` a `schedules` e
+`inventory_groups`; las filas existentes quedan con `0` (compartidas).
 
 ### `models/user.py`
 
@@ -327,11 +333,19 @@ last_error TEXT NOT NULL DEFAULT '',
 created_by TEXT NOT NULL DEFAULT '',
 created_at TEXT NOT NULL,
 claimed_at TEXT,
-claimed_by TEXT
+claimed_by TEXT,
+owner_user_id INTEGER NOT NULL DEFAULT 0
 ```
 
 `claimed_at`/`claimed_by` (esquema v12) reservan la fila de forma atómica
-entre procesos; `Schedule.mark_run` limpia la reserva.
+entre procesos; `Schedule.mark_run` limpia la reserva. `owner_user_id`
+(esquema v19) identifica al creador; `0` significa fila heredada compartida.
+`Schedule.all(owner_user_id=...)` incluye las compartidas salvo que se pida
+lo contrario.
+
+`inventory_groups` incorpora la misma columna `owner_user_id` (v19), con el
+mismo significado. Los operadores pueden crear y editar sus propios grupos;
+los grupos compartidos solo los modifica un administrador.
 
 ### `approvals`
 

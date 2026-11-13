@@ -27,10 +27,33 @@
             abre la tarea desde el catálogo y usa <strong>Programar</strong>.
         </p>
     </div>
-    <a class="btn btn-secondary" href="{{ url_for('index') }}">
-        <i class="bi bi-grid" aria-hidden="true"></i> Ir al catálogo
-    </a>
+    <div class="head-actions">
+        {% if current_user.has_role('admin') %}
+            {% if show_all %}
+            <a class="btn btn-sm btn-secondary" href="{{ url_for('programaciones') }}">
+                <i class="bi bi-person" aria-hidden="true"></i> Ver solo las mías
+            </a>
+            {% else %}
+            <a class="btn btn-sm btn-secondary" href="{{ url_for('programaciones', all=1) }}">
+                <i class="bi bi-people" aria-hidden="true"></i> Ver todo
+            </a>
+            {% endif %}
+        {% endif %}
+        <a class="btn btn-secondary" href="{{ url_for('index') }}">
+            <i class="bi bi-grid" aria-hidden="true"></i> Ir al catálogo
+        </a>
+    </div>
 </div>
+
+{% if show_all %}
+<div class="banner banner-info mb-3" role="status">
+    <div class="banner-icon" aria-hidden="true"><i class="bi bi-people"></i></div>
+    <div>
+        <div class="banner-title">Vista global de administración</div>
+        <div class="banner-text">Estás viendo también las programaciones privadas de otros usuarios.</div>
+    </div>
+</div>
+{% endif %}
 
 <div class="card fade-in">
     <div class="card-header">
@@ -55,7 +78,12 @@
                     {% for item in schedules %}
                     <tr>
                         <td><strong>{{ item.name }}</strong><br>
-                            <small class="text-secondary">por {{ item.created_by or '—' }}</small></td>
+                            <small class="text-secondary">por {{ item.created_by or '—' }}</small>
+                            {% if item.is_shared %}
+                            <span class="badge bg-dark ms-1" title="Visible para todos los usuarios">Compartida</span>
+                            {% else %}
+                            <span class="badge bg-secondary ms-1">{{ item.owner_name or '—' }}</span>
+                            {% endif %}</td>
                         <td><small>{{ item.task_name }}</small></td>
                         <td><small><code>{{ item.params.target or '—' }}</code>
                             {% if item.group_name %}
@@ -86,6 +114,7 @@
                             </a>
                             <form method="post" action="{{ url_for('programaciones') }}" class="d-inline">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                {% if show_all %}<input type="hidden" name="view_all" value="1">{% endif %}
                                 <input type="hidden" name="op" value="toggle">
                                 <input type="hidden" name="schedule_id" value="{{ item.id }}">
                                 <button type="submit" class="icon-btn"
@@ -96,6 +125,7 @@
                             <form method="post" action="{{ url_for('programaciones') }}" class="d-inline"
                                 data-confirm="¿Eliminar esta programación?">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                {% if show_all %}<input type="hidden" name="view_all" value="1">{% endif %}
                                 <input type="hidden" name="op" value="delete">
                                 <input type="hidden" name="schedule_id" value="{{ item.id }}">
                                 <button type="submit" class="icon-btn" title="Eliminar">

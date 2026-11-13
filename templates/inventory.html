@@ -10,11 +10,34 @@
     <div>
         <div class="eyebrow">Operación</div>
         <h1>Inventario de hosts</h1>
-        <p class="sub">Grupos persistentes de hosts que pueden usarse como objetivo de cualquier tarea, con clave SSH opcional por grupo.</p>
+        <p class="sub">Grupos persistentes de hosts con clave SSH opcional. Cada usuario ve los suyos y los compartidos; los administradores pueden abrir la vista global.</p>
     </div>
+    {% if current_user.has_role('admin') %}
+    <div class="head-actions">
+        {% if show_all %}
+        <a class="btn btn-sm btn-secondary" href="{{ url_for('inventario') }}">
+            <i class="bi bi-person" aria-hidden="true"></i> Ver solo los míos
+        </a>
+        {% else %}
+        <a class="btn btn-sm btn-secondary" href="{{ url_for('inventario', all=1) }}">
+            <i class="bi bi-people" aria-hidden="true"></i> Ver todo
+        </a>
+        {% endif %}
+    </div>
+    {% endif %}
 </div>
 
-{% if current_user.has_role('admin') %}
+{% if show_all %}
+<div class="banner banner-info mb-3" role="status">
+    <div class="banner-icon" aria-hidden="true"><i class="bi bi-people"></i></div>
+    <div>
+        <div class="banner-title">Vista global de administración</div>
+        <div class="banner-text">Estás viendo también los grupos privados de otros usuarios.</div>
+    </div>
+</div>
+{% endif %}
+
+{% if can_create_group %}
 <div class="card fade-in mb-4">
     <div class="card-header">
         <h2 class="card-title"><i class="bi bi-plus-circle" aria-hidden="true"></i> Nuevo grupo</h2>
@@ -22,6 +45,7 @@
     <div class="card-body p-4">
         <form method="post" action="{{ url_for('inventario') }}" class="row g-3 align-items-end">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if show_all %}<input type="hidden" name="view_all" value="1">{% endif %}
             <input type="hidden" name="action" value="create_group">
             <div class="col-12">
                 <h3 class="h6 text-secondary mb-0">Datos del grupo</h3>
@@ -104,6 +128,13 @@
             </h2>
             <div class="d-flex flex-wrap gap-2 align-items-center justify-content-end">
                 {% set schedule_count = schedule_counts.get(group.id, 0) %}
+                {% if group.is_shared %}
+                <span class="badge bg-dark" title="Visible y utilizable por todos los usuarios">
+                    <i class="bi bi-people" aria-hidden="true"></i> Compartido
+                </span>
+                {% else %}
+                <span class="badge bg-secondary">de {{ group.owner_name or '—' }}</span>
+                {% endif %}
                 <a class="btn btn-sm btn-secondary"
                    href="{{ url_for('programaciones', group=group.id) }}"
                    title="Ver las programaciones de este grupo">
@@ -143,7 +174,7 @@
                             <th scope="col">Etiqueta</th>
                             <th scope="col">Criticidad</th>
                             <th scope="col">Añadido</th>
-                            {% if current_user.has_role('admin') %}<th scope="col"></th>{% endif %}
+                            {% if group.can_manage %}<th scope="col"></th>{% endif %}
                         </tr>
                     </thead>
                     <tbody>
@@ -153,9 +184,10 @@
                             <td><code>{{ host.address }}</code></td>
                             <td><small>{{ host.label or '—' }}</small></td>
                             <td>
-                                {% if current_user.has_role('admin') %}
+                                {% if group.can_manage %}
                                 <form method="post" action="{{ url_for('inventario') }}" class="d-flex gap-1">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if show_all %}<input type="hidden" name="view_all" value="1">{% endif %}
                                     <input type="hidden" name="action" value="update_host_criticality">
                                     <input type="hidden" name="host_id" value="{{ host.id }}">
                                     <select class="form-select form-select-sm" name="criticality"
@@ -174,10 +206,11 @@
                                 {% endif %}
                             </td>
                             <td><small>{{ host.created_at[:16] if host.created_at else '—' }}</small></td>
-                            {% if current_user.has_role('admin') %}
+                            {% if group.can_manage %}
                             <td class="text-end">
                                 <form method="post" action="{{ url_for('inventario') }}" class="d-inline">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if show_all %}<input type="hidden" name="view_all" value="1">{% endif %}
                                     <input type="hidden" name="action" value="delete_host">
                                     <input type="hidden" name="host_id" value="{{ host.id }}">
                                     <button type="submit" class="icon-btn" title="Quitar host del grupo"
@@ -195,7 +228,7 @@
                 </table>
             </div>
 
-            {% if current_user.has_role('admin') %}
+            {% if group.can_manage %}
             <div class="row g-3">
                 <div class="col-12">
                     <hr class="my-2">
@@ -204,6 +237,7 @@
                     <h3 class="h6 text-secondary mb-2">Criticidad y ventana de mantenimiento (UTC)</h3>
                     <form method="post" action="{{ url_for('inventario') }}" class="row g-2 align-items-end">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if show_all %}<input type="hidden" name="view_all" value="1">{% endif %}
                         <input type="hidden" name="action" value="update_group_safety">
                         <input type="hidden" name="group_id" value="{{ group.id }}">
                         <div class="col-6 col-md-2">
@@ -249,6 +283,7 @@
                 <div class="col-12 col-md-8">
                     <form method="post" action="{{ url_for('inventario') }}" class="row g-2 align-items-end">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if show_all %}<input type="hidden" name="view_all" value="1">{% endif %}
                         <input type="hidden" name="action" value="add_host">
                         <input type="hidden" name="group_id" value="{{ group.id }}">
                         <div class="col-4">
@@ -279,6 +314,7 @@
                     {% if group.os_flavor != 'windows' %}
                     <form method="post" action="{{ url_for('inventario') }}" class="row g-2 align-items-end">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if show_all %}<input type="hidden" name="view_all" value="1">{% endif %}
                         <input type="hidden" name="action" value="upload_key">
                         <input type="hidden" name="group_id" value="{{ group.id }}">
                         <div class="col-8">
@@ -304,6 +340,7 @@
                         class="row g-2 align-items-end"
                         data-confirm="¿Eliminar este grupo y todos sus hosts?">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if show_all %}<input type="hidden" name="view_all" value="1">{% endif %}
                         <input type="hidden" name="action" value="delete_group">
                         <input type="hidden" name="group_id" value="{{ group.id }}">
                         <div class="col-12 d-grid">
@@ -320,7 +357,7 @@
 <div class="card fade-in">
     <div class="card-body text-center py-5">
         <p class="text-secondary mb-0">Todavía no hay grupos de inventario.
-        {% if current_user.has_role('admin') %}Crea el primero con el formulario de arriba.{% else %}Un administrador puede crearlos.{% endif %}</p>
+        {% if can_create_group %}Crea el primero con el formulario de arriba.{% else %}Un administrador u operador puede crearlos.{% endif %}</p>
     </div>
 </div>
 {% endif %}

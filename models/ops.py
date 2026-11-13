@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -96,6 +97,8 @@ class HostGroup:
         window_start: str = "",
         window_end: str = "",
         window_note: str = "",
+        owner_user_id: int = 0,
+        owner_name: str = "",
     ) -> None:
         self.id = id
         self.name = name
@@ -110,6 +113,8 @@ class HostGroup:
         self.window_start = window_start or ""
         self.window_end = window_end or ""
         self.window_note = window_note or ""
+        self.owner_user_id = int(owner_user_id or 0)
+        self.owner_name = owner_name or ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -128,7 +133,14 @@ class HostGroup:
             "window_end": self.window_end,
             "window_note": self.window_note,
             "window_label": self.window_label,
+            "owner_user_id": self.owner_user_id,
+            "owner_name": self.owner_name,
+            "is_shared": self.owner_user_id == 0,
         }
+
+    @property
+    def is_shared(self) -> bool:
+        return self.owner_user_id == 0
 
     @property
     def window_label(self) -> str:
@@ -159,18 +171,47 @@ class HostGroup:
             window_start=(row["window_start"] if "window_start" in keys else ""),
             window_end=row["window_end"] if "window_end" in keys else "",
             window_note=row["window_note"] if "window_note" in keys else "",
+            owner_user_id=(row["owner_user_id"] if "owner_user_id" in keys else 0),
+            owner_name=(row["owner_name"] if "owner_name" in keys else ""),
         )
 
     @classmethod
-    def all(cls, db_path: str | None = None) -> list[HostGroup]:
+    def all(
+        cls,
+        db_path: str | None = None,
+        owner_user_id: int | None = None,
+        include_shared: bool = True,
+    ) -> list[HostGroup]:
+        """Lista grupos.
+
+        Con ``owner_user_id`` se devuelven los del usuario y, salvo que
+        ``include_shared`` sea falso, los marcados como compartidos
+        (``owner_user_id = 0``). Sin filtro devuelve todo, que es lo que
+        necesitan los procesos internos y los administradores con «ver todo».
+        """
         if db_path is None:
             db_path = _default_db_path()
+        where = ""
+        params: list[Any] = []
+        if owner_user_id is not None:
+            if include_shared:
+                where = "WHERE g.owner_user_id = ? OR g.owner_user_id = 0"
+            else:
+                where = "WHERE g.owner_user_id = ?"
+            params.append(int(owner_user_id))
         with get_connection(db_path) as conn:
-            rows = conn.execute("""
+            rows = conn.execute(
+                f"""
                 SELECT g.*, (SELECT COUNT(*) FROM inventory_hosts h
-                             WHERE h.group_id = g.id) AS host_count
-                FROM inventory_groups g ORDER BY g.name
-                """).fetchall()
+                             WHERE h.group_id = g.id) AS host_count,
+                       u.username AS owner_name
+                FROM inventory_groups g
+                LEFT JOIN users u ON u.id = g.owner_user_id
+                {where}
+                ORDER BY g.name
+                """,
+                params,
+            ).fetchall()
         return [cls._row_to_group(row) for row in rows]
 
     @classmethod
@@ -181,8 +222,11 @@ class HostGroup:
             row = conn.execute(
                 """
                 SELECT g.*, (SELECT COUNT(*) FROM inventory_hosts h
-                             WHERE h.group_id = g.id) AS host_count
-                FROM inventory_groups g WHERE g.id = ?
+                             WHERE h.group_id = g.id) AS host_count,
+                       u.username AS owner_name
+                FROM inventory_groups g
+                LEFT JOIN users u ON u.id = g.owner_user_id
+                WHERE g.id = ?
                 """,
                 (int(group_id),),
             ).fetchone()
@@ -201,6 +245,7 @@ class HostGroup:
         window_start: str = "",
         window_end: str = "",
         window_note: str = "",
+        owner_user_id: int = 0,
     ) -> HostGroup:
         if db_path is None:
             db_path = _default_db_path()
@@ -225,28 +270,35 @@ class HostGroup:
         if safety_error:
             raise ValueError(safety_error)
 
-        with get_connection(db_path) as conn:
-            cursor = conn.execute(
-                """
-                INSERT INTO inventory_groups
-                    (name, description, os_flavor, connection, created_at,
-                     criticality, window_days, window_start, window_end,
-                     window_note)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    name,
-                    (description or "").strip()[:300],
-                    os_flavor,
-                    connection,
-                    _now(),
-                    criticality,
-                    ",".join(str(day) for day in days),
-                    start,
-                    end,
-                    (window_note or "").strip()[:200],
-                ),
-            )
+        try:
+            with get_connection(db_path) as conn:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO inventory_groups
+                        (name, description, os_flavor, connection, created_at,
+                         criticality, window_days, window_start, window_end,
+                         window_note, owner_user_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        name,
+                        (description or "").strip()[:300],
+                        os_flavor,
+                        connection,
+                        _now(),
+                        criticality,
+                        ",".join(str(day) for day in days),
+                        start,
+                        end,
+                        (window_note or "").strip()[:200],
+                        int(owner_user_id or 0),
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(
+                "Ya existe un grupo con ese nombre. Los nombres de grupo son "
+                "únicos en toda la instalación."
+            ) from exc
         created = cls.get(int(cursor.lastrowid or 0), db_path=db_path)
         if created is None:  # pragma: no cover - el INSERT acaba de ejecutarse
             raise RuntimeError(f"No se pudo recuperar el grupo creado: {name}")
@@ -366,6 +418,17 @@ class InventoryHost:
             "label": self.label,
             "criticality": self.criticality,
         }
+
+    @classmethod
+    def get(cls, host_id: int, db_path: str | None = None) -> InventoryHost | None:
+        """Devuelve un host por su identificador."""
+        if db_path is None:
+            db_path = _default_db_path()
+        with get_connection(db_path) as conn:
+            row = conn.execute(
+                "SELECT * FROM inventory_hosts WHERE id = ?", (int(host_id),)
+            ).fetchone()
+        return cls.from_row(row) if row is not None else None
 
     @classmethod
     def add(
@@ -496,6 +559,9 @@ class Schedule:
         self.last_error = row["last_error"]
         self.created_by = row["created_by"]
         self.created_at = row["created_at"]
+        keys = row.keys() if hasattr(row, "keys") else ()
+        self.owner_user_id = int(row["owner_user_id"]) if "owner_user_id" in keys else 0
+        self.owner_name = row["owner_name"] if "owner_name" in keys else ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -510,7 +576,14 @@ class Schedule:
             "last_batch": self.last_batch,
             "last_error": self.last_error,
             "created_by": self.created_by,
+            "owner_user_id": self.owner_user_id,
+            "owner_name": self.owner_name,
+            "is_shared": self.owner_user_id == 0,
         }
+
+    @property
+    def is_shared(self) -> bool:
+        return self.owner_user_id == 0
 
     @staticmethod
     def is_due(row, now: datetime | None = None) -> bool:
@@ -583,12 +656,39 @@ class Schedule:
             return int(cursor.rowcount or 0) == 1
 
     @classmethod
-    def all(cls, db_path: str | None = None) -> list[Schedule]:
+    def all(
+        cls,
+        db_path: str | None = None,
+        owner_user_id: int | None = None,
+        include_shared: bool = True,
+    ) -> list[Schedule]:
+        """Lista programaciones, opcionalmente limitadas a un usuario.
+
+        Las filas con ``owner_user_id = 0`` son las heredadas y se consideran
+        compartidas: se incluyen por defecto para no ocultar programaciones
+        creadas antes de la migración. Sin filtro devuelve todo (scheduler y
+        vista global de administración).
+        """
         if db_path is None:
             db_path = _default_db_path()
+        where = ""
+        params: list[Any] = []
+        if owner_user_id is not None:
+            if include_shared:
+                where = "WHERE s.owner_user_id = ? OR s.owner_user_id = 0"
+            else:
+                where = "WHERE s.owner_user_id = ?"
+            params.append(int(owner_user_id))
         with get_connection(db_path) as conn:
             rows = conn.execute(
-                "SELECT * FROM schedules ORDER BY run_at DESC"
+                f"""
+                SELECT s.*, u.username AS owner_name
+                FROM schedules s
+                LEFT JOIN users u ON u.id = s.owner_user_id
+                {where}
+                ORDER BY s.run_at DESC
+                """,
+                params,
             ).fetchall()
         return [cls(row) for row in rows]
 
@@ -598,7 +698,13 @@ class Schedule:
             db_path = _default_db_path()
         with get_connection(db_path) as conn:
             row = conn.execute(
-                "SELECT * FROM schedules WHERE id = ?", (int(schedule_id),)
+                """
+                SELECT s.*, u.username AS owner_name
+                FROM schedules s
+                LEFT JOIN users u ON u.id = s.owner_user_id
+                WHERE s.id = ?
+                """,
+                (int(schedule_id),),
             ).fetchone()
         return Schedule(row) if row is not None else None
 
@@ -611,6 +717,7 @@ class Schedule:
         params: dict[str, Any],
         recurrence: str = SCHEDULE_ONESHOT,
         created_by: str = "",
+        owner_user_id: int = 0,
         db_path: str | None = None,
     ) -> Schedule:
         if db_path is None:
@@ -624,24 +731,31 @@ class Schedule:
             run_at = run_at.replace(tzinfo=UTC)
         if run_at < datetime.now(UTC) - timedelta(seconds=120):
             raise ValueError("La fecha/hora debe estar en el futuro (UTC).")
-        with get_connection(db_path) as conn:
-            cursor = conn.execute(
-                """
-                INSERT INTO schedules
-                    (name, task_id, run_at, recurrence, enabled, params,
-                     created_by, created_at)
-                VALUES (?, ?, ?, ?, 1, ?, ?, ?)
-                """,
-                (
-                    name,
-                    task_id,
-                    run_at.isoformat(timespec="seconds"),
-                    recurrence,
-                    json.dumps(params, ensure_ascii=False),
-                    created_by,
-                    _now(),
-                ),
-            )
+        try:
+            with get_connection(db_path) as conn:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO schedules
+                        (name, task_id, run_at, recurrence, enabled, params,
+                         created_by, created_at, owner_user_id)
+                    VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+                    """,
+                    (
+                        name,
+                        task_id,
+                        run_at.isoformat(timespec="seconds"),
+                        recurrence,
+                        json.dumps(params, ensure_ascii=False),
+                        created_by,
+                        _now(),
+                        int(owner_user_id or 0),
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(
+                "Ya existe una programación con ese nombre. Los nombres de "
+                "programación son únicos en toda la instalación."
+            ) from exc
         row = None
         with get_connection(db_path) as conn:
             row = conn.execute(
@@ -679,24 +793,30 @@ class Schedule:
             run_at = run_at.replace(tzinfo=UTC)
         if run_at < datetime.now(UTC) - timedelta(seconds=120):
             raise ValueError("La fecha/hora debe estar en el futuro (UTC).")
-        with get_connection(db_path) as conn:
-            cursor = conn.execute(
-                """
-                UPDATE schedules
-                SET name = ?, run_at = ?, recurrence = ?, params = ?,
-                    claimed_at = NULL, claimed_by = NULL
-                WHERE id = ?
-                """,
-                (
-                    name,
-                    run_at.isoformat(timespec="seconds"),
-                    recurrence,
-                    json.dumps(params, ensure_ascii=False),
-                    int(schedule_id),
-                ),
-            )
-            if int(cursor.rowcount or 0) != 1:
-                raise ValueError("La programación no existe.")
+        try:
+            with get_connection(db_path) as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE schedules
+                    SET name = ?, run_at = ?, recurrence = ?, params = ?,
+                        claimed_at = NULL, claimed_by = NULL
+                    WHERE id = ?
+                    """,
+                    (
+                        name,
+                        run_at.isoformat(timespec="seconds"),
+                        recurrence,
+                        json.dumps(params, ensure_ascii=False),
+                        int(schedule_id),
+                    ),
+                )
+                if int(cursor.rowcount or 0) != 1:
+                    raise ValueError("La programación no existe.")
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(
+                "Ya existe una programación con ese nombre. Los nombres de "
+                "programación son únicos en toda la instalación."
+            ) from exc
         updated = cls.get(schedule_id, db_path=db_path)
         if updated is None:  # pragma: no cover - el UPDATE acaba de ejecutarse
             raise RuntimeError(

@@ -194,6 +194,26 @@ Todas las tareas activas son programables con sus propios parámetros:
 - **Firewall**: la operación (`enable`, `disable` o `allow:<ip|red>`) se guarda
   y se revalida al disparar, incluida la prohibición de abrir a `0.0.0.0/0`.
 
+**Propiedad por usuario (esquema v19).** Cada programación y cada grupo del
+inventario guarda el `owner_user_id` de quien lo creó. Por defecto, cada
+usuario ve únicamente sus filas y las marcadas como **compartidas**
+(`owner_user_id = 0`), que son las que existían antes de la migración. Un
+administrador puede abrir la vista global con `?all=1` en `/programaciones` o
+`/inventario`; el listado muestra un aviso y un botón para volver a su vista
+personal. Las programaciones siguen reservadas al rol `admin`.
+
+Los **operadores** pueden crear y gestionar sus propios grupos de inventario;
+los `viewer` solo consultan. Los grupos compartidos solo los modifica un
+administrador. El formulario de tarea ofrece al usuario sus grupos y los
+compartidos; un grupo privado de otro usuario se rechaza aunque se envíe su
+identificador a mano. Los nombres de grupo y de programación siguen siendo
+únicos en toda la instalación; dos usuarios no pueden reutilizar el mismo
+nombre aunque sus filas sean privadas.
+
+El **vault de contraseñas sigue siendo compartido**: cualquier usuario
+autenticado puede usarlo al ejecutar, pero solo un administrador puede añadir,
+importar o eliminar contraseñas desde `/passwords`.
+
 ### 2.5. Durante la ejecución
 
 - La página `/progress/<task_id>` muestra progreso, resumen de hitos y la
@@ -773,9 +793,10 @@ desactives la verificación salvo decisión consciente y documentada.
 sudo -u ansible-control-center env ACC_ROLE=worker \
   .venv/bin/flask --app app scheduler --once
 
-# Ver reservas y próximas ejecuciones.
+# Ver reservas, propietario y próximas ejecuciones.
 sqlite3 /var/lib/ansible-control-center/acc.db \
-  "SELECT id, name, run_at, enabled, claimed_at, claimed_by FROM schedules;"
+  "SELECT id, name, owner_user_id, run_at, enabled, claimed_at, claimed_by
+     FROM schedules;"
 ```
 
 ---
@@ -791,9 +812,11 @@ sqlite3 /var/lib/ansible-control-center/acc.db \
 - Revisa `/history` tras cada operación sensible.
 - El rate limiting es en memoria y por proceso; con varios workers no es
   global.
-- Hay roles `viewer`/`operator`/`admin` y auditoría de acceso, pero no MFA ni
-  un sistema RBAC granular: cualquier usuario autenticado puede apuntar a una
-  IP/CIDR permitida por `ACC_ALLOWED_NETWORKS` dentro de los límites globales.
+- Hay roles `viewer`/`operator`/`admin` y auditoría de acceso, pero no MFA.
+  El inventario y las programaciones se aíslan por propietario; el vault de
+  contraseñas es compartido y solo lo modifican administradores. Cualquier
+  usuario autenticado puede apuntar a una IP/CIDR permitida por
+  `ACC_ALLOWED_NETWORKS` dentro de los límites globales.
 
 ---
 

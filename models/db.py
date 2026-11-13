@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 
 
 def _secure_sqlite_files(path: str) -> None:
@@ -579,6 +579,37 @@ def _migrate_v18(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE execution_hosts SET position = id WHERE position = 0")
 
 
+def _migrate_v19(conn: sqlite3.Connection) -> None:
+    """Propiedad por usuario en programaciones e inventario.
+
+    Las filas existentes quedan con ``owner_user_id = 0``: se consideran
+    **compartidas** y siguen visibles para todos, de modo que la actualización
+    no oculta ni inutiliza datos previos. Las nuevas filas guardan el ``id``
+    del usuario que las crea. Las contraseñas del vault siguen siendo un
+    recurso compartido y no cambian de esquema.
+    """
+    _ensure_column(
+        conn,
+        "schedules",
+        "owner_user_id",
+        "owner_user_id INTEGER NOT NULL DEFAULT 0",
+    )
+    _ensure_column(
+        conn,
+        "inventory_groups",
+        "owner_user_id",
+        "owner_user_id INTEGER NOT NULL DEFAULT 0",
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_schedules_owner "
+        "ON schedules (owner_user_id, run_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_inventory_groups_owner "
+        "ON inventory_groups (owner_user_id, name)"
+    )
+
+
 def init_schema(db_path: str) -> None:
     """Crea o migra el esquema de forma idempotente y no destructiva.
 
@@ -616,6 +647,7 @@ def init_schema(db_path: str) -> None:
         _migrate_v16(conn)
         _migrate_v17(conn)
         _migrate_v18(conn)
+        _migrate_v19(conn)
         # No se rebaja la versión de una base creada por una versión más nueva.
         if version < SCHEMA_VERSION:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

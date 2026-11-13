@@ -342,6 +342,53 @@ def get_db_path() -> str:
     return _db_path_cache
 
 
+def _authenticated() -> bool:
+    return bool(getattr(current_user, "is_authenticated", False))
+
+
+def _current_owner_id() -> int:
+    """Identificador estable del usuario actual para la propiedad de filas."""
+    if not _authenticated():
+        return 0
+    raw = str(current_user.get_id() or "")
+    return int(raw) if raw.isdigit() else 0
+
+
+def _view_all_requested() -> bool:
+    """Vista global explícita: solo administradores y solo con ``?all=1``."""
+    return bool(
+        _authenticated()
+        and current_user.has_role("admin")
+        and request.args.get("all") == "1"
+    )
+
+
+def _owner_scope() -> int | None:
+    """Filtro de propiedad para listados; ``None`` significa «ver todo»."""
+    return None if _view_all_requested() else _current_owner_id()
+
+
+def _can_manage_owner(owner_user_id: int | str | None) -> bool:
+    """Admin puede gestionar todo; el resto, solo sus propias filas."""
+    if _authenticated() and current_user.has_role("admin"):
+        return True
+    return int(owner_user_id or 0) == _current_owner_id()
+
+
+def _can_use_group(group) -> bool:
+    """Indica si el usuario puede elegir un grupo como objetivo.
+
+    Los grupos compartidos (``owner_user_id = 0``) siguen disponibles para
+    todos. Un administrador puede operar con cualquier grupo; un operador o
+    viewer solo con los suyos y los compartidos.
+    """
+    if int(getattr(group, "owner_user_id", 0) or 0) == 0:
+        return True
+    if _authenticated() and current_user.has_role("admin"):
+        return True
+    return int(getattr(group, "owner_user_id", 0) or 0) == _current_owner_id()
+
+
 # ---------------------------------------------------------------------------
 # Modo simulación (DRY RUN) editable desde la interfaz
 # ---------------------------------------------------------------------------
@@ -997,6 +1044,11 @@ def _parse_operation_form(
         if group is None:
             errors.append("Selecciona un grupo del inventario válido.")
             target_group_id = None
+        elif not _can_use_group(group):
+            errors.append(
+                "El grupo seleccionado pertenece a otro usuario. Elige uno "
+                "de tu inventario o un grupo compartido."
+            )
         else:
             group_name = group.name
             group_os_flavor = group.os_flavor
@@ -2427,7 +2479,9 @@ def task_view(task_id):
     # tareas activas. Los grupos del inventario alimentan el selector de
     # objetivo por grupo.
     inventory_groups = []
-    for group in HostGroup.all(db_path=get_db_path()):
+    for group in HostGroup.all(
+        db_path=get_db_path(), owner_user_id=_owner_scope()
+    ):
         data = group.to_dict()
         data["safety"] = _safety_for_group(group)
         inventory_groups.append(data)
@@ -2578,8 +2632,11 @@ def execute_execution():
 INVENTORY_KEYS_DIR = SECRETS_DIR / "inventory_keys"
 
 
-def _inventario_group_and_hosts():
-    groups = [g.to_dict() for g in HostGroup.all(db_path=get_db_path())]
+def _inventario_group_and_hosts(owner_user_id: int | None = None):
+    groups = [
+        g.to_dict()
+        for g in HostGroup.all(db_path=get_db_path(), owner_user_id=owner_user_id)
+    ]
     for group in groups:
         group["hosts"] = [
             h.to_dict() for h in HostGroup.hosts_of(group["id"], db_path=get_db_path())
@@ -2592,7 +2649,7 @@ def _inventario_group_and_hosts():
 def inventario():
     db_path = get_db_path()
     if request.method == "POST":
-        if not current_user.has_role("admin"):
+        if not current_user.has_role("admin", "operator"):
             abort(403)
         action = request.form.get("action", "").strip()
         if action == "create_group":
@@ -2607,6 +2664,7 @@ def inventario():
                     window_start=request.form.get("window_start", ""),
                     window_end=request.form.get("window_end", ""),
                     window_note=request.form.get("window_note", ""),
+                    owner_user_id=_current_owner_id(),
                 )
                 flash("Grupo creado.", "success")
             except ValueError as exc:
@@ -2616,6 +2674,8 @@ def inventario():
             group = HostGroup.get(gid, db_path=db_path) if gid.isdigit() else None
             if group is None:
                 flash("El grupo no existe.", "warning")
+            elif not _can_manage_owner(group.owner_user_id):
+                abort(403)
             else:
                 try:
                     HostGroup.set_safety(
@@ -2641,6 +2701,8 @@ def inventario():
             )
             if group is None:
                 flash("El grupo no existe.", "warning")
+            elif not _can_manage_owner(group.owner_user_id):
+                abort(403)
             else:
                 group.delete(db_path=db_path)
                 flash(f"Grupo '{group.name}' eliminado.", "success")
@@ -2652,6 +2714,8 @@ def inventario():
             )
             if group is None:
                 flash("El grupo no existe.", "warning")
+            elif not _can_manage_owner(group.owner_user_id):
+                abort(403)
             else:
                 _host, host_error = InventoryHost.add(
                     group.id,
@@ -2664,41 +2728,42 @@ def inventario():
                     flash(host_error, "danger")
                 else:
                     flash("Host añadido al grupo.", "success")
-        elif action == "update_host_criticality":
+        elif action in {"update_host_criticality", "delete_host"}:
             host_id = request.form.get("host_id", "").strip()
             if not host_id.isdigit():
                 flash("Host no válido.", "warning")
             else:
-                try:
-                    InventoryHost.set_criticality(
-                        int(host_id),
-                        request.form.get("criticality", ""),
-                        db_path=db_path,
-                    )
-                    flash("Criticidad del host actualizada.", "success")
-                except ValueError as exc:
-                    flash(str(exc), "danger")
-        elif action == "delete_host":
-            host_id = request.form.get("host_id", "").strip()
-            if not host_id.isdigit():
-                flash("Host no válido.", "warning")
-            else:
-                with get_connection(db_path) as conn:
-                    row = conn.execute(
-                        "SELECT * FROM inventory_hosts WHERE id = ?",
-                        (int(host_id),),
-                    ).fetchone()
-                if row is None:
+                host = InventoryHost.get(int(host_id), db_path=db_path)
+                group = (
+                    HostGroup.get(host.group_id, db_path=db_path)
+                    if host is not None
+                    else None
+                )
+                if host is None or group is None:
                     flash("El host no existe.", "warning")
-                else:
-                    InventoryHost.from_row(row).delete(db_path=db_path)
+                elif not _can_manage_owner(group.owner_user_id):
+                    abort(403)
+                elif action == "delete_host":
+                    host.delete(db_path=db_path)
                     flash("Host eliminado del grupo.", "success")
+                else:
+                    try:
+                        InventoryHost.set_criticality(
+                            host.id,
+                            request.form.get("criticality", ""),
+                            db_path=db_path,
+                        )
+                        flash("Criticidad del host actualizada.", "success")
+                    except ValueError as exc:
+                        flash(str(exc), "danger")
         elif action == "upload_key":
             gid = request.form.get("group_id", "").strip()
             group = HostGroup.get(gid, db_path=db_path) if gid.isdigit() else None
             uploaded = request.files.get("ssh_key")
             if group is None:
                 flash("El grupo no existe.", "warning")
+            elif not _can_manage_owner(group.owner_user_id):
+                abort(403)
             elif group.os_flavor == "windows":
                 flash(
                     "Los grupos Windows se autentican por usuario/contraseña "
@@ -2717,11 +2782,18 @@ def inventario():
                         "danger",
                     )
                 else:
+                    # Cada propietario tiene su subdirectorio para que dos
+                    # grupos con el mismo nombre no compartan fichero de clave.
+                    owner_dir = (
+                        INVENTORY_KEYS_DIR / f"user-{group.owner_user_id}"
+                        if group.owner_user_id
+                        else INVENTORY_KEYS_DIR / "shared"
+                    )
                     try:
-                        INVENTORY_KEYS_DIR.mkdir(parents=True, exist_ok=True)
-                        os.chmod(INVENTORY_KEYS_DIR, 0o700)
+                        owner_dir.mkdir(parents=True, exist_ok=True)
+                        os.chmod(owner_dir, 0o700)
                     except OSError:  # pragma: no cover - permisos locales
-                        INVENTORY_KEYS_DIR.mkdir(parents=True, exist_ok=True)
+                        owner_dir.mkdir(parents=True, exist_ok=True)
                     slug = (
                         "".join(
                             ch if ch.isalnum() or ch in "-_" else "_"
@@ -2729,7 +2801,7 @@ def inventario():
                         )[:40]
                         or f"group-{group.id}"
                     )
-                    key_path = INVENTORY_KEYS_DIR / f"{slug}.pem"
+                    key_path = owner_dir / f"{slug}.pem"
                     fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
                     with os.fdopen(fd, "wb") as key_file:
                         key_file.write(raw)
@@ -2740,10 +2812,19 @@ def inventario():
                     )
         else:
             flash("Acción de inventario no válida.", "warning")
+        if request.form.get("view_all") == "1":
+            return redirect(url_for("inventario", all=1))
         return redirect(url_for("inventario"))
 
+    show_all = _view_all_requested()
+    owner_scope = _owner_scope()
+    groups = _inventario_group_and_hosts(owner_scope)
+    for group_data in groups:
+        group_data["can_manage"] = _can_manage_owner(
+            group_data.get("owner_user_id", 0)
+        )
     schedule_counts: dict[int, int] = {}
-    for schedule in Schedule.all(db_path=db_path):
+    for schedule in Schedule.all(db_path=db_path, owner_user_id=owner_scope):
         raw_group_id = (schedule.params or {}).get("target_group_id")
         try:
             group_id = int(raw_group_id)
@@ -2752,10 +2833,12 @@ def inventario():
         schedule_counts[group_id] = schedule_counts.get(group_id, 0) + 1
     return render_template(
         "inventory.html",
-        groups=_inventario_group_and_hosts(),
+        groups=groups,
         criticality_levels=CRITICALITY_LEVELS,
         criticality_labels=CRITICALITY_LABELS,
         schedule_counts=schedule_counts,
+        show_all=show_all,
+        can_create_group=current_user.has_role("admin", "operator"),
     )
 
 
@@ -2775,6 +2858,7 @@ def _validate_schedule_form(
     *,
     files=None,
     existing: Schedule | None = None,
+    owner_user_id: int = 0,
 ) -> tuple[dict[str, Any] | None, list[str], list[str]]:
     """Valida los campos comunes de alta y edición de programaciones.
 
@@ -2828,6 +2912,20 @@ def _validate_schedule_form(
             schedule_group = HostGroup.get(gid, db_path=db_path)
         if schedule_group is None:
             return None, ["Selecciona un grupo del inventario válido."], warnings
+        if (
+            schedule_group.owner_user_id not in {0, int(owner_user_id or 0)}
+            and not (_authenticated() and current_user.has_role("admin"))
+        ):
+            return (
+                None,
+                [
+                    (
+                        "El grupo seleccionado pertenece a otro usuario. Elige "
+                        "uno de tu inventario o un grupo compartido."
+                    )
+                ],
+                warnings,
+            )
         target_group_id = int(gid)
     else:
         pinned_ip, ip_error = pin_target(form.get("target_ip", "").strip())
@@ -2997,8 +3095,9 @@ def _create_schedule_from_form(
     flashes para que lo usen el formulario de ejecución y las pruebas sin
     duplicar validaciones. Los secretos se cifran antes de persistirlos.
     """
+    owner_user_id = _current_owner_id()
     data, errors, warnings = _validate_schedule_form(
-        tasks, db_path, form, files=files
+        tasks, db_path, form, files=files, owner_user_id=owner_user_id
     )
     if data is None:
         return None, errors, warnings
@@ -3016,6 +3115,7 @@ def _create_schedule_from_form(
             params,
             recurrence=data["recurrence"],
             created_by=getattr(current_user, "username", "") or "",
+            owner_user_id=owner_user_id,
             db_path=db_path,
         )
     except ValueError as exc:
@@ -3035,7 +3135,12 @@ def _update_schedule_from_form(
 ) -> tuple[str | None, list[str], list[str]]:
     """Valida y actualiza una programación conservando sus secretos cifrados."""
     data, errors, warnings = _validate_schedule_form(
-        tasks, db_path, form, files=files, existing=schedule
+        tasks,
+        db_path,
+        form,
+        files=files,
+        existing=schedule,
+        owner_user_id=schedule.owner_user_id,
     )
     if data is None:
         return None, errors, warnings
@@ -3199,10 +3304,19 @@ def programaciones():
                 flash(f"Programación '{schedule.name}' eliminada.", "success")
         else:
             flash("Acción de programación no válida.", "warning")
+        if request.form.get("view_all") == "1":
+            return redirect(url_for("programaciones", all=1))
         return redirect(url_for("programaciones"))
 
-    schedules = [s.to_dict() for s in Schedule.all(db_path=db_path)]
-    groups = [g.to_dict() for g in HostGroup.all(db_path=db_path)]
+    show_all = _view_all_requested()
+    schedules = [
+        s.to_dict()
+        for s in Schedule.all(db_path=db_path, owner_user_id=_owner_scope())
+    ]
+    groups = [
+        g.to_dict()
+        for g in HostGroup.all(db_path=db_path, owner_user_id=_owner_scope())
+    ]
     groups_by_id = {group["id"]: group for group in groups}
     for item in schedules:
         item["task_name"] = (
@@ -3241,6 +3355,7 @@ def programaciones():
         schedules=schedules,
         filter_group_id=filter_group_id,
         filter_group_name=filter_group_name,
+        show_all=show_all,
         recurrence_labels={
             "once": "Una vez",
             "daily": "Diaria",
@@ -3260,6 +3375,8 @@ def schedule_edit(schedule_id: int):
     if schedule is None:
         flash("La programación no existe.", "warning")
         return redirect(url_for("programaciones"))
+    if not _can_manage_owner(schedule.owner_user_id):
+        abort(403)
 
     tasks = _schedulable_tasks()
     if schedule.task_id not in tasks:
@@ -3323,7 +3440,8 @@ def schedule_edit(schedule_id: int):
     wallpaper_name = str(params.get("wallpaper_name") or "")
 
     inventory_groups = []
-    for group in HostGroup.all(db_path=db_path):
+    group_scope = None if current_user.has_role("admin") else schedule.owner_user_id
+    for group in HostGroup.all(db_path=db_path, owner_user_id=group_scope):
         data = group.to_dict()
         data["safety"] = _safety_for_group(group)
         inventory_groups.append(data)
@@ -5624,7 +5742,9 @@ def _password_response(success: bool, message: str, status: int = 200):
 @login_required
 def passwords():
     if request.method == "POST":
-        if not current_user.has_role("admin", "operator"):
+        # El vault es compartido: todos pueden usarlo al ejecutar tareas,
+        # pero solo un administrador puede añadir, importar o eliminar.
+        if not current_user.has_role("admin"):
             abort(403)
         retry_after = _check_rate_limit(
             f"vault:{current_user.get_id()}:{_client_ip()}",
