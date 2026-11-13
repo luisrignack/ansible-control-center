@@ -18,6 +18,7 @@ import yaml
 
 import app as app_module
 import services.ansible_runner as runner
+from acc import runtime
 from models.batch import ExecutionBatch
 from models.db import get_connection, init_schema
 from services.pdf_report import build_execution_report, build_migration_report
@@ -448,7 +449,7 @@ def _login(client):
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     db_path = str(tmp_path / "app.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
     app_module.init_db()
     from models.user import User
 

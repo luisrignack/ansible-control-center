@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 import app as app_module
+from acc import runtime
 from models.batch import ExecutionBatch
 from models.user import User
 from services.pdf_report import classify_failure_reason
@@ -20,7 +21,7 @@ from services.pdf_report import classify_failure_reason
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
     app_module.init_db()
     User.create_or_update("admin", "admin-password-123", db_path=db_path)
     app_module.app.config.update(TESTING=True)
@@ -73,16 +74,16 @@ def _create_batch(
         admin_user="admin",
         password_origin="stored",
         task_id=task_id,
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
     )
     ExecutionBatch.finish_batch(
-        batch.batch_id, status=status, db_path=app_module.get_db_path()
+        batch.batch_id, status=status, db_path=runtime.get_db_path()
     )
     return batch.batch_id
 
 
 def _add_results(batch_id: str) -> None:
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     for name, result, error in (
         ("10.42.0.10", "failure", "UNREACHABLE! => Failed to connect."),
         ("10.42.0.11", "success", ""),
@@ -192,7 +193,7 @@ def test_report_uses_task_batch_not_global(client):
         "10.42.0.10",
         "failure",
         error="UNREACHABLE",
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
     )
     nuevo_id = _create_batch(task_id="zona-todas", target="Inventario: Estaciones")
     ExecutionBatch.add_host_result(
@@ -200,7 +201,7 @@ def test_report_uses_task_batch_not_global(client):
         "10.42.0.90",
         "failure",
         error="Permission denied.",
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
     )
     text = client.get("/tarea/zona-todas/informe.pdf").data.decode(
         "cp1252", errors="replace"
@@ -214,7 +215,7 @@ def test_report_falls_back_to_last_batch_without_task_id(client):
     _login(client)
     legacy_id = _create_batch(task_id="", target="10.99.0.5", status="success")
     ExecutionBatch.add_host_result(
-        legacy_id, "10.99.0.5", "success", db_path=app_module.get_db_path()
+        legacy_id, "10.99.0.5", "success", db_path=runtime.get_db_path()
     )
     response = client.get("/tarea/zona-todas/informe.pdf")
     assert response.status_code == 200
@@ -229,7 +230,7 @@ def test_report_does_not_use_another_tasks_batch(client):
     _login(client)
     otra_id = _create_batch(task_id="hora", target="10.77.0.7")
     ExecutionBatch.add_host_result(
-        otra_id, "10.77.0.7", "success", db_path=app_module.get_db_path()
+        otra_id, "10.77.0.7", "success", db_path=runtime.get_db_path()
     )
 
     response = client.get("/tarea/zona-todas/informe.pdf", follow_redirects=True)

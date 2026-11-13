@@ -10,6 +10,8 @@ import pytest
 import app as app_module
 import config as config_module
 import services.scheduler as scheduler_module
+from acc import execution as acc_execution
+from acc import runtime
 from models.batch import ExecutionBatch
 from models.db import get_connection
 from models.ops import (
@@ -21,6 +23,7 @@ from models.ops import (
     Schedule,
 )
 from models.user import User
+from services import task_catalog
 from services.job_queue import JobQueueFull
 
 
@@ -30,7 +33,7 @@ from services.job_queue import JobQueueFull
 @pytest.fixture()
 def db_path(tmp_path, monkeypatch):
     path = str(tmp_path / "test.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: path)
     app_module.init_db()
     User.create_or_update("admin", "admin-password-123", db_path=path)
     return path
@@ -153,9 +156,9 @@ def test_queue_full_releases_approval(monkeypatch, db_path):
         "force": False,
         "temporal_passwords": [],
     }
-    monkeypatch.setattr(app_module, "_parse_operation_form", lambda **_kw: (form, []))
+    monkeypatch.setattr(acc_execution, "_parse_operation_form", lambda **_kw: (form, []))
     monkeypatch.setattr(
-        app_module,
+        task_catalog,
         "get_task",
         lambda _task_id: {
             "id": "destructiva-test",
@@ -172,7 +175,7 @@ def test_queue_full_releases_approval(monkeypatch, db_path):
         def submit(self, *args, **kwargs):
             raise JobQueueFull("cola llena")
 
-    monkeypatch.setattr(app_module, "get_job_queue", lambda: FullQueue())
+    monkeypatch.setattr(runtime, "get_job_queue", lambda: FullQueue())
 
     req = ApprovalRequest.create(
         "destructiva-test",
@@ -298,7 +301,7 @@ def test_scheduler_scan_skips_a_claimed_schedule(db_path):
 
 
 def test_recover_task_state_only_closes_stale_tasks(db_path):
-    app_module._db_path_cache = db_path
+    runtime._db_path_cache = db_path
     task_id = app_module.create_task()
     app_module.update_task(task_id, {"status": "running", "message": "En curso"})
 

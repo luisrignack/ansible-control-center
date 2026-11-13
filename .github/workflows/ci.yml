@@ -28,7 +28,7 @@ jobs:
           python -m pip install -r requirements.txt
 
       - name: Comprobar sintaxis
-        run: python -m compileall -q app.py config.py models services tests tools
+        run: python -m compileall -q app.py config.py acc models services tests tools
 
       - name: Gate de calidad
         run: python tools/quality_check.py
@@ -52,7 +52,7 @@ jobs:
       - name: Ejecutar pruebas
         run: |
           python -m pytest -q \
-            --cov=app --cov=config --cov=models --cov=services \
+            --cov=app --cov=acc --cov=config --cov=models --cov=services \
             --cov-report=term-missing --cov-fail-under=55
 
   lock:

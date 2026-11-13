@@ -12,14 +12,17 @@ import pytest
 import app as app_module
 import config as config_module
 import services.scheduler as scheduler_module
+from acc import runtime
+from acc import task_state as acc_task_state
 from models.ops import HostGroup, InventoryHost, Schedule
 from models.user import User
+from services import task_catalog
 
 
 @pytest.fixture()
 def db_path(tmp_path, monkeypatch):
     path = str(tmp_path / "test.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: path)
     app_module.init_db()
     User.create_or_update("admin", "admin-password-123", db_path=path)
     User.create_or_update("alice", "alice-password-123", db_path=path, role="operator")
@@ -112,7 +115,7 @@ def test_formulario_manual_rechaza_plataforma_del_grupo(client, db_path, monkeyp
     host, error = InventoryHost.add(group.id, "10.30.0.10", db_path=db_path)
     assert host is not None and error is None
     monkeypatch.setattr(
-        app_module, "get_task", lambda _task_id: _fake_task(["windows"])
+        task_catalog, "get_task", lambda _task_id: _fake_task(["windows"])
     )
 
     assert _login(client, "admin", "admin-password-123").status_code == 302
@@ -151,10 +154,10 @@ def test_launch_scheduled_rechaza_grupo_de_otra_plataforma(db_path, monkeypatch)
         app_module.scheduler, "decrypt_secret", lambda _token: "maestra"
     )
     monkeypatch.setattr(
-        app_module, "get_task", lambda _task_id: _fake_task(["windows"])
+        task_catalog, "get_task", lambda _task_id: _fake_task(["windows"])
     )
     monkeypatch.setattr(
-        app_module, "get_job_queue", lambda: pytest.fail("no debe encolarse")
+        runtime, "get_job_queue", lambda: pytest.fail("no debe encolarse")
     )
 
     launched = app_module.launch_scheduled(
@@ -188,7 +191,7 @@ class _QueueStub:
 def test_operador_solo_cancela_sus_tareas(client, monkeypatch):
     task_id = app_module.create_task(owner="alice")
     app_module.update_task(task_id, {"status": "running"})
-    monkeypatch.setattr(app_module, "get_job_queue", lambda: _QueueStub())
+    monkeypatch.setattr(runtime, "get_job_queue", lambda: _QueueStub())
 
     assert _login(client, "bob", "bob-password-123").status_code == 302
     response = _post(client, f"/tasks/{task_id}/cancel")
@@ -196,7 +199,7 @@ def test_operador_solo_cancela_sus_tareas(client, monkeypatch):
     assert response.status_code == 302
     task = app_module._get_task(task_id)
     assert not task.get("cancellation_requested")
-    with app_module.get_connection(app_module.get_db_path()) as conn:
+    with app_module.get_connection(runtime.get_db_path()) as conn:
         event = conn.execute(
             "SELECT event FROM auth_events WHERE event = ? " "ORDER BY id DESC LIMIT 1",
             ("task_cancel_denied",),
@@ -207,7 +210,7 @@ def test_operador_solo_cancela_sus_tareas(client, monkeypatch):
 def test_operador_cancela_su_tarea_y_se_audita(client, monkeypatch):
     task_id = app_module.create_task(owner="alice")
     app_module.update_task(task_id, {"status": "running"})
-    monkeypatch.setattr(app_module, "get_job_queue", lambda: _QueueStub())
+    monkeypatch.setattr(runtime, "get_job_queue", lambda: _QueueStub())
 
     assert _login(client, "alice", "alice-password-123").status_code == 302
     response = _post(client, f"/tasks/{task_id}/cancel")
@@ -215,7 +218,7 @@ def test_operador_cancela_su_tarea_y_se_audita(client, monkeypatch):
     assert response.status_code == 302
     task = app_module._get_task(task_id)
     assert task["cancellation_requested"] is True
-    with app_module.get_connection(app_module.get_db_path()) as conn:
+    with app_module.get_connection(runtime.get_db_path()) as conn:
         event = conn.execute(
             "SELECT username FROM auth_events WHERE event = ? "
             "ORDER BY id DESC LIMIT 1",
@@ -227,7 +230,7 @@ def test_operador_cancela_su_tarea_y_se_audita(client, monkeypatch):
 def test_admin_cancela_tarea_ajena(client, monkeypatch):
     task_id = app_module.create_task(owner="alice")
     app_module.update_task(task_id, {"status": "running"})
-    monkeypatch.setattr(app_module, "get_job_queue", lambda: _QueueStub())
+    monkeypatch.setattr(runtime, "get_job_queue", lambda: _QueueStub())
 
     assert _login(client, "admin", "admin-password-123").status_code == 302
     response = _post(client, f"/tasks/{task_id}/cancel")
@@ -262,13 +265,13 @@ def test_progress_solo_visible_para_dueno_o_admin(client):
 # Persistencia agrupada
 # ---------------------------------------------------------------------------
 def test_update_task_agrupa_escrituras_y_fuerza_cambios_de_estado(db_path, monkeypatch):
-    monkeypatch.setattr(app_module, "TASK_PERSIST_INTERVAL_SECONDS", 3600)
+    monkeypatch.setattr(acc_task_state, "TASK_PERSIST_INTERVAL_SECONDS", 3600)
     # Reloj fijo y pequeño: la primera escritura no debe depender de que el
     # host lleve más de una hora encendido.
     monkeypatch.setattr(app_module.time, "monotonic", lambda: 10.0)
     writes = []
     monkeypatch.setattr(
-        app_module, "_persist_task", lambda tid, task: writes.append(dict(task))
+        acc_task_state, "_persist_task", lambda tid, task: writes.append(dict(task))
     )
 
     task_id = app_module.create_task(owner="alice")

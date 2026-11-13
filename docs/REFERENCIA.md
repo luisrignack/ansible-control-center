@@ -5,6 +5,36 @@ contrato de los playbooks.
 
 ---
 
+## 0. Organización del código
+
+`app.py` es una fachada compatible: crea la aplicación con
+`acc.bootstrap.create_app()` y reexporta los símbolos históricos que consumen
+`gunicorn`, el CLI (`flask --app app …`) y las pruebas. La lógica vive en el
+paquete `acc/`:
+
+| Módulo | Responsabilidad |
+|---|---|
+| `acc/bootstrap.py` | `create_app()`, registro de rutas/hooks, CLI y scheduler |
+| `acc/runtime.py` | Rutas de datos, SQLite, `DRY_RUN`, vault y cola de trabajos |
+| `acc/task_state.py` | Estado de tareas en memoria/SQLite, SSE e idempotencia |
+| `acc/security.py` | Roles, propiedad de filas y límites de peticiones |
+| `acc/operations.py` | Análisis y validación de formularios de operación |
+| `acc/execution.py` | Lotes de vista previa y aplicación, progreso y cancelación |
+| `acc/console.py` | Consola de Ansible saneada, hitos y omisión de hosts |
+| `acc/safety.py` | Criticidad y ventana de mantenimiento |
+| `acc/approvals.py` | Parámetros estables y payload de aprobaciones |
+| `acc/scheduling.py` | Validación y lanzamiento de programaciones |
+| `acc/cli.py` | Comandos `init-db`, `init-admin`, `scheduler`… |
+| `acc/web/registry.py` | `RouteRegistry`: decoradores y `add_url_rule` sin blueprints |
+| `acc/web/*.py` | Rutas por dominio: `auth`, `tasks`, `inventory`, `schedules`, `approvals`, `passwords`, `admin`, `errors`, y `hooks` |
+
+Las rutas conservan exactamente los mismos nombres de *endpoint* que antes del
+troceado (los usan las plantillas vía `url_for`). El estado de proceso se
+consulta siempre a través de `acc.runtime`, que es el único punto de parcheo
+en las pruebas.
+
+---
+
 ## 1. Rutas
 
 | Método | Ruta | Auth | Descripción |
@@ -557,3 +587,4 @@ python -m pytest -q
 | `test_vault_manager.py` | Cifrado, descifrado, borrado |
 | `test_services.py` | Resolución y servicios |
 | `test_p4.py` | Lotes, todos los hosts, reintentos, preview, opciones P4 |
+| `test_estructura_app.py` | Contrato del troceado: mapa de URLs/endpoints, CLI, hooks, plantillas y fachada de `app.py` |

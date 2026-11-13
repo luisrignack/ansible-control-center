@@ -18,6 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TARGETS = [ROOT / "app.py", ROOT / "config.py"]
+TARGETS += sorted((ROOT / "acc").rglob("*.py"))
 TARGETS += sorted((ROOT / "models").glob("*.py"))
 TARGETS += sorted((ROOT / "services").glob("*.py"))
 

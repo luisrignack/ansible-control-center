@@ -7,6 +7,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import app as app_module
+from acc import execution as acc_execution
+from acc import runtime
 from models.batch import ExecutionBatch
 from models.db import SCHEMA_VERSION, get_connection, init_schema
 from models.execution import ExecutionRecord
@@ -24,12 +26,12 @@ def _prepare_batch(
     """Base aislada, tarea y captura de resultados sin escribir por host."""
     db_path = str(tmp_path / f"{batch_id}.db")
     init_schema(db_path)
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
-    monkeypatch.setattr(app_module, "BATCH_HOST_CONCURRENCY", concurrency)
-    monkeypatch.setattr(app_module, "GLOBAL_HOST_CONCURRENCY", global_concurrency)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(acc_execution, "BATCH_HOST_CONCURRENCY", concurrency)
+    monkeypatch.setattr(runtime, "GLOBAL_HOST_CONCURRENCY", global_concurrency)
     # El semáforo se crea de forma perezosa: se reinicia para que la prueba
     # use el cupo configurado y no el de una prueba anterior.
-    monkeypatch.setattr(app_module, "_host_semaphore", None)
+    monkeypatch.setattr(runtime, "_host_semaphore", None)
     results: list[dict] = []
     monkeypatch.setattr(
         ExecutionBatch,
@@ -107,9 +109,9 @@ def test_batch_parallelizes_hosts_up_to_the_configured_limit(tmp_path, monkeypat
         global_concurrency=3,
     )
     probe = _ConcurrencyProbe()
-    monkeypatch.setattr(app_module, "test_ansible_ping", probe.ping)
+    monkeypatch.setattr(acc_execution, "test_ansible_ping", probe.ping)
     monkeypatch.setattr(
-        app_module,
+        acc_execution,
         "apply_host",
         lambda **kwargs: {"success": True, "before_state": {}, "after_state": {}},
     )
@@ -134,7 +136,7 @@ def test_host_results_keep_the_input_order_regardless_of_completion(
 ):
     db_path = str(tmp_path / "orden.db")
     init_schema(db_path)
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
     ExecutionBatch.create_batch(
         batch_id="orden",
         operator="admin",
@@ -187,9 +189,9 @@ def test_global_limit_is_shared_by_two_concurrent_batches(tmp_path, monkeypatch)
     assert original_add is not None
 
     probe = _ConcurrencyProbe(delay=0.05)
-    monkeypatch.setattr(app_module, "test_ansible_ping", probe.ping)
+    monkeypatch.setattr(acc_execution, "test_ansible_ping", probe.ping)
     monkeypatch.setattr(
-        app_module,
+        acc_execution,
         "apply_host",
         lambda **kwargs: {"success": True, "before_state": {}, "after_state": {}},
     )
@@ -234,7 +236,7 @@ def test_parallel_batch_skips_everything_when_already_cancelled(tmp_path, monkey
     event.set()
     called = []
     monkeypatch.setattr(
-        app_module, "test_ansible_ping", lambda **kwargs: called.append(kwargs)
+        acc_execution, "test_ansible_ping", lambda **kwargs: called.append(kwargs)
     )
 
     try:
@@ -296,8 +298,8 @@ def test_cancel_while_a_host_is_running_skips_waiting_hosts(tmp_path, monkeypatc
             }
         return {"success": True, "before_state": {}, "after_state": {}}
 
-    monkeypatch.setattr(app_module, "test_ansible_ping", ping)
-    monkeypatch.setattr(app_module, "apply_host", apply_after_cancel)
+    monkeypatch.setattr(acc_execution, "test_ansible_ping", ping)
+    monkeypatch.setattr(acc_execution, "apply_host", apply_after_cancel)
 
     outcome = []
     runner = threading.Thread(
@@ -358,9 +360,9 @@ def test_deadline_while_a_host_is_running_skips_waiting_hosts(tmp_path, monkeypa
             assert release.wait(5), "el worker en vuelo no fue liberado"
         return {"success": True}
 
-    monkeypatch.setattr(app_module, "test_ansible_ping", ping)
+    monkeypatch.setattr(acc_execution, "test_ansible_ping", ping)
     monkeypatch.setattr(
-        app_module,
+        acc_execution,
         "apply_host",
         lambda **kwargs: {
             "success": True,
@@ -421,13 +423,13 @@ def test_worker_failure_releases_the_shared_slot_for_the_next_batch(
         raise RuntimeError("fallo simulado del playbook")
 
     monkeypatch.setattr(
-        app_module, "test_ansible_ping", lambda **kwargs: {"success": True}
+        acc_execution, "test_ansible_ping", lambda **kwargs: {"success": True}
     )
-    monkeypatch.setattr(app_module, "apply_host", failing_apply)
+    monkeypatch.setattr(acc_execution, "apply_host", failing_apply)
     try:
         first = _run_batch(task_id, "fallo-interno", ["10.0.8.1"], db_path, log_lines)
         monkeypatch.setattr(
-            app_module,
+            acc_execution,
             "apply_host",
             lambda **kwargs: {
                 "success": True,
@@ -527,7 +529,7 @@ def test_parallel_batch_skips_pending_hosts_when_budget_is_spent(tmp_path, monke
     )
     called = []
     monkeypatch.setattr(
-        app_module, "test_ansible_ping", lambda **kwargs: called.append(kwargs)
+        acc_execution, "test_ansible_ping", lambda **kwargs: called.append(kwargs)
     )
 
     try:

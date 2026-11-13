@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import app as app_module
+from acc import cli as acc_cli
+from acc import runtime
 from models.ops import HostGroup, InventoryHost
 from models.user import User
 
 
 def test_init_admin_promotes_existing_local_user(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
     app_module.init_db()
     User.create_or_update("viewer", "old-password-123", role="viewer", db_path=db_path)
 
@@ -28,7 +30,7 @@ def test_init_admin_promotes_existing_local_user(tmp_path, monkeypatch):
 
 def test_sync_known_hosts_scans_inventory_ssh_hosts(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
     app_module.init_db()
 
     linux = HostGroup.create("linux", connection="ssh", db_path=db_path)
@@ -43,7 +45,7 @@ def test_sync_known_hosts_scans_inventory_ssh_hosts(tmp_path, monkeypatch):
         seen["hosts"] = list(hosts)
         return {host: True for host in hosts}
 
-    monkeypatch.setattr(app_module, "ensure_host_keys", fake_ensure)
+    monkeypatch.setattr(acc_cli, "ensure_host_keys", fake_ensure)
     runner = app_module.app.test_cli_runner()
     result = runner.invoke(args=["sync-known-hosts"])
 

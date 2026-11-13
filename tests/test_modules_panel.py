@@ -5,13 +5,14 @@ from __future__ import annotations
 import pytest
 
 import app as app_module
+from acc import runtime
 from models.user import User
 
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     db_path = str(tmp_path / "modules.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
     app_module.init_db()
     User.create_or_update("admin", "admin-password-123", db_path=db_path, role="admin")
     User.create_or_update(
@@ -149,7 +150,7 @@ def test_configuration_entry_redirects_to_inventory(client):
 
 
 def test_feature_flag_restores_previous_ui(client, monkeypatch):
-    monkeypatch.setattr(app_module, "UI_CONFIG_PANEL", False)
+    monkeypatch.setattr(runtime, "UI_CONFIG_PANEL", False)
     _login(client)
 
     panel = client.get("/").data

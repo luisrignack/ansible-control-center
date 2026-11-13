@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 import app as app_module
+from acc import runtime
 from models.ops import HostGroup, Schedule
 from models.user import AuthEvent, User
 
@@ -20,7 +21,7 @@ PASSWORD = "clave-local-123"
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     db_path = str(tmp_path / "usuarios.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
     app_module.init_db()
     User.create_or_update("admin", "admin-password-123", db_path=db_path)
     app_module.app.config.update(TESTING=True)
@@ -78,7 +79,7 @@ def test_admin_creates_local_user_and_it_can_log_in(client):
     assert "maria.local" in body
     assert "creado con rol" in body
 
-    user = User.get_by_username("maria.local", db_path=app_module.get_db_path())
+    user = User.get_by_username("maria.local", db_path=runtime.get_db_path())
     assert user is not None
     assert user.auth_source == "local"
     assert user.role == "operator"
@@ -108,13 +109,13 @@ def test_create_rejects_duplicate_username_including_ldap_shadow(client):
         "",
         role="viewer",
         auth_source="ldaps",
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
     )
     _login_admin(client)
     response = _create_local(client, "jose.cu")
     body = response.get_data(as_text=True)
     assert "ya existe" in body
-    shadow = User.get_by_username("jose.cu", db_path=app_module.get_db_path())
+    shadow = User.get_by_username("jose.cu", db_path=runtime.get_db_path())
     assert shadow is not None
     assert shadow.auth_source == "ldaps"
 
@@ -138,7 +139,7 @@ def test_create_rejects_short_or_mismatched_password(client):
         follow_redirects=True,
     )
     assert "al menos" in response.get_data(as_text=True)
-    assert User.get_by_username("corta.local", db_path=app_module.get_db_path()) is None
+    assert User.get_by_username("corta.local", db_path=runtime.get_db_path()) is None
 
     response = _post(
         client,
@@ -171,7 +172,7 @@ def test_create_rejects_invalid_username(client):
     )
     assert "sin espacios" in response.get_data(as_text=True)
     assert (
-        User.get_by_username("nombre con espacios", db_path=app_module.get_db_path())
+        User.get_by_username("nombre con espacios", db_path=runtime.get_db_path())
         is None
     )
 
@@ -179,15 +180,15 @@ def test_create_rejects_invalid_username(client):
 def test_admin_changes_local_password_and_clears_lock(client):
     _login_admin(client)
     _create_local(client, "carlos.local")
-    user = User.get_by_username("carlos.local", db_path=app_module.get_db_path())
+    user = User.get_by_username("carlos.local", db_path=runtime.get_db_path())
     assert user is not None
     user.register_failure(
         1,
         10,
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
     )
     assert User.get_by_username(
-        "carlos.local", db_path=app_module.get_db_path()
+        "carlos.local", db_path=runtime.get_db_path()
     ).is_locked
 
     new_password = "otra-clave-456"
@@ -209,7 +210,7 @@ def test_admin_changes_local_password_and_clears_lock(client):
     assert _login(client, "carlos.local", PASSWORD).status_code == 200
     assert _login(client, "carlos.local", new_password).status_code == 302
 
-    events = AuthEvent.recent(limit=20, db_path=app_module.get_db_path())
+    events = AuthEvent.recent(limit=20, db_path=runtime.get_db_path())
     assert any(event["event"] == "password_changed" for event in events)
 
 
@@ -219,7 +220,7 @@ def test_ldap_password_cannot_be_changed_locally(client):
         "",
         role="operator",
         auth_source="ldaps",
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
     )
     _login_admin(client)
     response = _post(
@@ -233,7 +234,7 @@ def test_ldap_password_cannot_be_changed_locally(client):
         follow_redirects=True,
     )
     assert "directorio" in response.get_data(as_text=True)
-    shadow = User.get_by_username("ldap.user", db_path=app_module.get_db_path())
+    shadow = User.get_by_username("ldap.user", db_path=runtime.get_db_path())
     assert shadow is not None
     assert shadow.password_hash == ""
 
@@ -241,10 +242,10 @@ def test_ldap_password_cannot_be_changed_locally(client):
 def test_delete_local_user_transfers_owned_data_to_admin(client):
     _login_admin(client)
     _create_local(client, "temporal.local")
-    user = User.get_by_username("temporal.local", db_path=app_module.get_db_path())
+    user = User.get_by_username("temporal.local", db_path=runtime.get_db_path())
     assert user is not None
 
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     group = HostGroup.create(
         "Grupo de temporal",
         owner_user_id=user.id,
@@ -290,7 +291,7 @@ def test_delete_requires_exact_confirmation(client):
     )
     assert "escribe su nombre exacto" in response.get_data(as_text=True)
     assert (
-        User.get_by_username("confirmar.local", db_path=app_module.get_db_path())
+        User.get_by_username("confirmar.local", db_path=runtime.get_db_path())
         is not None
     )
 
@@ -304,12 +305,12 @@ def test_admin_cannot_delete_own_account(client):
         follow_redirects=True,
     )
     assert "No puedes eliminar tu propia cuenta" in response.get_data(as_text=True)
-    assert User.get_by_username("admin", db_path=app_module.get_db_path()) is not None
+    assert User.get_by_username("admin", db_path=runtime.get_db_path()) is not None
 
 
 def test_last_local_admin_is_protected_even_for_ldap_admin(client):
     """Un admin LDAPS no puede dejar el sistema sin administración local."""
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     ldap_admin = User.create_or_update(
         "ldap.admin",
         "",

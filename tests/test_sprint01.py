@@ -17,6 +17,8 @@ import pytest
 
 import app as app_module
 import config as config_module
+from acc import runtime
+from acc.web import auth as web_auth
 from models.batch import ExecutionBatch
 from models.db import SCHEMA_VERSION, init_schema
 from models.user import AuthEvent, User
@@ -39,7 +41,7 @@ from services.vault_manager import _vault_lock
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
     app_module.init_db()
     User.create_or_update("admin", "admin-password-123", db_path=db_path)
     app_module.app.config.update(TESTING=True)
@@ -405,7 +407,7 @@ def test_job_queue_cancels_a_running_job():
 # S3: roles, bloqueo progresivo y auditoría de login
 # ---------------------------------------------------------------------------
 def test_viewer_is_read_only(client, tmp_path):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     User.create_or_update(
         "viewer", "viewer-password-123", db_path=db_path, role="viewer"
     )
@@ -418,7 +420,7 @@ def test_viewer_is_read_only(client, tmp_path):
 
 
 def test_operator_cannot_read_audit(client):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     User.create_or_update(
         "operator", "operator-password-123", db_path=db_path, role="operator"
     )
@@ -437,7 +439,7 @@ def test_admin_can_read_audit(client):
         "127.0.0.1",
         "login_success",
         "Prueba",
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
     )
     response = client.get("/audit")
     assert response.status_code == 200
@@ -447,9 +449,9 @@ def test_admin_can_read_audit(client):
 
 
 def test_account_is_locked_after_repeated_failures(client, monkeypatch):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     User.create_or_update("bloqueado", "correcta-123", db_path=db_path, role="viewer")
-    monkeypatch.setattr(app_module, "LOGIN_LOCKOUT_THRESHOLD", 2)
+    monkeypatch.setattr(web_auth, "LOGIN_LOCKOUT_THRESHOLD", 2)
 
     for _ in range(2):
         _post(

@@ -11,7 +11,8 @@ subproceso contra un host cada vez.
 Navegador
    │  HTTP / SSE
    ▼
-Flask (app.py)
+Flask (app.py → acc.bootstrap.create_app)
+   ├── acc/web/* (rutas por dominio) y acc/web/hooks.py
    ├── Autenticación (Flask-Login + SQLite)
    ├── CSRF / rate limiting / cabeceras
    ├── Validación de formularios
@@ -28,7 +29,19 @@ Flask (app.py)
 
 | Componente | Responsabilidad |
 |---|---|
-| `app.py` | Rutas, validación, tareas SSE, workers y CLI |
+| `app.py` | Punto de entrada compatible: crea la app y reexporta la fachada histórica |
+| `acc/bootstrap.py` | `create_app()`, configuración de arranque, CLI y scheduler |
+| `acc/runtime.py` | Rutas de datos, SQLite, modo simulación, vault y cola de trabajos |
+| `acc/task_state.py` | Estado de tareas en memoria/SQLite, SSE e idempotencia |
+| `acc/security.py` | Roles, propiedad de filas, redirecciones y límites por IP |
+| `acc/operations.py` | Análisis y validación de formularios de operación |
+| `acc/execution.py` | Lotes de vista previa y aplicación, progreso y cancelación |
+| `acc/console.py` | Consola de Ansible saneada, hitos y omisión de hosts |
+| `acc/safety.py` | Criticidad y ventana de mantenimiento |
+| `acc/approvals.py` | Parámetros estables y payload de aprobaciones |
+| `acc/scheduling.py` | Validación de formularios y lanzamiento de programaciones |
+| `acc/cli.py` | Comandos `flask --app app …` |
+| `acc/web/*` | Rutas (`auth`, `tasks`, `inventory`, `schedules`, `approvals`, `passwords`, `admin`, `errors`) y hooks |
 | `config.py` | Configuración central, rutas *fail-closed* en producción y logging |
 | `models/db.py` | Conexiones SQLite, WAL, busy_timeout y migraciones |
 | `models/batch.py` | Lotes y resultados por host |
@@ -208,7 +221,25 @@ El éxito no depende solo de `returncode == 0`: el playbook publica
 `HORA_VERIFIED` y estados antes/después. `apply_host` exige verificación
 correcta.
 
-## 9. Puntos de extensión
+## 9. Organización del código
+
+`app.py` es una fachada: crea la aplicación con `acc.bootstrap.create_app()` y
+reexporta los símbolos que usaban `gunicorn`, el CLI y las pruebas. El paquete
+`acc/` separa dominio (`runtime`, `task_state`, `security`, `operations`,
+`safety`, `approvals`, `scheduling`), ejecución (`execution`, `console`) y
+presentación (`acc/web/*`).
+
+Las rutas se declaran con los mismos decoradores de Flask sobre un
+`RouteRegistry` (`acc/web/registry.py`) y se aplican con `add_url_rule(...,
+endpoint=<nombre de la función>)`. Así se conservan los nombres de *endpoint*
+y las ~170 referencias de `url_for` de las plantillas sin usar blueprints.
+
+Los módulos que consultan estado de proceso (`get_db_path`, `get_job_queue`,
+`_job_queue`, `UI_CONFIG_PANEL`, `DRY_RUN`) lo hacen a través de
+`acc.runtime`, de modo que existe un único punto de configuración (y de
+parcheo en las pruebas).
+
+## 10. Puntos de extensión
 
 - Inventarios/CSV/grupos: extender `host_resolver` y el formulario.
 - Paralelismo: `ThreadPoolExecutor` en `_run_apply_batch`.

@@ -7,6 +7,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import app as app_module
+from acc import execution as acc_execution
+from acc import runtime
 from models.batch import ExecutionBatch
 from models.db import get_connection, init_schema
 from services import ansible_runner
@@ -31,7 +33,7 @@ def _run_batch(
     """Prepara base, tarea y lote para ejercitar ``_run_apply_batch``."""
     db_path = str(tmp_path / "concurrencia.db")
     init_schema(db_path)
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
     task_id = app_module.create_task(owner="admin")
     ExecutionBatch.create_batch(
         batch_id=batch_id,
@@ -148,7 +150,7 @@ def test_apply_batch_skips_a_host_locked_by_another_batch(tmp_path, monkeypatch)
     # No se debe ejecutar ningún playbook: el ping ni siquiera se llama.
     called = []
     monkeypatch.setattr(
-        app_module, "test_ansible_ping", lambda **kwargs: called.append(kwargs)
+        acc_execution, "test_ansible_ping", lambda **kwargs: called.append(kwargs)
     )
 
     db_path, outcome = _run_batch(
@@ -169,10 +171,10 @@ def test_apply_batch_skips_a_host_locked_by_another_batch(tmp_path, monkeypatch)
 def test_apply_batch_releases_the_host_lock_after_success(tmp_path, monkeypatch):
     host = "10.0.0.9"
     monkeypatch.setattr(
-        app_module, "test_ansible_ping", lambda **kwargs: {"success": True}
+        acc_execution, "test_ansible_ping", lambda **kwargs: {"success": True}
     )
     monkeypatch.setattr(
-        app_module,
+        acc_execution,
         "apply_host",
         lambda **kwargs: {"success": True, "before_state": {}, "after_state": {}},
     )
@@ -211,7 +213,7 @@ def test_job_queue_reports_position_while_pending(tmp_path, monkeypatch):
     assert job_queue.position("primero") is None
 
     # La vista de la tarea añade la posición sin persistirla.
-    monkeypatch.setattr(app_module, "_job_queue", job_queue)
+    monkeypatch.setattr(runtime, "_job_queue", job_queue)
     task = {"status": "pending", "completed": False, "message": "En cola…"}
     decorated = app_module._with_queue_position("segundo", task)
     assert decorated["queue_position"] == 1
@@ -228,7 +230,7 @@ def test_job_queue_reports_position_while_pending(tmp_path, monkeypatch):
 def test_queue_eta_uses_median_of_recent_batches(tmp_path, monkeypatch):
     db_path = str(tmp_path / "eta.db")
     init_schema(db_path)
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
 
     for index, seconds in enumerate((10, 20, 30)):
         batch_id = f"eta-{index}"
@@ -308,7 +310,7 @@ def test_apply_host_respects_an_explicit_dry_run_override(monkeypatch):
 
 def test_queue_position_is_not_added_to_running_tasks(monkeypatch):
     job_queue = JobQueue(max_workers=1, max_queue=1, shutdown_grace=1)
-    monkeypatch.setattr(app_module, "_job_queue", job_queue)
+    monkeypatch.setattr(runtime, "_job_queue", job_queue)
 
     running = {"status": "running", "completed": False}
     assert app_module._with_queue_position("x", running) is running

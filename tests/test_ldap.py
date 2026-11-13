@@ -10,6 +10,7 @@ import pytest
 
 import app as app_module
 import config as config_module
+from acc import runtime
 from models.user import User
 from services import ldap_auth
 
@@ -123,7 +124,7 @@ def _logout(client):
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
     app_module.init_db()
     User.create_or_update("admin", "admin-password-123", db_path=db_path)
     app_module.app.config.update(TESTING=True)
@@ -264,11 +265,11 @@ def test_empty_password_never_touched_ldap(fake_ldap):
 # Login vía LDAPS
 # ---------------------------------------------------------------------------
 def test_ldap_first_login_creates_viewer_shadow(client, fake_ldap):
-    assert User.count(db_path=app_module.get_db_path()) == 1  # solo admin
+    assert User.count(db_path=runtime.get_db_path()) == 1  # solo admin
     response = _login_ldap(client, fake_ldap)
     assert response.status_code == 302
 
-    shadow = User.get_by_username("jose.cu", db_path=app_module.get_db_path())
+    shadow = User.get_by_username("jose.cu", db_path=runtime.get_db_path())
     assert shadow is not None
     assert shadow.auth_source == "ldaps"
     assert shadow.role == config_module.LDAP_DEFAULT_ROLE == "viewer"
@@ -294,13 +295,13 @@ def test_ldap_wrong_password_creates_nothing(client, fake_ldap):
     response = _login_ldap(client, fake_ldap, password="contraseña-mala")
     assert response.status_code == 200
     assert b"Incorrectos" in response.data or b"incorrectos" in response.data
-    assert User.count(db_path=app_module.get_db_path()) == 1
+    assert User.count(db_path=runtime.get_db_path()) == 1
 
 
 def test_ldap_unknown_uid_creates_nothing(client, fake_ldap):
     response = _login_ldap(client, fake_ldap, username="nadie.tal")
     assert response.status_code == 200
-    assert User.count(db_path=app_module.get_db_path()) == 1
+    assert User.count(db_path=runtime.get_db_path()) == 1
 
 
 def test_ldap_local_username_is_rejected(client, fake_ldap, monkeypatch):
@@ -322,12 +323,12 @@ def test_ldap_local_username_is_rejected(client, fake_ldap, monkeypatch):
     assert response.status_code == 200
     assert b"Usuario o contrase" in response.data
     assert b"cuenta local" not in response.data
-    admin = User.get_by_username("admin", db_path=app_module.get_db_path())
+    admin = User.get_by_username("admin", db_path=runtime.get_db_path())
     assert admin.auth_source == "local"
     # El detalle queda en la auditoría.
     import sqlite3
 
-    with sqlite3.connect(app_module.get_db_path()) as db_conn:
+    with sqlite3.connect(runtime.get_db_path()) as db_conn:
         events = db_conn.execute(
             "SELECT event FROM auth_events WHERE username = 'admin'"
         ).fetchall()
@@ -347,14 +348,14 @@ def test_ldap_unreachable_flashes_service_error(client, fake_ldap, monkeypatch):
     response = _login_ldap(client, fake_ldap)
     assert response.status_code == 200
     assert "no disponible" in response.get_data(as_text=True)
-    assert User.count(db_path=app_module.get_db_path()) == 1
+    assert User.count(db_path=runtime.get_db_path()) == 1
 
 
 def test_ldap_disabled_falls_back_to_local_failure(client, fake_ldap, monkeypatch):
     monkeypatch.setattr(config_module, "LDAP_ENABLED", False)
     response = _login_ldap(client, fake_ldap)
     assert response.status_code == 200
-    assert User.count(db_path=app_module.get_db_path()) == 1
+    assert User.count(db_path=runtime.get_db_path()) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -366,7 +367,7 @@ def test_usuarios_rejects_anonymous_and_non_admin(client, fake_ldap):
     User.create_or_update(
         "pepe.cu",
         "",
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
         role="viewer",
         auth_source="ldaps",
     )
@@ -384,7 +385,7 @@ def test_usuarios_page_lists_local_and_ldap_accounts(client, fake_ldap):
     User.create_or_update(
         "maria.cu",
         "",
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
         role="viewer",
         auth_source="ldaps",
     )
@@ -408,7 +409,7 @@ def test_admin_assigns_role_to_ldap_user(client, fake_ldap):
         },
     )
     assert response.status_code == 302
-    shadow = User.get_by_username("jose.cu", db_path=app_module.get_db_path())
+    shadow = User.get_by_username("jose.cu", db_path=runtime.get_db_path())
     assert shadow.role == "operator"
 
 
@@ -425,7 +426,7 @@ def test_admin_cannot_change_own_role(client, fake_ldap):
     )
     assert response.status_code == 200
     assert "No puedes cambiar tu propio rol" in response.get_data(as_text=True)
-    admin = User.get_by_username("admin", db_path=app_module.get_db_path())
+    admin = User.get_by_username("admin", db_path=runtime.get_db_path())
     assert admin.is_admin
 
 
@@ -433,7 +434,7 @@ def test_set_role_validates_unknown_role(client, fake_ldap):
     User.create_or_update(
         "ana.cu",
         "",
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
         role="viewer",
         auth_source="ldaps",
     )
@@ -455,7 +456,7 @@ def test_admin_disables_and_reenables_ldap_account(client, fake_ldap):
     User.create_or_update(
         "luis.cu",
         "",
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
         role="viewer",
         auth_source="ldaps",
     )
@@ -469,7 +470,7 @@ def test_admin_disables_and_reenables_ldap_account(client, fake_ldap):
         },
     )
     assert response.status_code == 302
-    disabled = User.get_by_username("luis.cu", db_path=app_module.get_db_path())
+    disabled = User.get_by_username("luis.cu", db_path=runtime.get_db_path())
     assert not disabled.is_active
 
     # Una cuenta desactivada no puede volver a entrar (login LDAP).
@@ -489,7 +490,7 @@ def test_admin_disables_and_reenables_ldap_account(client, fake_ldap):
         },
     )
     assert response.status_code == 302
-    active = User.get_by_username("luis.cu", db_path=app_module.get_db_path())
+    active = User.get_by_username("luis.cu", db_path=runtime.get_db_path())
     assert active.is_active
 
 
@@ -506,7 +507,7 @@ def test_admin_cannot_disable_self(client, fake_ldap):
     )
     assert response.status_code == 200
     assert "No puedes desactivar" in response.get_data(as_text=True)
-    assert User.get_by_username("admin", db_path=app_module.get_db_path()).is_active
+    assert User.get_by_username("admin", db_path=runtime.get_db_path()).is_active
 
 
 # ---------------------------------------------------------------------------
@@ -539,7 +540,7 @@ def test_ldap_access_toggle_persists_and_gates_login(client, fake_ldap, monkeypa
     _logout(client)
     response = _login_ldap(client, fake_ldap)
     assert response.status_code == 200
-    assert User.count(db_path=app_module.get_db_path()) == 2  # admin + jose.cu
+    assert User.count(db_path=runtime.get_db_path()) == 2  # admin + jose.cu
 
 
 def test_ldap_toggle_requires_local_admin(client, fake_ldap):
@@ -547,7 +548,7 @@ def test_ldap_toggle_requires_local_admin(client, fake_ldap):
     User.create_or_update(
         "jefe.cu",
         "",
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
         role="admin",
         auth_source="ldaps",
     )
@@ -661,7 +662,7 @@ def test_ldap_admin_cannot_demote_or_disable_last_local_admin(client, fake_ldap)
     User.create_or_update(
         "jefe.cu",
         "",
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
         role="admin",
         auth_source="ldaps",
     )
@@ -680,7 +681,7 @@ def test_ldap_admin_cannot_demote_or_disable_last_local_admin(client, fake_ldap)
         follow_redirects=True,
     )
     assert "último administrador local" in response.get_data(as_text=True)
-    assert User.get_by_username("admin", db_path=app_module.get_db_path()).is_active
+    assert User.get_by_username("admin", db_path=runtime.get_db_path()).is_active
 
     response = _post(
         client,
@@ -692,7 +693,7 @@ def test_ldap_admin_cannot_demote_or_disable_last_local_admin(client, fake_ldap)
         follow_redirects=True,
     )
     assert "último administrador local" in response.get_data(as_text=True)
-    assert User.get_by_username("admin", db_path=app_module.get_db_path()).is_admin
+    assert User.get_by_username("admin", db_path=runtime.get_db_path()).is_admin
 
 
 def test_ldap_admin_can_manage_when_local_admins_remain(client, fake_ldap):
@@ -700,14 +701,14 @@ def test_ldap_admin_can_manage_when_local_admins_remain(client, fake_ldap):
     User.create_or_update(
         "maria.loc",
         "otra-clave-123",
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
         role="admin",
         auth_source="local",
     )
     User.create_or_update(
         "jefe.cu",
         "",
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
         role="admin",
         auth_source="ldaps",
     )
@@ -724,7 +725,7 @@ def test_ldap_admin_can_manage_when_local_admins_remain(client, fake_ldap):
     )
     assert response.status_code == 302
     assert (
-        User.get_by_username("maria.loc", db_path=app_module.get_db_path()).role
+        User.get_by_username("maria.loc", db_path=runtime.get_db_path()).role
         == "operator"
     )
 
@@ -738,7 +739,7 @@ def test_ldap_admin_can_manage_when_local_admins_remain(client, fake_ldap):
     )
     assert response.status_code == 302
     assert not User.get_by_username(
-        "maria.loc", db_path=app_module.get_db_path()
+        "maria.loc", db_path=runtime.get_db_path()
     ).is_active
 
 

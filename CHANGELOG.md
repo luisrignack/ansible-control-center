@@ -5,6 +5,34 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Troceado de `app.py` en el paquete `acc/`] — 2026-11-13
+
+### Cambiado
+
+- `app.py` deja de ser un monolito de ~6.740 líneas: pasa a ser una fachada de
+  ~465 líneas que crea la aplicación con `acc.bootstrap.create_app()` y
+  reexporta los 191 símbolos históricos.
+- La lógica se reparte en `acc/`: dominio (`runtime`, `task_state`, `security`,
+  `operations`, `safety`, `approvals`, `scheduling`), ejecución (`execution`,
+  `console`) y presentación (`acc/web/*`).
+- Las rutas se declaran con los decoradores habituales sobre un
+  `RouteRegistry` (`acc/web/registry.py`) y se registran con `add_url_rule`.
+  Se conservan los 42 endpoints, sus métodos y todas las referencias de
+  `url_for` sin introducir blueprints.
+
+### Añadido
+
+- `tests/test_estructura_app.py`: caracterización del mapa de URLs, comandos
+  del CLI, manipuladores de error, orden de hooks, raíz de plantillas/estáticos
+  y fachada pública de `app.py`.
+- `tools/quality_check.py` y CI (`compileall` y cobertura) incluyen `acc/`.
+
+### Compatibilidad
+
+- Se mantienen `flask --app app …` (`init-db`, `init-admin`, `scheduler`,
+  `reconcile-batches`, `sync-known-hosts`) y `gunicorn app:app`.
+- Sin cambios de comportamiento, esquema de datos ni dependencias nuevas.
+
 ## [Contraseña maestra del vault no persistente] — 2026-11-12
 
 ### Seguridad

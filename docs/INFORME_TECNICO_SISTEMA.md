@@ -84,7 +84,8 @@ Navegador
 Nginx (TLS, HTTP/2, proxy inverso)
    │
    ▼
-Gunicorn + Flask (app.py)
+Gunicorn + Flask (app.py → acc.bootstrap.create_app)
+   ├── acc/web/*: rutas por dominio y hooks de seguridad
    ├── Autenticación, sesión, CSRF, rate limiting
    ├── Rutas HTML y endpoints JSON internos
    ├── Validación de formularios y reglas de seguridad
@@ -105,7 +106,13 @@ Gunicorn + Flask (app.py)
 
 | Archivo / carpeta | Responsabilidad |
 |---|---|
-| `app.py` | Rutas, validación, orquestación, SSE, CLI y buena parte del flujo. Es un monolito de ~5.960 líneas y 37 rutas. |
+| `app.py` | Punto de entrada compatible: crea la app y reexporta la fachada histórica. La lógica vive en el paquete `acc/`. |
+| `acc/bootstrap.py` | `create_app()`, registro de rutas y hooks, CLI y scheduler. |
+| `acc/runtime.py` | Rutas de datos, SQLite, modo simulación, vault y cola de trabajos. |
+| `acc/task_state.py` | Estado de tareas, SSE e idempotencia de operaciones. |
+| `acc/execution.py` | Lotes de vista previa/aplicación, progreso y cancelación. |
+| `acc/operations.py` | Análisis y validación de formularios de operación. |
+| `acc/web/*` | Rutas por dominio (`auth`, `tasks`, `inventory`, `schedules`, `approvals`, `passwords`, `admin`, `errors`) y hooks. |
 | `config.py` | Configuración central, rutas, validación de seguridad de producción, logging y valores por defecto. |
 | `models/db.py` | Conexiones SQLite, WAL, `busy_timeout`, permisos `0600` y migraciones v1–v18. |
 | `models/batch.py` | Lotes, resultados por host, contadores, estados, estadísticas y reconciliación. |

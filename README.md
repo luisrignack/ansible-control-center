@@ -36,8 +36,8 @@ El procedimiento completo está en [AGENTS.md](AGENTS.md).
 Fases **P0–P4, P4.1, P4.2 y bloque de operación continua** completadas,
 junto con las correcciones de alta prioridad del
 [análisis profundo 2026-11-06](docs/ANALISIS_PROFUNDO_2026-11-06.md).
-Suite de pruebas: **473 tests en verde y 1 integración SSH opcional omitida
-por defecto** (474 recopilados). Incluye empaquetado Docker con Nginx y TLS.
+Suite de pruebas: **480 tests en verde y 1 integración SSH opcional omitida
+por defecto** (481 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 | Fase | Contenido |
 |---|---|
@@ -245,7 +245,20 @@ por defecto** (474 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 ## Arquitectura
 
 ```
-app.py                     Rutas, validación, tareas SSE y CLI
+app.py                     Punto de entrada: crea la app y reexporta la fachada
+acc/                       Paquete de la aplicación (dominio, ejecución y rutas)
+  runtime.py               Rutas, SQLite, modo simulación, vault y cola de trabajos
+  task_state.py            Estado de tareas, SSE e idempotencia de operaciones
+  security.py              Roles, propiedad de filas y límites de peticiones
+  operations.py            Análisis y validación de formularios
+  execution.py             Lotes: vista previa, aplicación y progreso
+  console.py               Consola saneada y progreso por host
+  safety.py                Criticidad y ventana de mantenimiento
+  approvals.py             Parámetros y payload de aprobaciones
+  scheduling.py            Validación y lanzamiento de programaciones
+  cli.py                   Comandos del CLI de Flask
+  bootstrap.py             create_app() y configuración de arranque
+  web/                     Rutas y hooks por dominio (auth, tasks, inventory…)
 config.py                  Configuración central y rutas con fallback
 gunicorn.conf.py           Configuración de Gunicorn
 Dockerfile                 Imagen de la aplicación (Gunicorn + Tini)

@@ -11,6 +11,7 @@ import json
 import pytest
 
 import app as app_module
+from acc import runtime
 from models.batch import ExecutionBatch
 from models.db import get_connection, init_schema
 from models.user import User
@@ -20,7 +21,7 @@ from services.metrics import RequestMetrics, percentile, summarize
 @pytest.fixture()
 def db_path(tmp_path, monkeypatch):
     path = str(tmp_path / "rendimiento.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: path)
     app_module.init_db()
     return path
 

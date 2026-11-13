@@ -16,6 +16,8 @@ from types import SimpleNamespace
 import pytest
 
 import app as app_module
+from acc import execution as acc_execution
+from acc import runtime
 from models.ops import (
     OS_CONNECTIONS,
     OS_FLAVORS,
@@ -29,7 +31,7 @@ from services.task_catalog import get_task
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
     app_module.init_db()
     User.create_or_update("admin", "admin-password-123", db_path=db_path)
     app_module.app.config.update(TESTING=True)
@@ -98,7 +100,7 @@ def test_all_tasks_declare_platforms():
 # Inventario por plataforma
 # ---------------------------------------------------------------------------
 def test_windows_group_creation():
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     group = HostGroup.create("Estaciones Win", os_flavor="windows", db_path=db_path)
     assert group.os_flavor == "windows"
     assert group.connection == "winrm"
@@ -109,7 +111,7 @@ def test_windows_group_creation():
 def test_windows_group_rejects_ssh_key(client):
     """Los grupos Windows no admiten la subida de clave SSH."""
     _login(client)
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     group = HostGroup.create("Win", os_flavor="windows", db_path=db_path)
     response = _post(
         client,
@@ -171,7 +173,7 @@ def test_zona_task_form_renders_fixed_value(client):
 def test_zona_todas_accepts_windows_group(client, monkeypatch):
     """La tarea zona-todas admite el grupo Windows y notifica la conexión."""
     _login(client)
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     group = HostGroup.create("Win", os_flavor="windows", db_path=db_path)
     InventoryHost.add(group.id, "10.55.0.2", db_path=db_path)
 
@@ -194,8 +196,8 @@ def test_zona_todas_accepts_windows_group(client, monkeypatch):
             "warnings": "",
         }
 
-    monkeypatch.setattr(app_module, "test_ansible_ping", fake_ping)
-    monkeypatch.setattr(app_module, "apply_host", fake_apply)
+    monkeypatch.setattr(acc_execution, "test_ansible_ping", fake_ping)
+    monkeypatch.setattr(acc_execution, "apply_host", fake_apply)
 
     response = _post(
         client,

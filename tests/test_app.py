@@ -7,6 +7,9 @@ import time
 import pytest
 
 import app as app_module
+from acc import execution as acc_execution
+from acc import runtime
+from acc.web import auth as web_auth
 from config import BIN_ANSIBLE_VAULT
 from models.password import PasswordRecord
 from models.user import User
@@ -16,7 +19,7 @@ from services.vault_manager import VaultManager
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
     app_module.init_db()
     User.create_or_update(
         "admin",
@@ -147,8 +150,8 @@ def test_security_headers_are_present(client):
 
 
 def test_login_rate_limit(client, monkeypatch):
-    monkeypatch.setattr(app_module, "LOGIN_RATE_LIMIT", 2)
-    monkeypatch.setattr(app_module, "LOGIN_RATE_WINDOW", 60)
+    monkeypatch.setattr(web_auth, "LOGIN_RATE_LIMIT", 2)
+    monkeypatch.setattr(web_auth, "LOGIN_RATE_WINDOW", 60)
 
     for _ in range(2):
         response = _post(
@@ -240,12 +243,12 @@ def test_temporal_txt_requires_txt_file(client):
 
 def test_temporal_txt_execution_records_history(client, monkeypatch):
     monkeypatch.setattr(
-        app_module,
+        acc_execution,
         "test_ansible_ping",
         lambda **_kwargs: {"success": True, "error": ""},
     )
     monkeypatch.setattr(
-        app_module,
+        acc_execution,
         "apply_host",
         lambda host, **_kwargs: {
             "success": True,
@@ -350,7 +353,7 @@ def test_encrypt_defaults_origin_to_manual(client, monkeypatch):
 )
 def test_delete_password_updates_vault(client):
     _login(client)
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     vault_file = app_module.get_vault_file()
     ok, message = VaultManager.encrypt_passwords(
         ["clave-a-borrar"],
@@ -385,7 +388,7 @@ def test_delete_password_updates_vault(client):
 )
 def test_delete_password_with_wrong_master_keeps_data(client):
     _login(client)
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     vault_file = app_module.get_vault_file()
     ok, message = VaultManager.encrypt_passwords(
         ["clave-protegida"],

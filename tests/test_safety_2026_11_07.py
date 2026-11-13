@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 import app as app_module
+from acc import runtime
 from models.db import SCHEMA_VERSION, get_connection, init_schema
 from models.ops import HostGroup, InventoryHost, Schedule
 from models.user import AuthEvent, User
@@ -31,7 +32,7 @@ from services.safety import (
 @pytest.fixture()
 def db_path(tmp_path, monkeypatch):
     path = str(tmp_path / "safety.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: path)
     app_module.init_db()
     return path
 
@@ -322,7 +323,7 @@ def test_execute_blocks_critical_outside_window(client, db_path, monkeypatch):
     days, start, end = _outside_window_now()
     group = _critical_group(db_path, days=days, start=start, end=end)
     queue = _StubQueue()
-    monkeypatch.setattr(app_module, "get_job_queue", lambda: queue)
+    monkeypatch.setattr(runtime, "get_job_queue", lambda: queue)
     _login(client)
 
     response = _post(client, "/execute", _execution_form(group.id))
@@ -337,7 +338,7 @@ def test_preview_is_allowed_outside_window(client, db_path, monkeypatch):
     days, start, end = _outside_window_now()
     group = _critical_group(db_path, days=days, start=start, end=end)
     queue = _StubQueue()
-    monkeypatch.setattr(app_module, "get_job_queue", lambda: queue)
+    monkeypatch.setattr(runtime, "get_job_queue", lambda: queue)
     _login(client)
 
     response = _post(
@@ -356,7 +357,7 @@ def test_admin_override_requires_reason_and_is_audited(client, db_path, monkeypa
     days, start, end = _outside_window_now()
     group = _critical_group(db_path, days=days, start=start, end=end)
     queue = _StubQueue()
-    monkeypatch.setattr(app_module, "get_job_queue", lambda: queue)
+    monkeypatch.setattr(runtime, "get_job_queue", lambda: queue)
     _login(client)
 
     short = _post(
@@ -393,7 +394,7 @@ def test_operator_cannot_override(client, db_path, monkeypatch):
     days, start, end = _outside_window_now()
     group = _critical_group(db_path, days=days, start=start, end=end)
     queue = _StubQueue()
-    monkeypatch.setattr(app_module, "get_job_queue", lambda: queue)
+    monkeypatch.setattr(runtime, "get_job_queue", lambda: queue)
     _login(client, "operador", "operador-password-123")
 
     response = _post(

@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 import app as app_module
+from acc import bootstrap as acc_bootstrap
+from acc import runtime
 from services import rate_limiter as rate_limiter_module
 from services.csrf import (
     generate_csrf_token,
@@ -144,7 +146,7 @@ def test_rate_limiter_bounds_key_count(monkeypatch):
 
 
 def test_client_ip_does_not_trust_unverified_forwarded_for(monkeypatch):
-    monkeypatch.setattr(app_module, "TRUST_PROXY", True)
+    monkeypatch.setattr(acc_bootstrap, "TRUST_PROXY", True)
     with app_module.app.test_request_context(
         "/",
         headers={"X-Forwarded-For": "203.0.113.50"},
@@ -376,7 +378,7 @@ def auth_client(tmp_path, monkeypatch):
     from models.user import User
 
     db_path = str(tmp_path / "auth.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
     app_module.init_db()
     User.create_or_update("admin", "admin-password-123", db_path=db_path, role="admin")
     User.create_or_update(

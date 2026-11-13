@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 import app as app_module
+from acc import runtime
 from models.ops import HostGroup, Schedule
 from models.user import User
 
@@ -19,7 +20,7 @@ from models.user import User
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     db_path = str(tmp_path / "aislamiento.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
     app_module.init_db()
     for username, role in (
         ("admin-a", "admin"),
@@ -66,7 +67,7 @@ def _login(client, username: str) -> None:
 
 
 def _user_id(username: str) -> int:
-    user = User.get_by_username(username, db_path=app_module.get_db_path())
+    user = User.get_by_username(username, db_path=runtime.get_db_path())
     assert user is not None
     return int(user.id)
 
@@ -82,7 +83,7 @@ def test_inventory_is_private_and_admin_can_open_global_view(client):
     body = response.get_data(as_text=True)
     assert "Grupo privado A" in body
 
-    group = HostGroup.all(db_path=app_module.get_db_path())[0]
+    group = HostGroup.all(db_path=runtime.get_db_path())[0]
     assert group.owner_user_id == _user_id("admin-a")
     assert group.owner_name == "admin-a"
     assert group.is_shared is False
@@ -102,7 +103,7 @@ def test_operator_manages_own_groups_and_cannot_touch_foreign_groups(client):
         "/inventario",
         {"action": "create_group", "name": "Grupo de A"},
     )
-    foreign = HostGroup.all(db_path=app_module.get_db_path())[0]
+    foreign = HostGroup.all(db_path=runtime.get_db_path())[0]
 
     _login(client, "operador")
     response = _post(
@@ -112,7 +113,7 @@ def test_operator_manages_own_groups_and_cannot_touch_foreign_groups(client):
         follow_redirects=True,
     )
     assert "Grupo de operador" in response.get_data(as_text=True)
-    groups = HostGroup.all(db_path=app_module.get_db_path())
+    groups = HostGroup.all(db_path=runtime.get_db_path())
     own = next(g for g in groups if g.name == "Grupo de operador")
     assert own.owner_user_id == _user_id("operador")
 
@@ -147,7 +148,7 @@ def test_viewer_is_read_only_for_inventory(client):
 
 
 def test_legacy_rows_remain_shared_for_everyone(client):
-    shared = HostGroup.create("Grupo heredado", db_path=app_module.get_db_path())
+    shared = HostGroup.create("Grupo heredado", db_path=runtime.get_db_path())
     assert shared.owner_user_id == 0
     assert shared.is_shared is True
 
@@ -160,7 +161,7 @@ def test_legacy_rows_remain_shared_for_everyone(client):
 def test_private_inventory_group_is_not_offered_in_task_form(client):
     _login(client, "admin-a")
     group = HostGroup.create(
-        "Solo A", owner_user_id=_user_id("admin-a"), db_path=app_module.get_db_path()
+        "Solo A", owner_user_id=_user_id("admin-a"), db_path=runtime.get_db_path()
     )
     body = client.get("/tarea/zona-todas").get_data(as_text=True)
     assert group.name in body
@@ -171,7 +172,7 @@ def test_private_inventory_group_is_not_offered_in_task_form(client):
 
 
 def test_schedules_are_filtered_by_owner_with_admin_global_view(client):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     run_at = datetime.now(UTC) + timedelta(hours=1)
     Schedule.create(
         "Programación de A",
@@ -208,7 +209,7 @@ def test_schedules_are_filtered_by_owner_with_admin_global_view(client):
 
 
 def test_legacy_schedule_is_shared(client):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     Schedule.create(
         "Programación heredada",
         "hora",

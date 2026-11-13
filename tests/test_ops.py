@@ -13,6 +13,8 @@ import pytest
 import app as app_module
 import services.scheduler as scheduler_module
 import services.wallpaper as wallpaper_module
+from acc import execution as acc_execution
+from acc import runtime
 from models.batch import ExecutionBatch
 from models.ops import (
     ApprovalRequest,
@@ -38,7 +40,7 @@ class _Upload:
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
     app_module.init_db()
     User.create_or_update("admin", "admin-password-123", db_path=db_path)
     app_module.app.config.update(TESTING=True)
@@ -53,7 +55,7 @@ def operator_client(client, tmp_path):
         "operador",
         "operador-clave-456",
         role="operator",
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
     )
     return client
 
@@ -123,32 +125,32 @@ def test_group_creation_and_host_roundtrip(client):
     assert "Oficina Central" in body
     assert "Grupo creado" in body
 
-    groups = HostGroup.all(db_path=app_module.get_db_path())
+    groups = HostGroup.all(db_path=runtime.get_db_path())
     assert len(groups) == 1
     group = groups[0]
 
     host, error = InventoryHost.add(
-        group.id, "10.42.0.7", label="recepción", db_path=app_module.get_db_path()
+        group.id, "10.42.0.7", label="recepción", db_path=runtime.get_db_path()
     )
     assert error is None
     assert host.address == "10.42.0.7"
 
     # IP inválida rechazada.
     _, invalid = InventoryHost.add(
-        group.id, "10.42.0", db_path=app_module.get_db_path()
+        group.id, "10.42.0", db_path=runtime.get_db_path()
     )
     assert invalid
 
-    hosts = HostGroup.hosts_of(group.id, db_path=app_module.get_db_path())
+    hosts = HostGroup.hosts_of(group.id, db_path=runtime.get_db_path())
     assert [h.address for h in hosts] == ["10.42.0.7"]
 
-    hosts[0].delete(db_path=app_module.get_db_path())
-    assert HostGroup.hosts_of(group.id, db_path=app_module.get_db_path()) == []
+    hosts[0].delete(db_path=runtime.get_db_path())
+    assert HostGroup.hosts_of(group.id, db_path=runtime.get_db_path()) == []
 
 
 def test_group_add_host_via_web(client):
     _login(client)
-    group = HostGroup.create("Grupo web", db_path=app_module.get_db_path())
+    group = HostGroup.create("Grupo web", db_path=runtime.get_db_path())
     response = _post(
         client,
         "/inventario",
@@ -160,7 +162,7 @@ def test_group_add_host_via_web(client):
 
 def test_inventory_post_requires_admin(client):
     _login(client, "admin", "admin-password-123")
-    groups = HostGroup.all(db_path=app_module.get_db_path())
+    groups = HostGroup.all(db_path=runtime.get_db_path())
     assert groups == []
 
 
@@ -170,14 +172,14 @@ def test_inventory_post_requires_admin(client):
 def test_execution_with_inventory_group(operator_client, monkeypatch):
     client = operator_client
     _login(client)
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     group = HostGroup.create("Sucursal A", db_path=db_path)
     for address in ("10.42.0.10", "10.42.0.11"):
         InventoryHost.add(group.id, address, db_path=db_path)
 
     seen_hosts = []
     monkeypatch.setattr(
-        app_module,
+        acc_execution,
         "test_ansible_ping",
         lambda **kwargs: {"success": True, "error": ""},
     )
@@ -186,7 +188,7 @@ def test_execution_with_inventory_group(operator_client, monkeypatch):
         seen_hosts.append(host)
         return _ok(host, password)
 
-    monkeypatch.setattr(app_module, "apply_host", fake_apply)
+    monkeypatch.setattr(acc_execution, "apply_host", fake_apply)
 
     response = _post(
         client,
@@ -220,7 +222,7 @@ def test_execution_with_inventory_group(operator_client, monkeypatch):
 
 def test_execution_with_empty_inventory_group_fails(operator_client, client):
     _login(operator_client)
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     group = HostGroup.create("Vacío", db_path=db_path)
     response = _post(
         operator_client,
@@ -246,7 +248,7 @@ def test_execution_with_empty_inventory_group_fails(operator_client, client):
 # Programaciones
 # ---------------------------------------------------------------------------
 def test_schedule_create_requires_future_run_at(client):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     run_at = datetime.now(UTC) - timedelta(hours=1)
     with pytest.raises(ValueError):
         Schedule.create(
@@ -259,7 +261,7 @@ def test_schedule_create_requires_future_run_at(client):
 
 
 def test_schedule_scan_once_triggers_and_advances(client, monkeypatch):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     run_at = datetime.now(UTC) - timedelta(seconds=60)
     Schedule.create(
         "ventana",
@@ -292,7 +294,7 @@ def test_schedule_scan_once_triggers_and_advances(client, monkeypatch):
 
 def test_schedule_transient_error_keeps_schedule_enabled(client):
     """Un fallo de capacidad no apaga la programación de forma permanente."""
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     schedule = Schedule.create(
         "cola llena",
         "zona-todas",
@@ -320,7 +322,7 @@ def test_schedule_transient_error_keeps_schedule_enabled(client):
 
 
 def test_schedule_permanent_error_disables(client):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     schedule = Schedule.create(
         "permanente",
         "zona-todas",
@@ -344,7 +346,7 @@ def test_schedule_permanent_error_disables(client):
 
 def test_schedule_next_run_after_long_downtime_is_in_the_future(client):
     """Una caída de varios días no debe encadenar ejecuciones históricas."""
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     schedule = Schedule.create(
         "recuperación",
         "zona-todas",
@@ -369,7 +371,7 @@ def test_deactivated_user_session_is_rejected(client):
     _login(client)
     assert client.get("/").status_code == 200
 
-    User.set_active("admin", False, db_path=app_module.get_db_path())
+    User.set_active("admin", False, db_path=runtime.get_db_path())
 
     response = client.get("/", follow_redirects=False)
     assert response.status_code == 302
@@ -377,7 +379,7 @@ def test_deactivated_user_session_is_rejected(client):
 
 
 def test_schedule_task_not_active_disables(client):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     Schedule.create(
         "tarea muerta",
         "kaspersky",
@@ -486,7 +488,7 @@ def _approval_params(target="10.44.0.1", value="UTC"):
 
 
 def test_approval_flow_create_approve_consume(client):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     req = ApprovalRequest.create(
         "kaspersky", _approval_params(), requested_by="operador", db_path=db_path
     )
@@ -559,7 +561,7 @@ def test_approval_flow_create_approve_consume(client):
 
 
 def test_approval_params_must_match(client):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     ApprovalRequest.create(
         "kaspersky", _approval_params(), requested_by="operador", db_path=db_path
     )
@@ -596,7 +598,7 @@ def test_destructive_task_requires_approval_in_web(operator_client, monkeypatch)
 def test_batch_page_offers_rerun_when_applicable(operator_client, monkeypatch):
     client = operator_client
     _login(client)
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     batch_id = "rerunbatch001"
     ExecutionBatch.create_batch(
         batch_id=batch_id,
@@ -685,7 +687,7 @@ def test_group_ssh_key_used_in_execution(operator_client, monkeypatch, tmp_path)
     """
     client = operator_client
     _login(client)
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     group = HostGroup.create("Con clave", db_path=db_path)
     InventoryHost.add(group.id, "10.42.0.77", db_path=db_path)
     key_path = tmp_path / "inventory.pem"
@@ -694,7 +696,7 @@ def test_group_ssh_key_used_in_execution(operator_client, monkeypatch, tmp_path)
 
     seen = {}
     monkeypatch.setattr(
-        app_module,
+        acc_execution,
         "test_ansible_ping",
         lambda **kw: (
             seen.setdefault("ping_private_key", kw.get("private_key")),
@@ -706,8 +708,8 @@ def test_group_ssh_key_used_in_execution(operator_client, monkeypatch, tmp_path)
         seen.setdefault("apply_private_key", private_key)
         return _ok(host, password)
 
-    monkeypatch.setattr(app_module, "apply_host", fake_apply)
-    monkeypatch.setattr(app_module, "inspect_host", fake_apply)
+    monkeypatch.setattr(acc_execution, "apply_host", fake_apply)
+    monkeypatch.setattr(acc_execution, "inspect_host", fake_apply)
 
     response = _post(
         client,
@@ -760,7 +762,7 @@ def test_schedule_create_uses_task_form_and_forces_fixed_value(client):
         follow_redirects=True,
     )
     assert "Programación &#39;ventana&#39; creada" in response.get_data(as_text=True)
-    schedule = Schedule.all(db_path=app_module.get_db_path())[0]
+    schedule = Schedule.all(db_path=runtime.get_db_path())[0]
     assert schedule.params["action"] == "TZ"
     assert schedule.params["value"] == "America/Caracas"
     assert schedule.params["admin_user"] == "root"
@@ -775,7 +777,7 @@ def test_schedule_create_rejects_action_not_allowed_by_task(client):
         follow_redirects=True,
     )
     assert "no admite la acción TIME" in response.get_data(as_text=True)
-    assert Schedule.all(db_path=app_module.get_db_path()) == []
+    assert Schedule.all(db_path=runtime.get_db_path()) == []
 
 
 def test_schedule_create_rejects_unknown_timezone(client, monkeypatch):
@@ -803,7 +805,7 @@ def test_schedule_create_rejects_unknown_timezone(client, monkeypatch):
         follow_redirects=True,
     )
     assert "Zona horaria desconocida" in response.get_data(as_text=True)
-    assert Schedule.all(db_path=app_module.get_db_path()) == []
+    assert Schedule.all(db_path=runtime.get_db_path()) == []
 
 
 # ---------------------------------------------------------------------------
@@ -831,7 +833,7 @@ def _task_schedule_payload(**overrides):
 
 
 def test_schedule_can_be_created_from_task_form(client):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     group = HostGroup.create("Aulas", db_path=db_path)
     _login(client)
 
@@ -862,14 +864,14 @@ def test_schedule_from_task_form_requires_admin(client):
         "operador",
         "operador-clave-456",
         role="operator",
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
     )
     _login(client, "operador", "operador-clave-456")
 
     response = _post(client, "/", _task_schedule_payload())
 
     assert response.status_code == 403
-    assert Schedule.all(db_path=app_module.get_db_path()) == []
+    assert Schedule.all(db_path=runtime.get_db_path()) == []
 
 
 def test_schedule_from_task_form_rejects_temporary_passwords(client):
@@ -883,7 +885,7 @@ def test_schedule_from_task_form_rejects_temporary_passwords(client):
     )
 
     assert "credenciales guardadas" in response.get_data(as_text=True)
-    assert Schedule.all(db_path=app_module.get_db_path()) == []
+    assert Schedule.all(db_path=runtime.get_db_path()) == []
 
 
 def test_schedule_create_password_encrypts_new_secret(client):
@@ -906,7 +908,7 @@ def test_schedule_create_password_encrypts_new_secret(client):
     body = response.get_data(as_text=True)
     assert "Programación &#39;rotación&#39; creada" in body
     assert "destructiva" in body
-    schedule = Schedule.all(db_path=app_module.get_db_path())[0]
+    schedule = Schedule.all(db_path=runtime.get_db_path())[0]
     assert schedule.task_id == "contrasena"
     assert schedule.params["action"] == "PASSWORD"
     assert schedule.params["value"] == "ladmin"
@@ -937,7 +939,7 @@ def test_schedule_create_firewall_stores_normalized_operation(client):
     assert "Programación &#39;regla de red&#39; creada" in response.get_data(
         as_text=True
     )
-    schedule = Schedule.all(db_path=app_module.get_db_path())[0]
+    schedule = Schedule.all(db_path=runtime.get_db_path())[0]
     assert schedule.task_id == "firewall"
     assert schedule.params["value"] == "allow:10.0.0.0/24"
 
@@ -958,7 +960,7 @@ def test_schedule_create_firewall_rejects_open_network(client):
     )
 
     assert "cualquier origen" in response.get_data(as_text=True)
-    assert Schedule.all(db_path=app_module.get_db_path()) == []
+    assert Schedule.all(db_path=runtime.get_db_path()) == []
 
 
 def test_schedule_create_tapiz_persists_private_image(client, monkeypatch, tmp_path):
@@ -983,7 +985,7 @@ def test_schedule_create_tapiz_persists_private_image(client, monkeypatch, tmp_p
     assert "Programación &#39;fondo oficial&#39; creada" in response.get_data(
         as_text=True
     )
-    schedule = Schedule.all(db_path=app_module.get_db_path())[0]
+    schedule = Schedule.all(db_path=runtime.get_db_path())[0]
     saved_path = Path(schedule.params["wallpaper_path"])
     assert saved_path.is_file()
     assert saved_path.parent.name == "schedules"
@@ -994,7 +996,7 @@ def test_schedule_create_tapiz_persists_private_image(client, monkeypatch, tmp_p
 
 
 def test_schedule_edit_preserves_and_replaces_password_secret(client):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     old_secret = scheduler_module.encrypt_secret("Clave-Vieja-123")
     schedule = Schedule.create(
         "rotación",
@@ -1085,7 +1087,7 @@ def test_schedule_edit_and_delete_manage_persistent_wallpaper(
             "wallpaper_ext": first["ext"],
             "master_password_enc": scheduler_module.encrypt_secret("clave-maestra"),
         },
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
     )
     _login(client)
     base = {
@@ -1107,7 +1109,7 @@ def test_schedule_edit_and_delete_manage_persistent_wallpaper(
         follow_redirects=True,
     )
     assert "actualizada" in response.get_data(as_text=True)
-    updated = Schedule.get(schedule.id, db_path=app_module.get_db_path())
+    updated = Schedule.get(schedule.id, db_path=runtime.get_db_path())
     assert updated is not None
     assert updated.params["wallpaper_path"] == first["path"]
     assert Path(first["path"]).is_file()
@@ -1120,7 +1122,7 @@ def test_schedule_edit_and_delete_manage_persistent_wallpaper(
         follow_redirects=True,
     )
     assert "actualizada" in response.get_data(as_text=True)
-    updated = Schedule.get(schedule.id, db_path=app_module.get_db_path())
+    updated = Schedule.get(schedule.id, db_path=runtime.get_db_path())
     assert updated is not None
     new_path = updated.params["wallpaper_path"]
     assert new_path != first["path"]
@@ -1138,7 +1140,7 @@ def test_schedule_edit_and_delete_manage_persistent_wallpaper(
 
 
 def test_launch_scheduled_password_passes_decrypted_secret(client, monkeypatch):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     schedule = Schedule.create(
         "rotación",
         "contrasena",
@@ -1162,7 +1164,7 @@ def test_launch_scheduled_password_passes_decrypted_secret(client, monkeypatch):
         def submit(self, queue_task_id, func, /, *args, **kwargs):
             calls.append(kwargs)
 
-    monkeypatch.setattr(app_module, "get_job_queue", lambda: FakeQueue())
+    monkeypatch.setattr(runtime, "get_job_queue", lambda: FakeQueue())
 
     launched = app_module.launch_scheduled(
         schedule.to_dict(), dict(schedule.params)
@@ -1195,7 +1197,7 @@ def test_launch_scheduled_wallpaper_clones_image(client, monkeypatch, tmp_path):
             "wallpaper_ext": saved["ext"],
             "master_password_enc": scheduler_module.encrypt_secret("clave-maestra"),
         },
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
     )
     calls: list[dict] = []
 
@@ -1203,7 +1205,7 @@ def test_launch_scheduled_wallpaper_clones_image(client, monkeypatch, tmp_path):
         def submit(self, queue_task_id, func, /, *args, **kwargs):
             calls.append(kwargs)
 
-    monkeypatch.setattr(app_module, "get_job_queue", lambda: FakeQueue())
+    monkeypatch.setattr(runtime, "get_job_queue", lambda: FakeQueue())
 
     launched = app_module.launch_scheduled(
         schedule.to_dict(), dict(schedule.params)
@@ -1220,7 +1222,7 @@ def test_launch_scheduled_wallpaper_clones_image(client, monkeypatch, tmp_path):
 
 
 def test_schedules_page_filters_by_group_and_has_no_create_form(client):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     group = HostGroup.create("Sucursal", db_path=db_path)
     other = HostGroup.create("Otra sede", db_path=db_path)
     run_at = datetime.now(UTC) + timedelta(hours=1)
@@ -1260,7 +1262,7 @@ def test_schedules_page_filters_by_group_and_has_no_create_form(client):
 
 
 def test_schedule_edit_updates_time_and_preserves_secret(client):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     group = HostGroup.create("Aulas", db_path=db_path)
     encrypted = scheduler_module.encrypt_secret("clave-maestra")
     schedule = Schedule.create(
@@ -1324,7 +1326,7 @@ def test_schedule_edit_updates_time_and_preserves_secret(client):
 
 
 def test_schedule_edit_rejects_outside_window(client):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     today = datetime.now(UTC).isoweekday()
     group = HostGroup.create(
         "Crítico",
@@ -1383,7 +1385,7 @@ def test_schedule_edit_rejects_outside_window(client):
 
 
 def test_schedule_edit_requires_admin(client):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     schedule = Schedule.create(
         "solo admin",
         "zona-todas",
@@ -1414,7 +1416,7 @@ def test_schedule_edit_requires_admin(client):
 
 
 def test_inventory_shows_window_help_and_schedule_shortcut(client):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     group = HostGroup.create("Oficina", db_path=db_path)
     _login(client)
 
@@ -1458,7 +1460,7 @@ def test_task_page_offers_scheduling_only_to_admin_on_schedulable_tasks(client):
         "operador",
         "operador-clave-456",
         role="operator",
-        db_path=app_module.get_db_path(),
+        db_path=runtime.get_db_path(),
     )
     _post(client, "/logout")
     _login(client, "operador", "operador-clave-456")
@@ -1467,7 +1469,7 @@ def test_task_page_offers_scheduling_only_to_admin_on_schedulable_tasks(client):
 
 
 def test_launch_scheduled_disables_invalid_stored_params(client):
-    db_path = app_module.get_db_path()
+    db_path = runtime.get_db_path()
     Schedule.create(
         "vieja",
         "zona-todas",
@@ -1511,7 +1513,7 @@ def test_manual_execution_forces_task_fixed_value(client, monkeypatch):
             captured["args"] = args
             captured["kwargs"] = kwargs
 
-    monkeypatch.setattr(app_module, "get_job_queue", lambda: FakeQueue())
+    monkeypatch.setattr(runtime, "get_job_queue", lambda: FakeQueue())
 
     response = _post(
         client,

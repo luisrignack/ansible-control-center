@@ -12,6 +12,7 @@ import yaml
 
 import app as app_module
 import services.ansible_runner as runner
+from acc import runtime
 from models.user import User
 from services.task_catalog import get_task
 
@@ -36,7 +37,7 @@ ENCODED_STATE = base64.b64encode(
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
     app_module.init_db()
     User.create_or_update("admin", "admin-password-123", db_path=db_path)
     app_module.app.config.update(TESTING=True)

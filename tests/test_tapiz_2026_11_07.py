@@ -14,6 +14,7 @@ import yaml
 import app as app_module
 import services.ansible_runner as runner
 import services.wallpaper as wallpaper_module
+from acc import runtime
 from models.user import User
 from services.task_catalog import get_task
 from services.wallpaper import (
@@ -43,7 +44,7 @@ class _Upload:
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
     app_module.init_db()
     User.create_or_update("admin", "admin-password-123", db_path=db_path)
     app_module.app.config.update(TESTING=True)
@@ -164,7 +165,7 @@ def test_tapiz_form_stores_image_and_enqueues_wallpaper(client, monkeypatch):
         def submit(self, queue_task_id, func, /, *args, **kwargs):
             calls.append((queue_task_id, func, args, kwargs))
 
-    monkeypatch.setattr(app_module, "get_job_queue", lambda: FakeQueue())
+    monkeypatch.setattr(runtime, "get_job_queue", lambda: FakeQueue())
 
     response = _post(
         client,

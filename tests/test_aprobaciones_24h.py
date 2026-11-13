@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 import app as app_module
+from acc import runtime
 from models.db import get_connection, init_schema
 from models.ops import ApprovalRequest
 from models.user import User
@@ -36,7 +37,7 @@ def db_path(tmp_path):
 
 @pytest.fixture()
 def client(db_path, monkeypatch):
-    monkeypatch.setattr(app_module, "get_db_path", lambda: db_path)
+    monkeypatch.setattr(runtime, "get_db_path", lambda: db_path)
     app_module.init_db()
     User.create_or_update("admin", "admin-password-123", db_path=db_path)
     User.create_or_update(
@@ -273,7 +274,7 @@ def test_flujo_completo_aprobacion_y_ejecucion(client, db_path, monkeypatch):
             # suite y bloquearía, por ejemplo, el cambio de modo simulación.
             app_module.update_task(task_id, {"status": "success", "completed": True})
 
-    monkeypatch.setattr(app_module, "get_job_queue", lambda: FakeQueue())
+    monkeypatch.setattr(runtime, "get_job_queue", lambda: FakeQueue())
     _login(client)
     confirm = client.get(f"/mis-solicitudes/{req.id}/ejecutar")
     assert confirm.status_code == 200
