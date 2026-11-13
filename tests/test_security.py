@@ -2,6 +2,7 @@
 # Pruebas de CSRF, rate limiting y límites de red (fase P3).
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -54,6 +55,42 @@ def test_templates_do_not_use_inline_event_handlers():
 
     base = (templates / "base.html").read_text(encoding="utf-8")
     assert "dataset.confirm" in base
+
+
+def test_vault_master_password_fields_disable_autofill():
+    """La contraseña maestra del vault no debe autocompletarse ni persistirse.
+
+    Un gestor de contraseñas que rellena el campo deja la clave en el DOM y
+    puede ofrecerla en la siguiente sesión. Los campos deben pedir
+    ``autocomplete="new-password"`` y marcar las extensiones conocidas.
+    """
+    templates = Path(__file__).resolve().parent.parent / "templates"
+    pattern = re.compile(
+        r'<input[^>]*(?:name="master_password"|id="[^"]*[Mm]aster[^"]*")[^>]*>'
+    )
+    fields = []
+    for template in templates.rglob("*.html"):
+        content = template.read_text(encoding="utf-8")
+        for tag in pattern.findall(content):
+            fields.append((template.name, tag))
+
+    assert {"index.html", "passwords.html", "ejecutar_aprobacion.html"} <= {
+        name for name, _ in fields
+    }
+
+    for name, tag in fields:
+        assert 'autocomplete="new-password"' in tag, (name, tag)
+        assert 'autocomplete="current-password"' not in tag, (name, tag)
+        for marker in (
+            "data-lpignore",
+            "data-1p-ignore",
+            "data-bwignore",
+            "data-protonpass-ignore",
+        ):
+            assert marker in tag, (name, tag)
+
+    base = (templates / "base.html").read_text(encoding="utf-8")
+    assert "hardenVaultMasterFields" in base
 
 
 def test_rate_limiter_blocks_and_recovers(monkeypatch):

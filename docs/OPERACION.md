@@ -832,6 +832,8 @@ sqlite3 /var/lib/ansible-control-center/acc.db \
   [DEPLOYMENT](../DEPLOYMENT.md#servicio-systemd)).
 - Mantén `.env` en `0600` y el vault en `0600`.
 - No compartas la contraseña maestra por chat/correo; usa un gestor de secretos.
+- Los campos de contraseña maestra del vault no se autocompletan ni se guardan
+  en el navegador; escríbela cada vez que se solicite.
 - Revisa `/history` tras cada operación sensible.
 - El rate limiting es en memoria y por proceso; con varios workers no es
   global.

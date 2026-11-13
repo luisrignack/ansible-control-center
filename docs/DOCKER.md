@@ -150,7 +150,8 @@ comportamiento esperado (fail-closed).
 
 Las contraseñas candidatas se guardan cifradas con `ansible-vault` en el volumen
 `acc_secrets`. La contraseña maestra se introduce en la interfaz y no se
-persiste.
+persiste. Los campos de contraseña maestra tampoco se autocompletan ni se
+ofrecen a los gestores de contraseñas del navegador.
 
 ---
 

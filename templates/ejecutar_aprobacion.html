@@ -48,8 +48,18 @@
             {% if uses_vault %}
             <div class="mb-3">
                 <label class="form-label" for="master_password">Contraseña maestra del Vault</label>
-                <input class="form-control" type="password" id="master_password" name="master_password"
-                       autocomplete="current-password" required>
+                <div class="password-field">
+                    <input class="form-control" type="password" id="master_password" name="master_password"
+                           autocomplete="new-password" autocapitalize="off" spellcheck="false"
+                           data-lpignore="true" data-1p-ignore="true"
+                           data-bwignore="true" data-protonpass-ignore="true"
+                           data-form-type="other" required>
+                    <button type="button" class="password-toggle"
+                        data-password-toggle aria-pressed="false"
+                        aria-label="Mostrar contraseña" title="Mostrar contraseña">
+                        <i class="bi bi-eye" aria-hidden="true"></i>
+                    </button>
+                </div>
                 <div class="form-text">Se usa para leer las credenciales del vault; no se guarda.</div>
             </div>
             {% endif %}

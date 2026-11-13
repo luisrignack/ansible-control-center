@@ -5,6 +5,19 @@ todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Contraseña maestra del vault no persistente] — 2026-11-12
+
+### Seguridad
+
+- Los campos **«Contraseña Maestra del Vault»** de la ejecución de tareas, la
+  confirmación de aprobaciones y la gestión del vault ya no se autocompletan ni
+  se ofrecen a los gestores de contraseñas del navegador. Se usa
+  `autocomplete="new-password"` y marcas para 1Password, LastPass, Bitwarden y
+  Proton Pass. El botón del ojo sigue disponible para comprobar lo escrito.
+- Un script global limpia cualquier valor que el navegador hubiera
+  autocompletado y aplica la misma protección a campos que se añadan en el
+  futuro.
+
 ## [Usuarios locales gestionables] — 2026-11-12
 
 ### Añadido

@@ -286,6 +286,50 @@
         }
     });
 
+    // La contraseña maestra del vault nunca debe guardarse ni autocompletarse
+    // en el navegador. autocomplete="new-password" evita el autofill y las
+    // marcas data-* piden a los gestores de contraseñas que ignoren el campo.
+    // Se aplica también a campos que se añadan después (tarjetas nuevas).
+    function hardenVaultMasterFields(root) {
+        const scope = root && root.querySelectorAll ? root : document;
+        const inputs = Array.prototype.slice.call(
+            scope.querySelectorAll('input[type="password"]')
+        );
+        if (root && root.matches && root.matches('input[type="password"]')) {
+            inputs.push(root);
+        }
+        inputs.forEach(function (input) {
+            const label = input.labels && input.labels.length
+                ? input.labels[0].textContent.toLowerCase()
+                : '';
+            const isVaultMaster = input.name === 'master_password'
+                || /contraseña maestra/.test(label)
+                || /master password/i.test(input.placeholder || '');
+            if (!isVaultMaster) return;
+            // Si el navegador lo rellenó con una contraseña guardada antes de
+            // cargar este script, se descarta: el usuario debe escribirla.
+            if (input.value) input.value = '';
+            input.setAttribute('autocomplete', 'new-password');
+            input.setAttribute('autocapitalize', 'off');
+            input.setAttribute('spellcheck', 'false');
+            input.setAttribute('data-lpignore', 'true');
+            input.setAttribute('data-1p-ignore', 'true');
+            input.setAttribute('data-bwignore', 'true');
+            input.setAttribute('data-protonpass-ignore', 'true');
+            input.setAttribute('data-form-type', 'other');
+        });
+    }
+    hardenVaultMasterFields(document);
+    new MutationObserver(function (mutations) {
+        mutations.forEach(function (mutation) {
+            mutation.addedNodes.forEach(function (node) {
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    hardenVaultMasterFields(node);
+                }
+            });
+        });
+    }).observe(document.body, { childList: true, subtree: true });
+
     // Confirmaciones sin manejadores inline: compatibles con la CSP basada en
     // nonce y sin interpolar datos de usuario dentro de JavaScript.
     document.addEventListener('submit', function (event) {
