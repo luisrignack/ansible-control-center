@@ -1,0 +1,13 @@
+{# Logotipo institucional con variante por tema.
+
+   El azul corporativo se muestra sobre una placa clara para conservar el
+   contraste en el tema oscuro; en el tema claro se usa la versión negra.
+   El texto adyacente describe la marca, por lo que la imagen es decorativa. #}
+<span class="brand-logo{% if logo_class %} {{ logo_class }}{% endif %}" aria-hidden="true">
+    <img class="logo-on-dark"
+         src="{{ url_for('static', filename='img/logo-azul.png') }}"
+         alt="" width="230" height="233" decoding="async">
+    <img class="logo-on-light"
+         src="{{ url_for('static', filename='img/logo-negro.png') }}"
+         alt="" width="230" height="233" decoding="async">
+</span>

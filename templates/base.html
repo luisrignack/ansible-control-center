@@ -21,7 +21,7 @@
 <div class="app-shell">
     <aside class="sidebar" id="sidebar" aria-label="Navegación principal">
         <a class="brand" href="{{ url_for('index') }}">
-            <span class="brand-mark" aria-hidden="true"><i class="bi bi-diagram-3 icon"></i></span>
+            {% include "_brand_logo.html" %}
             <span>
                 <span class="brand-name">Ansible Control Center</span>
                 <span class="brand-sub">Consola de automatización</span>

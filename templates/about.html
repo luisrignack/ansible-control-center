@@ -3,35 +3,173 @@
 {% block title %}Acerca de{% endblock %}
 
 {% block content %}
+{% set environment_label = ('Producción' if is_production else 'Desarrollo') ~ (' · DRY RUN activo' if dry_run else '') %}
 <div class="page-head">
     <div>
         <div class="eyebrow">Sistema</div>
         <h1>Acerca de</h1>
-        <p class="sub">Identidad organizacional del servicio y datos del host que lo ejecuta.</p>
+        <p class="sub">Identidad institucional, alcance operativo y datos técnicos de la plataforma.</p>
+    </div>
+    <div class="head-actions">
+        <span class="about-version">
+            <i class="bi bi-box-seam" aria-hidden="true"></i>
+            Versión {{ app_version }}
+        </span>
     </div>
 </div>
 
-<div class="card fade-in">
-    <div class="card-body p-5 text-center">
-        <p class="eyebrow mb-3">Ansible Control Center</p>
-        <h2 class="mb-4">
-            <i class="bi bi-people me-2" aria-hidden="true"></i>
-            Grupo de Migración a Código Abierto / DCTI - ETECSA
-        </h2>
-        <p class="text-secondary mb-4">
-            Consola de automatización para la operación de estaciones
-            (hora y zona horaria, por grupos de inventario) con vista
-            previa, verificación por host, inventario persistente,
-            programaciones y auditoría.
-        </p>
-        <div class="d-inline-block text-start">
-            <div class="sum-row"><span class="k">Versión</span><span class="v">{{ app_version }}</span></div>
-            {% if build_commit %}
-            <div class="sum-row"><span class="k">Commit</span><span class="v">{{ build_commit }}</span></div>
-            {% endif %}
-            <div class="sum-row"><span class="k">Fecha del host</span><span class="v">{{ host_date }}</span></div>
-            <div class="sum-row"><span class="k">Entorno</span><span class="v">{{ 'Producción (DRY RUN activo)' if dry_run else 'Producción' if is_production else 'Desarrollo' }}</span></div>
+<section class="card about-hero fade-in" aria-labelledby="about-product">
+    <div class="about-hero-body">
+        {% include "_brand_logo.html" %}
+        <div class="about-hero-copy">
+            <p class="eyebrow">Plataforma de automatización</p>
+            <h2 id="about-product">Ansible Control Center</h2>
+            <p class="about-lede">
+                Consola de automatización para la operación de estaciones Ubuntu y
+                Windows. Centraliza la configuración de hora y zona horaria, el
+                inventario por grupos, la ejecución con vista previa y verificación
+                por host, las programaciones y la auditoría de cada cambio.
+            </p>
+            <ul class="about-tags" aria-label="Características principales">
+                <li class="about-tag"><i class="bi bi-eye" aria-hidden="true"></i> Vista previa y verificación</li>
+                <li class="about-tag"><i class="bi bi-hdd-stack" aria-hidden="true"></i> Inventario persistente</li>
+                <li class="about-tag"><i class="bi bi-shield-check" aria-hidden="true"></i> Auditoría centralizada</li>
+                <li class="about-tag"><i class="bi bi-wifi-off" aria-hidden="true"></i> Funcionamiento offline</li>
+            </ul>
         </div>
     </div>
+    <dl class="about-facts">
+        <div class="about-fact">
+            <dt>Versión</dt>
+            <dd>{{ app_version }}</dd>
+        </div>
+        <div class="about-fact">
+            <dt>Entorno</dt>
+            <dd>{{ environment_label }}</dd>
+        </div>
+        <div class="about-fact">
+            <dt>Fecha del host</dt>
+            <dd>{{ host_date }}</dd>
+        </div>
+    </dl>
+</section>
+
+<div class="about-grid">
+    <section class="card" aria-labelledby="about-org">
+        <div class="card-head">
+            <h3 class="card-title" id="about-org">
+                <i class="bi bi-buildings" aria-hidden="true"></i> Identidad institucional
+            </h3>
+        </div>
+        <div class="card-body">
+            <p class="about-org">Grupo de Migración a Código Abierto / DCTI - ETECSA</p>
+            <p class="about-text">
+                La plataforma forma parte del programa de migración a código abierto
+                de la Dirección de Ciencia, Tecnología e Innovación (DCTI) de ETECSA.
+                Su propósito es estandarizar y hacer trazable la operación de
+                estaciones mediante automatización con Ansible, reduciendo el error
+                manual y el tiempo de respuesta.
+            </p>
+            <dl class="about-meta about-meta-compact">
+                <div><dt>Organización</dt><dd>ETECSA</dd></div>
+                <div><dt>Dirección</dt><dd>DCTI</dd></div>
+                <div><dt>Programa</dt><dd>Migración a Código Abierto</dd></div>
+                <div><dt>Tecnología</dt><dd>Ansible · Flask · SQLite</dd></div>
+            </dl>
+        </div>
+    </section>
+
+    <section class="card" aria-labelledby="about-system">
+        <div class="card-head">
+            <h3 class="card-title" id="about-system">
+                <i class="bi bi-cpu" aria-hidden="true"></i> Información del sistema
+            </h3>
+        </div>
+        <div class="card-body">
+            <dl class="about-meta">
+                <div><dt>Versión</dt><dd>{{ app_version }}</dd></div>
+                {% if build_commit %}
+                <div><dt>Commit de construcción</dt><dd><code>{{ build_commit }}</code></dd></div>
+                {% endif %}
+                <div><dt>Esquema de datos</dt><dd>v{{ schema_version }}</dd></div>
+                <div><dt>Python</dt><dd>{{ python_version }}</dd></div>
+                <div><dt>Plataforma</dt><dd>{{ platform_label }}</dd></div>
+                <div><dt>Zona horaria</dt><dd>{{ timezone_label }}</dd></div>
+                <div>
+                    <dt>Hora del host (ISO 8601)</dt>
+                    <dd><time datetime="{{ host_datetime_iso }}">{{ host_datetime_iso }}</time></dd>
+                </div>
+                <div><dt>Entorno</dt><dd>{{ environment_label }}</dd></div>
+            </dl>
+        </div>
+    </section>
+
+    <section class="card" aria-labelledby="about-capabilities">
+        <div class="card-head">
+            <h3 class="card-title" id="about-capabilities">
+                <i class="bi bi-diagram-3" aria-hidden="true"></i> Capacidades operativas
+            </h3>
+        </div>
+        <div class="card-body">
+            <ul class="about-list">
+                <li><i class="bi bi-check2-circle" aria-hidden="true"></i> Catálogo de tareas de operación con parámetros validados.</li>
+                <li><i class="bi bi-check2-circle" aria-hidden="true"></i> Vista previa y simulación antes de aplicar cambios.</li>
+                <li><i class="bi bi-check2-circle" aria-hidden="true"></i> Ejecución por grupos de inventario con verificación host a host.</li>
+                <li><i class="bi bi-check2-circle" aria-hidden="true"></i> Programaciones y doble aprobación para cambios sensibles.</li>
+                <li><i class="bi bi-check2-circle" aria-hidden="true"></i> Historial, consola saneada e informes PDF exportables.</li>
+                <li><i class="bi bi-check2-circle" aria-hidden="true"></i> Notificaciones por correo y gestión de usuarios con LDAPS.</li>
+            </ul>
+        </div>
+    </section>
+
+    <section class="card" aria-labelledby="about-security">
+        <div class="card-head">
+            <h3 class="card-title" id="about-security">
+                <i class="bi bi-shield-lock" aria-hidden="true"></i> Seguridad y cumplimiento
+            </h3>
+        </div>
+        <div class="card-body">
+            <ul class="about-list">
+                <li><i class="bi bi-lock" aria-hidden="true"></i> Autenticación con sesiones, protección CSRF y acceso por roles.</li>
+                <li><i class="bi bi-lock" aria-hidden="true"></i> Límite de peticiones y allowlist de redes autorizadas.</li>
+                <li><i class="bi bi-lock" aria-hidden="true"></i> Credenciales cifradas con Ansible Vault y permisos restrictivos.</li>
+                <li><i class="bi bi-lock" aria-hidden="true"></i> Modo simulación visible y persistente para operar sin riesgo.</li>
+                <li><i class="bi bi-lock" aria-hidden="true"></i> Registro de auditoría de accesos y operaciones.</li>
+                <li><i class="bi bi-lock" aria-hidden="true"></i> Cabeceras de seguridad y recursos locales, sin dependencia de CDN.</li>
+            </ul>
+        </div>
+    </section>
 </div>
+
+<section class="card about-support" aria-labelledby="about-support">
+    <div class="card-head">
+        <h3 class="card-title" id="about-support">
+            <i class="bi bi-life-preserver" aria-hidden="true"></i> Soporte y contacto
+        </h3>
+    </div>
+    <div class="card-body about-support-body">
+        <div class="about-support-copy">
+            <p class="about-text">
+                Para incidencias, solicitudes de nuevas tareas o propuestas de mejora,
+                contacta con el equipo responsable. Incluye la versión y, si es
+                posible, el commit de construcción que aparecen en esta página.
+            </p>
+            <a class="about-mail"
+               href="mailto:{{ support_email }}?subject={{ 'Soporte Ansible Control Center'|urlencode }}">
+                <i class="bi bi-envelope" aria-hidden="true"></i>
+                {{ support_email }}
+            </a>
+        </div>
+        <dl class="about-meta about-meta-inline">
+            <div><dt>Uso</dt><dd>Interno institucional</dd></div>
+            <div><dt>Idioma</dt><dd>Español</dd></div>
+            <div><dt>Despliegue</dt><dd>Autocontenido, sin registro externo</dd></div>
+        </dl>
+    </div>
+</section>
+
+<footer class="about-footer">
+    <span>© {{ current_year }} ETECSA · Grupo de Migración a Código Abierto / DCTI</span>
+    <span>Ansible Control Center {{ app_version }}{% if build_commit %} · {{ build_commit }}{% endif %}</span>
+</footer>
 {% endblock %}

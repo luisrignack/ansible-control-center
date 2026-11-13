@@ -36,8 +36,8 @@ El procedimiento completo está en [AGENTS.md](AGENTS.md).
 Fases **P0–P4, P4.1, P4.2 y bloque de operación continua** completadas,
 junto con las correcciones de alta prioridad del
 [análisis profundo 2026-11-06](docs/ANALISIS_PROFUNDO_2026-11-06.md).
-Suite de pruebas: **483 tests en verde y 1 integración SSH opcional omitida
-por defecto** (484 recopilados). Incluye empaquetado Docker con Nginx y TLS.
+Suite de pruebas: **485 tests en verde y 1 integración SSH opcional omitida
+por defecto** (486 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 | Fase | Contenido |
 |---|---|

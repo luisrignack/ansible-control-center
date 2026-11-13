@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import platform
 import uuid
 from datetime import UTC, datetime
 from urllib.parse import quote
@@ -55,6 +56,7 @@ from config import (
     TASK_REQUEST_SUBJECT,
 )
 from models.batch import ExecutionBatch
+from models.db import SCHEMA_VERSION
 from models.ops import HostGroup
 from models.user import AuthEvent
 from services import modules_panel, task_catalog
@@ -498,13 +500,24 @@ def preview_detail(batch_id: str):
 @app.route("/acerca-de", methods=["GET"])
 @login_required
 def acerca_de():
-    """Página institucional con la fecha del host (hora local del servidor)."""
-    host_date = format_spanish_datetime(datetime.now(UTC), with_time=True)
+    """Página institucional con la identidad y los datos técnicos del servicio."""
+    now_utc = datetime.now(UTC)
+    local_now = now_utc.astimezone()
+    offset = local_now.strftime("%z")
+    offset = f"UTC{offset[:3]}:{offset[3:]}" if offset else "UTC"
+    timezone_label = f"{local_now.tzname() or 'Local'} ({offset})"
     return render_template(
         "about.html",
-        host_date=host_date,
+        host_date=format_spanish_datetime(now_utc, with_time=True),
+        host_datetime_iso=local_now.isoformat(timespec="seconds"),
+        timezone_label=timezone_label,
         app_version=current_app.config.get("APP_VERSION", "desconocida"),
         build_commit=current_app.config.get("APP_BUILD_COMMIT", ""),
+        schema_version=SCHEMA_VERSION,
+        python_version=platform.python_version(),
+        platform_label=f"{platform.system()} {platform.machine()}",
+        support_email=TASK_REQUEST_EMAIL,
+        current_year=now_utc.year,
     )
 
 def register(flask_app) -> None:

@@ -13,7 +13,9 @@ import pytest
 
 import app as app_module
 from acc import runtime
+from config import TASK_REQUEST_EMAIL
 from models.batch import ExecutionBatch
+from models.db import SCHEMA_VERSION
 from models.user import User
 from services.pdf_report import classify_failure_reason
 
@@ -275,6 +277,36 @@ def test_about_page_content(client):
     # "Fecha del host" con formato español.
     assert "Fecha del host" in body
     assert " de noviembre de " in body or " de 2026 " in body
+    # Secciones del rediseño institucional.
+    assert "Identidad institucional" in body
+    assert "Información del sistema" in body
+    assert "Capacidades operativas" in body
+    assert "Seguridad y cumplimiento" in body
+    assert "Soporte y contacto" in body
+    assert f"v{SCHEMA_VERSION}" in body
+    assert TASK_REQUEST_EMAIL in body
+
+
+def test_brand_logos_are_served(client):
+    for path in ("img/logo-azul.png", "img/logo-negro.png"):
+        response = client.get(f"/static/{path}")
+        assert response.status_code == 200
+        assert response.data[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_brand_logos_in_login_sidebar_and_about(client):
+    login_body = client.get("/login").get_data(as_text=True)
+    assert "img/logo-azul.png" in login_body
+    assert "img/logo-negro.png" in login_body
+
+    _login(client)
+    sidebar_body = client.get("/").get_data(as_text=True)
+    assert "img/logo-azul.png" in sidebar_body
+    assert "img/logo-negro.png" in sidebar_body
+
+    about_body = client.get("/acerca-de").get_data(as_text=True)
+    assert "img/logo-azul.png" in about_body
+    assert "img/logo-negro.png" in about_body
 
 
 def test_about_link_in_sidebar(client):

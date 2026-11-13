@@ -8,6 +8,20 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-11-13
+
+### Añadido
+
+- Rediseño de la vista «Acerca de» con identidad institucional, información
+  del sistema, capacidades operativas, seguridad y contacto de soporte.
+- Logotipos institucionales en la barra lateral, el inicio de sesión y
+  «Acerca de», con variante azul/negra según el tema claro u oscuro.
+
+### Cambiado
+
+- La marca de la aplicación usa los logotipos oficiales sobre una placa clara
+  para conservar el contraste en ambos temas.
+
 ## [0.9.0] — 2026-11-13
 
 ### Añadido
