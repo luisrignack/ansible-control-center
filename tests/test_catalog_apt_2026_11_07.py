@@ -411,6 +411,8 @@ def test_general_report_includes_space_attention_and_migration_report_is_separat
     assert "Espacio insuficiente" in general
     assert "Requiere" in general
     assert "atención" in general
+    assert "/Subtype /Image" in general
+    assert "/XObject << /Logo" in general
 
     migration_pdf = _pdf_text(
         build_migration_report(batch, [migration, space], task_name="APT")
@@ -419,6 +421,8 @@ def test_general_report_includes_space_attention_and_migration_report_is_separat
     assert "migrar" in migration_pdf
     assert "25 GB" in migration_pdf
     assert "10.0.0.41" not in migration_pdf
+    assert "/Subtype /Image" in migration_pdf
+    assert "/XObject << /Logo" in migration_pdf
 
 
 def test_apt_task_page_has_execution_form_and_threshold(client):

@@ -7,7 +7,10 @@
 # cp1252 y buscar las frases).
 from __future__ import annotations
 
+import re
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,7 +20,7 @@ from config import TASK_REQUEST_EMAIL
 from models.batch import ExecutionBatch
 from models.db import SCHEMA_VERSION
 from models.user import User
-from services.pdf_report import classify_failure_reason
+from services.pdf_report import build_execution_report, classify_failure_reason
 
 
 @pytest.fixture()
@@ -185,6 +188,61 @@ def test_report_header_and_footer_brands(client):
     assert "Grupo de Migración a Código Abierto / DCTI - ETECSA" in text
     assert "Informe generado el" in text
     assert "Página 1 de 1" in text
+
+
+def test_report_embeds_blue_institutional_logo(client):
+    _login(client)
+    batch_id = _create_batch(task_id="zona-todas")
+    _add_results(batch_id)
+    data = client.get("/tarea/zona-todas/informe.pdf").data
+
+    assert b"/Subtype /Image" in data
+    assert b"/ColorSpace /DeviceRGB" in data
+    assert b"/SMask" in data
+    assert b"/XObject << /Logo" in data
+    assert b"/Logo Do" in data
+
+
+def test_execution_report_paginates_without_blank_pages():
+    """Un lote largo ocupa varias páginas sin dejar una fila por página."""
+    batch = SimpleNamespace(
+        batch_id="long-batch-0001",
+        task_id="zona-todas",
+        created_at=datetime(2026, 11, 13, 12, 0, tzinfo=UTC),
+        finished_at=datetime(2026, 11, 13, 12, 1, tzinfo=UTC),
+        operator="admin",
+        action="TZ",
+        value="America/Caracas",
+        target="10.42.0.0/24",
+        time_mode="utc",
+        ntp_policy="keep",
+        admin_user="root",
+        password_origin="stored",
+        dry_run=False,
+        status="success",
+        total_hosts=60,
+        success_count=60,
+        failure_count=0,
+        skipped_count=0,
+        error_count=0,
+        preview_count=0,
+        attention_count=0,
+        duration_seconds=60,
+    )
+    rows = [
+        SimpleNamespace(
+            host=f"10.42.0.{index}",
+            result="success",
+            error="",
+            created_at=datetime(2026, 11, 13, 12, 0, tzinfo=UTC),
+            after_state={},
+        )
+        for index in range(60)
+    ]
+    pdf = build_execution_report(batch, rows, task_name="Zona horaria")
+    pages = len(re.findall(rb"/Type /Page\b", pdf))
+    assert 1 < pages < 10
+    assert "10.42.0.59" in pdf.decode("latin-1")
 
 
 def test_report_uses_task_batch_not_global(client):

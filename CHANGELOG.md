@@ -8,6 +8,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+### Añadido
+
+- Los informes PDF de ejecución y de migración incorporan el icono azul
+  institucional en todas sus páginas.
+
 ### Cambiado
 
 - La portada de «Acerca de» usa un resumen más breve de la plataforma.
@@ -16,6 +21,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 - La sigla DCTI se desarrolla correctamente como «Dirección Central de
   Tecnologías de la Información» en la vista «Acerca de».
+- Los informes de ejecución largos reparten las estaciones en todas sus
+  páginas y dejan de generar páginas casi vacías.
 - Los campos de la política de mantenimiento del inventario se alinean en una
   sola fila en pantallas medianas y grandes.
 

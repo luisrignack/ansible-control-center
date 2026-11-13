@@ -10,8 +10,11 @@
 from __future__ import annotations
 
 import io
-from collections.abc import Sequence
+import zlib
+from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -129,6 +132,12 @@ FOOTER_Y = 40
 BRAND = "Ansible Control Center"
 ORG = "Grupo de Migración a Código Abierto / DCTI - ETECSA"
 
+# Icono azul institucional que acompaña a todos los informes.
+LOGO_PATH = (
+    Path(__file__).resolve().parent.parent / "static" / "img" / "logo-azul.png"
+)
+LOGO_SIZE = 26.0
+
 # Estimación de ancho medio de Helvetica ≈ 0.52 × tamaño de fuente.
 _CHARS_PER_POINT = 0.52
 
@@ -159,6 +168,167 @@ def _wrap_text(text: str, max_chars: int) -> list[str]:
             current = word
         output.append(current)
     return output
+
+
+class _ReportImage:
+    """Imagen RGB con transparencia opcional lista para un XObject PDF."""
+
+    def __init__(
+        self,
+        width: int,
+        height: int,
+        rgb: bytes,
+        alpha: bytes | None = None,
+    ) -> None:
+        self.width = width
+        self.height = height
+        self._rgb = zlib.compress(rgb, 9)
+        self._alpha = zlib.compress(alpha, 9) if alpha is not None else None
+
+    @property
+    def has_alpha(self) -> bool:
+        return self._alpha is not None
+
+    def rgb_stream(self, smask_id: int | None = None) -> bytes:
+        smask = f" /SMask {smask_id} 0 R" if smask_id is not None else ""
+        header = (
+            f"<< /Type /XObject /Subtype /Image /Width {self.width} "
+            f"/Height {self.height} /ColorSpace /DeviceRGB "
+            f"/BitsPerComponent 8 /Filter /FlateDecode{smask} "
+            f"/Length {len(self._rgb)} >>\nstream\n"
+        ).encode()
+        return header + self._rgb + b"\nendstream"
+
+    def alpha_stream(self) -> bytes:
+        if self._alpha is None:  # pragma: no cover - solo si se pide sin canal alfa
+            raise ValueError("La imagen no tiene canal alfa")
+        header = (
+            f"<< /Type /XObject /Subtype /Image /Width {self.width} "
+            f"/Height {self.height} /ColorSpace /DeviceGray "
+            f"/BitsPerComponent 8 /Filter /FlateDecode "
+            f"/Length {len(self._alpha)} >>\nstream\n"
+        ).encode()
+        return header + self._alpha + b"\nendstream"
+
+
+def _png_chunks(data: bytes) -> Iterator[tuple[bytes, bytes]]:
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("Firma PNG no válida")
+    position = 8
+    while position + 12 <= len(data):
+        length = int.from_bytes(data[position : position + 4], "big")
+        kind = data[position + 4 : position + 8]
+        payload = data[position + 8 : position + 8 + length]
+        yield kind, payload
+        position += 12 + length
+
+
+def _paeth(left: int, up: int, up_left: int) -> int:
+    estimate = left + up - up_left
+    d_left = abs(estimate - left)
+    d_up = abs(estimate - up)
+    d_up_left = abs(estimate - up_left)
+    if d_left <= d_up and d_left <= d_up_left:
+        return left
+    if d_up <= d_up_left:
+        return up
+    return up_left
+
+
+def _png_unfilter(raw: bytes, width: int, height: int, bpp: int) -> bytes:
+    """Revierte los filtros por línea del PNG (8 bits, sin entrelazado)."""
+    stride = width * bpp
+    output = bytearray()
+    previous = bytearray(stride)
+    position = 0
+    for _ in range(height):
+        filter_type = raw[position]
+        position += 1
+        line = bytearray(raw[position : position + stride])
+        position += stride
+        if filter_type == 1:
+            for i in range(bpp, stride):
+                line[i] = (line[i] + line[i - bpp]) & 0xFF
+        elif filter_type == 2:
+            for i in range(stride):
+                line[i] = (line[i] + previous[i]) & 0xFF
+        elif filter_type == 3:
+            for i in range(stride):
+                left = line[i - bpp] if i >= bpp else 0
+                line[i] = (line[i] + ((left + previous[i]) >> 1)) & 0xFF
+        elif filter_type == 4:
+            for i in range(stride):
+                left = line[i - bpp] if i >= bpp else 0
+                up = previous[i]
+                up_left = previous[i - bpp] if i >= bpp else 0
+                line[i] = (line[i] + _paeth(left, up, up_left)) & 0xFF
+        elif filter_type != 0:
+            raise ValueError(f"Filtro PNG no soportado: {filter_type}")
+        output.extend(line)
+        previous = line
+    return bytes(output)
+
+
+def _decode_logo(data: bytes) -> _ReportImage:
+    """Decodifica el PNG del logotipo a RGB y, si existe, canal alfa."""
+    width = height = 0
+    bit_depth = color_type = interlace = -1
+    compressed = bytearray()
+    for kind, payload in _png_chunks(data):
+        if kind == b"IHDR":
+            width = int.from_bytes(payload[0:4], "big")
+            height = int.from_bytes(payload[4:8], "big")
+            bit_depth = payload[8]
+            color_type = payload[9]
+            interlace = payload[12]
+        elif kind == b"IDAT":
+            compressed.extend(payload)
+        elif kind == b"IEND":
+            break
+    channels = {0: 1, 2: 3, 4: 2, 6: 4}.get(color_type)
+    if not width or not height or channels is None:
+        raise ValueError("PNG sin cabecera válida o tipo de color no soportado")
+    if bit_depth != 8 or interlace != 0:
+        raise ValueError("Solo se admiten PNG de 8 bits sin entrelazado")
+    pixels = _png_unfilter(
+        zlib.decompress(bytes(compressed)), width, height, channels
+    )
+
+    if color_type == 6:
+        rgb = bytearray(width * height * 3)
+        alpha = bytearray(width * height)
+        for index in range(width * height):
+            source = index * 4
+            target = index * 3
+            rgb[target : target + 3] = pixels[source : source + 3]
+            alpha[index] = pixels[source + 3]
+        return _ReportImage(width, height, bytes(rgb), bytes(alpha))
+    if color_type == 2:
+        return _ReportImage(width, height, pixels)
+    if color_type == 4:
+        rgb = bytearray(width * height * 3)
+        alpha = bytearray(width * height)
+        for index in range(width * height):
+            gray = pixels[index * 2]
+            target = index * 3
+            rgb[target : target + 3] = bytes((gray, gray, gray))
+            alpha[index] = pixels[index * 2 + 1]
+        return _ReportImage(width, height, bytes(rgb), bytes(alpha))
+    # Escala de grises opaca (color_type == 0).
+    rgb = bytearray(width * height * 3)
+    for index, gray in enumerate(pixels):
+        target = index * 3
+        rgb[target : target + 3] = bytes((gray, gray, gray))
+    return _ReportImage(width, height, bytes(rgb))
+
+
+@lru_cache(maxsize=1)
+def _load_logo() -> _ReportImage | None:
+    """Carga el icono azul una sola vez; si falta, el informe sigue saliendo."""
+    try:
+        return _decode_logo(LOGO_PATH.read_bytes())
+    except (OSError, ValueError, zlib.error):
+        return None
 
 
 class _ContentBuilder:
@@ -215,44 +385,64 @@ class PDFDocument:
         buf.write(b"%PDF-1.4\n%\xc7\xec\x8f\xa2\n")
 
         n_pages = len(self.pages)
-        # Objetos: 1 catálogo, 2 árbol de páginas, 3-4 fuentes,
-        # luego (contenido, página) por cada página a partir del 5.
+        # Objetos: 1 catálogo, 2 árbol de páginas, 3-4 fuentes y, si está
+        # disponible, 5-6 imagen del logotipo (RGB + máscara alfa). Después
+        # (contenido, página) por cada página.
         objects: list[bytes] = [
             b"<< /Type /Catalog /Pages 2 0 R >>",
-            (
-                f"<< /Type /Pages /Count {n_pages} /Kids ["
-                + " ".join(f"{5 + 2 * k + 1} 0 R" for k in range(n_pages))
-                + "] >>"
-            ).encode(),
+            b"",  # se completa al conocer los identificadores de página
             b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica "
             + b"/Encoding /WinAnsiEncoding >>",
             b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold "
             + b"/Encoding /WinAnsiEncoding >>",
         ]
 
-        for index, content in enumerate(self.pages, start=1):
-            stream = content.build().encode("cp1252", errors="replace")
+        logo = _load_logo()
+        logo_id: int | None = None
+        if logo is not None:
+            logo_id = len(objects) + 1
+            if logo.has_alpha:
+                objects.append(logo.rgb_stream(logo_id + 1))
+                objects.append(logo.alpha_stream())
+            else:  # pragma: no cover - el logotipo actual tiene alfa
+                objects.append(logo.rgb_stream())
+
+        xobject = f"/XObject << /Logo {logo_id} 0 R >> " if logo_id else ""
+        logo_ops = ""
+        if logo is not None:
+            height = LOGO_SIZE * logo.height / logo.width
+            logo_ops = (
+                f"q {LOGO_SIZE:.2f} 0 0 {height:.2f} "
+                f"{PAGE_W - MARGIN - LOGO_SIZE:.2f} "
+                f"{PAGE_H - 10 - height:.2f} cm /Logo Do Q\n"
+            )
+
+        page_ids: list[int] = []
+        for content in self.pages:
+            stream = (logo_ops + content.build()).encode("cp1252", errors="replace")
             objects.append(
                 f"<< /Length {len(stream)} >>\nstream\n".encode()
                 + stream
                 + b"\nendstream"
             )
             content_id = len(objects)
-            page_id = 5 + 2 * (index - 1) + 1
-            if content_id != page_id - 1:  # pragma: no cover - invariante
-                raise RuntimeError(
-                    "Estructura PDF inconsistente: el contenido de la página "
-                    f"{index} quedó en el objeto {content_id}, se esperaba "
-                    f"{page_id - 1}."
-                )
+            page_id = content_id + 1
+            page_ids.append(page_id)
             objects.append(
                 (
                     f"<< /Type /Page /Parent 2 0 R "
                     f"/MediaBox [0 0 {PAGE_W:.2f} {PAGE_H:.2f}] "
-                    f"/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> "
+                    f"/Resources << /Font << /F1 3 0 R /F2 4 0 R >> "
+                    f"{xobject}>> "
                     f"/Contents {content_id} 0 R >>"
                 ).encode()
             )
+
+        objects[1] = (
+            f"<< /Type /Pages /Count {n_pages} /Kids ["
+            + " ".join(f"{page_id} 0 R" for page_id in page_ids)
+            + "] >>"
+        ).encode()
 
         offsets: list[int] = []
         for i, obj in enumerate(objects, start=1):
@@ -503,6 +693,10 @@ def build_execution_report(
                 MARGIN, PAGE_H - MARGIN + 6, BRAND, size=9, bold=True, color=DARK
             )
             new_body.fill_rect(MARGIN, PAGE_H - MARGIN + 8, USABLE_W, 0.8, DARK)
+            # La nueva página vuelve a empezar bajo su cabecera; sin este
+            # reinicio la tabla seguiría escribiendo al pie y generaría una
+            # página casi vacía por cada fila.
+            y = PAGE_H - MARGIN - 6
             # Reusar el builder nuevo para continuar el bucle.
             table_header()
 
