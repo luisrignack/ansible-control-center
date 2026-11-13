@@ -5,7 +5,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ansible-control-center:latest
+      args:
+        APP_VERSION: "${APP_VERSION:-0.0.0}"
+        APP_COMMIT: "${APP_COMMIT:-}"
+    image: ansible-control-center:${ACC_IMAGE_TAG:-latest}
     restart: unless-stopped
     # La app no necesita privilegios: corre como ``acc`` y solo abre el 8000.
     cap_drop:
@@ -125,7 +128,10 @@ services:
     build:
       context: ./docker/nginx
       dockerfile: Dockerfile
-    image: ansible-control-center-nginx:latest
+      args:
+        APP_VERSION: "${APP_VERSION:-0.0.0}"
+        APP_COMMIT: "${APP_COMMIT:-}"
+    image: ansible-control-center-nginx:${ACC_IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       app:

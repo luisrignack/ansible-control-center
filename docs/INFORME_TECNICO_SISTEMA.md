@@ -107,6 +107,8 @@ Gunicorn + Flask (app.py → acc.bootstrap.create_app)
 | Archivo / carpeta | Responsabilidad |
 |---|---|
 | `app.py` | Punto de entrada compatible: crea la app y reexporta la fachada histórica. La lógica vive en el paquete `acc/`. |
+| `VERSION` | Versión única de la aplicación y de las imágenes Docker. |
+| `acc/version.py` | Expone `VERSION` y el commit de construcción a la app. |
 | `acc/bootstrap.py` | `create_app()`, registro de rutas y hooks, CLI y scheduler. |
 | `acc/runtime.py` | Rutas de datos, SQLite, modo simulación, vault y cola de trabajos. |
 | `acc/task_state.py` | Estado de tareas, SSE e idempotencia de operaciones. |
@@ -114,7 +116,7 @@ Gunicorn + Flask (app.py → acc.bootstrap.create_app)
 | `acc/operations.py` | Análisis y validación de formularios de operación. |
 | `acc/web/*` | Rutas por dominio (`auth`, `tasks`, `inventory`, `schedules`, `approvals`, `passwords`, `admin`, `errors`) y hooks. |
 | `config.py` | Configuración central, rutas, validación de seguridad de producción, logging y valores por defecto. |
-| `models/db.py` | Conexiones SQLite, WAL, `busy_timeout`, permisos `0600` y migraciones v1–v18. |
+| `models/db.py` | Conexiones SQLite, WAL, `busy_timeout`, permisos `0600` y migraciones v1–v19. |
 | `models/batch.py` | Lotes, resultados por host, contadores, estados, estadísticas y reconciliación. |
 | `models/ops.py` | Inventario, programaciones y solicitudes de aprobación. |
 | `models/user.py` | Usuarios, roles, bloqueo, eventos de autenticación. |

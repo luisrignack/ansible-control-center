@@ -3,9 +3,33 @@ name: CI
 on:
   push:
     branches: ["**"]
+    tags: ["v*"]
   pull_request:
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Comprobar VERSION y tag
+        run: |
+          python - <<'PY'
+          import pathlib
+          import re
+
+          raw = pathlib.Path("VERSION").read_text(encoding="utf-8").strip()
+          if not re.fullmatch(r"\d+\.\d+\.\d+", raw):
+              raise SystemExit(f"VERSION no es SemVer: {raw!r}")
+          print(f"VERSION: {raw}")
+          PY
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            test "v$(cat VERSION)" = "${GITHUB_REF_NAME}" || {
+              echo "El tag ${GITHUB_REF_NAME} no coincide con VERSION=$(cat VERSION)"
+              exit 1
+            }
+          fi
+
   test:
     runs-on: ubuntu-latest
     strategy:

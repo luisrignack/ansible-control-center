@@ -25,6 +25,7 @@ paquete `acc/`:
 | `acc/approvals.py` | Parámetros estables y payload de aprobaciones |
 | `acc/scheduling.py` | Validación y lanzamiento de programaciones |
 | `acc/cli.py` | Comandos `init-db`, `init-admin`, `scheduler`… |
+| `acc/version.py` | Versión (`VERSION`) y commit de construcción |
 | `acc/web/registry.py` | `RouteRegistry`: decoradores y `add_url_rule` sin blueprints |
 | `acc/web/*.py` | Rutas por dominio: `auth`, `tasks`, `inventory`, `schedules`, `approvals`, `passwords`, `admin`, `errors`, y `hooks` |
 
@@ -32,6 +33,14 @@ Las rutas conservan exactamente los mismos nombres de *endpoint* que antes del
 troceado (los usan las plantillas vía `url_for`). El estado de proceso se
 consulta siempre a través de `acc.runtime`, que es el único punto de parcheo
 en las pruebas.
+
+### Versiones
+
+La versión vive en `VERSION` (SemVer) y `acc/version.py` la expone como
+`__version__`. `create_app()` publica `APP_VERSION` y `APP_BUILD_COMMIT` en la
+configuración de Flask, y `/acerca-de` los muestra. Las imágenes Docker usan
+la misma cifra: `<versión>`, `<minor>`, `latest` y `sha-<commit>`. El paquete
+offline fija `ACC_IMAGE_TAG` a la versión exacta.
 
 ---
 

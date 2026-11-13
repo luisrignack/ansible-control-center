@@ -25,6 +25,7 @@ from acc.task_state import (
     _purge_retention,
     _recover_task_state,
 )
+from acc.version import BUILD_COMMIT, __version__
 from config import (
     CSRF_ENABLED,
     CSRF_TIME_LIMIT_SECONDS,
@@ -91,6 +92,8 @@ def configure_app(flask_app: Flask) -> Flask:
         MAX_CONTENT_LENGTH=MAX_CONTENT_LENGTH,
         CSRF_ENABLED=CSRF_ENABLED,
         CSRF_TIME_LIMIT=CSRF_TIME_LIMIT_SECONDS,
+        APP_VERSION=__version__,
+        APP_BUILD_COMMIT=BUILD_COMMIT,
     )
 
     if TRUST_PROXY:
@@ -102,6 +105,11 @@ def configure_app(flask_app: Flask) -> Flask:
         )
 
     setup_logging()
+    logger.info(
+        "Ansible Control Center %s%s",
+        __version__,
+        f" (commit {BUILD_COMMIT})" if BUILD_COMMIT else "",
+    )
     try:
         ensure_directories()
     except RuntimeError as exc:

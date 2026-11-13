@@ -36,8 +36,8 @@ El procedimiento completo está en [AGENTS.md](AGENTS.md).
 Fases **P0–P4, P4.1, P4.2 y bloque de operación continua** completadas,
 junto con las correcciones de alta prioridad del
 [análisis profundo 2026-11-06](docs/ANALISIS_PROFUNDO_2026-11-06.md).
-Suite de pruebas: **480 tests en verde y 1 integración SSH opcional omitida
-por defecto** (481 recopilados). Incluye empaquetado Docker con Nginx y TLS.
+Suite de pruebas: **483 tests en verde y 1 integración SSH opcional omitida
+por defecto** (484 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 | Fase | Contenido |
 |---|---|
@@ -51,6 +51,23 @@ por defecto** (481 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 | Operación | Inventario persistente, programaciones, doble aprobación, notificaciones SMTP, informe PDF, usuarios y LDAPS |
 | Mantenimiento | Actualización segura con `apt`, política de migración, umbral de espacio e informes de atención |
 | Soporte | Ubuntu (systemd/timedatectl) y Windows (WinRM), con catálogo de tareas y roles |
+
+### Versiones
+
+La versión vigente está en [`VERSION`](VERSION) y se aplica con versionado
+semántico (`MAJOR.MINOR.PATCH`). La misma cifra alimenta la aplicación, el tag
+de Git (`v0.9.0`) y los tags de Docker:
+
+| Tag | Uso |
+|---|---|
+| `ansible-control-center:0.9.0` | Versión exacta; es la que usa el paquete offline |
+| `ansible-control-center:0.9` | Alias de la minor |
+| `ansible-control-center:latest` | Alias de consulta; no usar para desplegar |
+| `ansible-control-center:sha-<commit>` | Trazabilidad al commit exacto |
+
+`/acerca-de` muestra la versión y el commit de construcción. El paquete
+`dist/hora-admin-despliegue` fija `ACC_IMAGE_TAG` a la versión exacta y
+conserva una copia de `VERSION`.
 
 ---
 
@@ -246,7 +263,9 @@ por defecto** (481 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 ```
 app.py                     Punto de entrada: crea la app y reexporta la fachada
+VERSION                    Versión única de la aplicación y de las imágenes
 acc/                       Paquete de la aplicación (dominio, ejecución y rutas)
+  version.py               Versión y commit de construcción
   runtime.py               Rutas, SQLite, modo simulación, vault y cola de trabajos
   task_state.py            Estado de tareas, SSE e idempotencia de operaciones
   security.py              Roles, propiedad de filas y límites de peticiones

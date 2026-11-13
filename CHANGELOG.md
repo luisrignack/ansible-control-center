@@ -1,9 +1,34 @@
 # Changelog — Ansible Control Center
 
-Historial de cambios por fase. El proyecto no usa versiones semánticas
-todavía; cada fase agrupa un conjunto coherente de funcionalidad y pruebas.
+Historial de cambios por fase. Desde la versión 0.9.0 el proyecto usa
+versionado semántico (`MAJOR.MINOR.PATCH`); las fases anteriores se conservan
+como historial.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+## [Unreleased]
+
+## [0.9.0] — 2026-11-13
+
+### Añadido
+
+- **Sistema de versiones**: `VERSION` en la raíz es la fuente única de verdad.
+  `acc/version.py` la expone a la aplicación y `/acerca-de` muestra la versión
+  y el commit de construcción.
+- **Tags de imagen reproducibles**: cada release se publica como
+  `ansible-control-center:<versión>`, `<minor>`, `latest` y `sha-<commit>`;
+  el paquete offline fija `ACC_IMAGE_TAG` a la versión exacta.
+- Labels OCI (`org.opencontainers.image.version`, `revision`, `source`) en las
+  imágenes de la aplicación y de Nginx.
+- El paquete `dist/hora-admin-despliegue` incluye `VERSION`, la etiqueta
+  exacta en `.env.docker.example` y la versión en sus metadatos.
+
+### Cambiado
+
+- `docker/export-images.sh` lee `VERSION`, construye con esa etiqueta y
+  exporta todos los tags en el `.tar`.
+- La etiqueta `latest` queda como alias de consulta; el despliegue
+  reproducible usa siempre la versión exacta.
 
 ## [Troceado de `app.py` en el paquete `acc/`] — 2026-11-13
 

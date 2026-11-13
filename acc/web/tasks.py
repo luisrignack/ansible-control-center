@@ -11,6 +11,7 @@ from urllib.parse import quote
 from flask import (
     Response,
     abort,
+    current_app,
     flash,
     jsonify,
     redirect,
@@ -499,7 +500,12 @@ def preview_detail(batch_id: str):
 def acerca_de():
     """Página institucional con la fecha del host (hora local del servidor)."""
     host_date = format_spanish_datetime(datetime.now(UTC), with_time=True)
-    return render_template("about.html", host_date=host_date)
+    return render_template(
+        "about.html",
+        host_date=host_date,
+        app_version=current_app.config.get("APP_VERSION", "desconocida"),
+        build_commit=current_app.config.get("APP_BUILD_COMMIT", ""),
+    )
 
 def register(flask_app) -> None:
     app.apply(flask_app)

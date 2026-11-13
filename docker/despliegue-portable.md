@@ -27,6 +27,7 @@ Navegador ──HTTPS(443)──> nginx ──HTTP(8000)──> app (Gunicorn)
 | `imagenes/03-INFORMACION-IMAGENES.txt` | Arquitectura, fecha de empaquetado y digests |
 | `docker-compose.yml` | Stack: app Flask + Nginx con TLS |
 | `.env.docker.example` | Plantilla de configuración (copiar a `.env.docker`) |
+| `VERSION` | Versión exacta del paquete; también fija `ACC_IMAGE_TAG` |
 | `certs/` | Vacío; el certificado autofirmado se genera aquí al arrancar |
 | `docker/` | Entrypoint y configuración de Nginx (ya dentro de la imagen) |
 | `Dockerfile` | Referencia de la imagen; no se usa con `--no-build` (reconstruir requiere el código fuente y Docker Hub) |
@@ -72,6 +73,8 @@ chmod 600 .env.docker
 openssl rand -hex 32        # copia el resultado en ACC_SECRET_KEY
 
 # 3. Editar .env.docker
+#    ACC_IMAGE_TAG ya viene fijado a la versión exacta del paquete
+#    (por ejemplo 0.9.0); no lo cambies por latest en producción.
 #    ACC_SECRET_KEY=<la clave del paso 2>
 #    ACC_ADMIN_PASSWORD=<mínimo 12 caracteres>
 #    ACC_ENV=production
@@ -331,7 +334,7 @@ docker run --rm --user 0:0 \
   -v hora-admin_acc_data:/data:ro \
   -v hora-admin_acc_secrets:/secrets:ro \
   -v "$PWD/backup:/backup" \
-  --entrypoint tar ansible-control-center:latest \
+  --entrypoint tar "ansible-control-center:$(cat VERSION)" \
   czf /backup/ansible-control-center-$(date +%F).tgz -C / data secrets
 docker compose start app
 ```
@@ -344,7 +347,15 @@ docker compose start app
 docker compose down                     # conserva los volúmenes
 # copia el nuevo contenido del paquete sobre esta carpeta
 docker load -i imagenes/ansible-control-center-images.tar
+# actualiza ACC_IMAGE_TAG en .env.docker con la versión del nuevo VERSION
 docker compose --env-file .env.docker up -d --no-build
+```
+
+Comprueba la versión antes y después:
+
+```bash
+cat VERSION
+curl -fk https://localhost/acerca-de    # tras iniciar sesión
 ```
 
 Las migraciones de SQLite se aplican solas al arrancar y son no destructivas.

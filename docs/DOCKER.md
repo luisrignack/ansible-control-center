@@ -173,7 +173,7 @@ docker run --rm --user 0:0 \
   -v hora-admin_acc_data:/data:ro \
   -v hora-admin_acc_secrets:/secrets:ro \
   -v "$PWD/backup:/backup" \
-  --entrypoint tar ansible-control-center:latest \
+  --entrypoint tar "ansible-control-center:$(cat VERSION)" \
   czf /backup/ansible-control-center-$(date +%F).tgz -C / data secrets
 docker compose start app
 ```
@@ -187,6 +187,7 @@ inconsistente.
 
 ```bash
 git pull
+# Comprueba VERSION y actualiza ACC_IMAGE_TAG en .env.docker
 docker compose --env-file .env.docker build --pull
 docker compose --env-file .env.docker up -d
 ```
@@ -302,7 +303,7 @@ Las imágenes deben ser para la misma arquitectura que la PC de destino.
 Comprueba con:
 
 ```bash
-docker image inspect ansible-control-center:latest --format '{{.Os}}/{{.Architecture}}'
+docker image inspect "ansible-control-center:$(cat VERSION)" --format '{{.Os}}/{{.Architecture}}'
 ```
 
 Si no coincide, construye en el origen con `--platform linux/amd64` (o
@@ -315,6 +316,33 @@ Si no coincide, construye en el origen con `--platform linux/amd64` (o
 Alternativa manual, si prefieres no usar el script:
 
 ```bash
-docker compose --env-file .env.docker build
-docker save ansible-control-center:latest ansible-control-center-nginx:latest -o ansible-control-center-images.tar
+VERSION="$(cat VERSION)"
+ACC_IMAGE_TAG="$VERSION" APP_VERSION="$VERSION" \
+  APP_COMMIT="$(git rev-parse --short=12 HEAD)" \
+  docker compose --env-file .env.docker build
+docker tag "ansible-control-center:$VERSION" ansible-control-center:latest
+docker save \
+  "ansible-control-center:$VERSION" ansible-control-center:latest \
+  "ansible-control-center-nginx:$VERSION" ansible-control-center-nginx:latest \
+  -o ansible-control-center-images.tar
 ```
+
+---
+
+## 11. Versiones e imágenes
+
+La versión vive en `VERSION` y se aplica con SemVer. El script de exportación
+etiqueta cada release así:
+
+| Tag | Uso |
+|---|---|
+| `ansible-control-center:0.9.0` | Versión exacta; la usa el paquete offline |
+| `ansible-control-center:0.9` | Alias de la minor |
+| `ansible-control-center:latest` | Alias de consulta; no usar para desplegar |
+| `ansible-control-center:sha-<commit>` | Trazabilidad al commit exacto |
+
+El `Dockerfile` recibe `APP_VERSION` y `APP_COMMIT` como build args y los
+guarda en labels OCI. `ACC_BUILD_COMMIT` queda disponible para `/acerca-de`.
+El paquete offline fija `ACC_IMAGE_TAG` a la versión exacta en
+`.env.docker.example`; no lo cambies por `latest` en producción.
+

@@ -4,6 +4,7 @@
 # necesidad de registro de imágenes ni de acceso a Docker Hub.
 #
 #   * Construye (o reutiliza) las imágenes ansible-control-center y ansible-control-center-nginx.
+#   * Las etiqueta con la versión de VERSION, su minor, latest y sha-<commit>.
 #   * Las guarda con "docker save" junto con el compose, la configuración de
 #     ejemplo, la guía de despliegue y las sumas de verificación.
 #   * Deja una carpeta autocontenida lista para copiar a la PC de destino.
@@ -25,8 +26,8 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
-APP_IMAGE="ansible-control-center:latest"
-NGINX_IMAGE="ansible-control-center-nginx:latest"
+APP_IMAGE_NAME="ansible-control-center"
+NGINX_IMAGE_NAME="ansible-control-center-nginx"
 BUNDLE_NAME="hora-admin-despliegue"
 BUILD_MODE="auto"
 OUTPUT_DIR=""
@@ -39,6 +40,14 @@ fi
 log()  { printf '\033[1;36m[ansible-control-center]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[ansible-control-center]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[ansible-control-center]\033[0m %s\n' "$*" >&2; exit 1; }
+
+# La versión sale del archivo VERSION: es la misma que muestra la aplicación
+# y la que se usa para el tag de Git y para los tags de las imágenes.
+VERSION="$(tr -d '[:space:]' < "$ROOT_DIR/VERSION" 2>/dev/null || true)"
+[ -n "$VERSION" ] || die "Falta VERSION en $ROOT_DIR o está vacío."
+MAJOR_MINOR="${VERSION%.*}"
+APP_IMAGE="$APP_IMAGE_NAME:$VERSION"
+NGINX_IMAGE="$NGINX_IMAGE_NAME:$VERSION"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -77,20 +86,48 @@ have_images() {
     && docker image inspect "$NGINX_IMAGE" >/dev/null 2>&1
 }
 
+# Los argumentos de build alimentan las labels OCI de las imágenes. Compose
+# también usa ACC_IMAGE_TAG para etiquetar directamente la versión exacta.
+export APP_VERSION="$VERSION"
+export APP_COMMIT="$GIT_COMMIT"
+export ACC_IMAGE_TAG="$VERSION"
+
 case "$BUILD_MODE" in
   force)
-    log "Construyendo imágenes con --pull ..."
+    log "Construyendo imágenes $VERSION con --pull ..."
     "${COMPOSE[@]}" "${ENV_FILE_ARGS[@]}" build --pull
     ;;
   never)
-    have_images || die "Faltan $APP_IMAGE o $NGINX_IMAGE (quita --no-build)."
-    log "Usando las imágenes locales."
+    if ! have_images; then
+      if docker image inspect "$APP_IMAGE_NAME:latest" >/dev/null 2>&1 \
+        && docker image inspect "$NGINX_IMAGE_NAME:latest" >/dev/null 2>&1; then
+        warn "No existen las imágenes $VERSION; se etiquetan desde latest."
+        docker tag "$APP_IMAGE_NAME:latest" "$APP_IMAGE"
+        docker tag "$NGINX_IMAGE_NAME:latest" "$NGINX_IMAGE"
+      else
+        die "Faltan $APP_IMAGE o $NGINX_IMAGE (quita --no-build)."
+      fi
+    fi
+    log "Usando las imágenes locales $VERSION."
     ;;
   auto)
-    log "Construyendo imágenes desde HEAD ($GIT_COMMIT) ..."
+    log "Construyendo imágenes $VERSION desde HEAD ($GIT_COMMIT) ..."
     "${COMPOSE[@]}" "${ENV_FILE_ARGS[@]}" build
     ;;
 esac
+
+# Tags reproducibles: la versión exacta es el tag que usa el paquete; los
+# demás son alias de consulta. ``sha-<commit>`` permite rastrear el build.
+tag_release() {
+  local name="$1"
+  docker tag "$name:$VERSION" "$name:$MAJOR_MINOR"
+  docker tag "$name:$VERSION" "$name:latest"
+  if [ "$GIT_COMMIT" != "desconocido" ]; then
+    docker tag "$name:$VERSION" "$name:sha-$GIT_COMMIT"
+  fi
+}
+tag_release "$APP_IMAGE_NAME"
+tag_release "$NGINX_IMAGE_NAME"
 
 # ---------------------------------------------------------------------------
 # 3. Carpeta de salida
@@ -98,8 +135,18 @@ esac
 DEST="${OUTPUT_DIR:-$ROOT_DIR/dist/$BUNDLE_NAME}"
 mkdir -p "$DEST/imagenes" "$DEST/docker/nginx" "$DEST/certs"
 
-log "Exportando imágenes a $DEST/imagenes/ansible-control-center-images.tar ..."
-docker save "$APP_IMAGE" "$NGINX_IMAGE" -o "$DEST/imagenes/ansible-control-center-images.tar"
+log "Exportando imágenes $VERSION a $DEST/imagenes/ansible-control-center-images.tar ..."
+SAVE_REFS=(
+  "$APP_IMAGE" "$APP_IMAGE_NAME:$MAJOR_MINOR" "$APP_IMAGE_NAME:latest"
+  "$NGINX_IMAGE" "$NGINX_IMAGE_NAME:$MAJOR_MINOR" "$NGINX_IMAGE_NAME:latest"
+)
+if [ "$GIT_COMMIT" != "desconocido" ]; then
+  SAVE_REFS+=(
+    "$APP_IMAGE_NAME:sha-$GIT_COMMIT"
+    "$NGINX_IMAGE_NAME:sha-$GIT_COMMIT"
+  )
+fi
+docker save "${SAVE_REFS[@]}" -o "$DEST/imagenes/ansible-control-center-images.tar"
 
 log "Copiando archivos de despliegue ..."
 
@@ -182,13 +229,29 @@ DESPUÉS DEL ARRANQUE
     /history, /audit y /metricas (admin).
 EOF
 
-cp -a docker-compose.yml Dockerfile .env.docker.example "$DEST/"
+cp -a docker-compose.yml Dockerfile .env.docker.example VERSION "$DEST/"
 cp -a docker/entrypoint.sh "$DEST/docker/"
 cp -a docker/nginx/Dockerfile docker/nginx/default.conf docker/nginx/self-signed.sh \
   "$DEST/docker/nginx/"
 # Guía completa, numerada como 02 en el orden de lectura.
 cp -a docker/despliegue-portable.md "$DEST/02-GUIA-COMPLETA-DESPLIEGUE.md"
 : > "$DEST/certs/.gitkeep"
+
+# El paquete fija la etiqueta exacta: nunca latest para un despliegue
+# reproducible. El usuario puede sobrescribirla en su .env.docker.
+if grep -q '^ACC_IMAGE_TAG=' "$DEST/.env.docker.example"; then
+  sed -i "s/^ACC_IMAGE_TAG=.*/ACC_IMAGE_TAG=$VERSION/" "$DEST/.env.docker.example"
+else
+  printf '\nACC_IMAGE_TAG=%s\n' "$VERSION" >> "$DEST/.env.docker.example"
+fi
+
+# La versión también queda visible al principio del arranque rápido.
+{
+  head -n 2 "$DEST/01-INICIO-RAPIDO.txt"
+  printf '\nVersión del paquete: %s\n' "$VERSION"
+  tail -n +3 "$DEST/01-INICIO-RAPIDO.txt"
+} > "$DEST/01-INICIO-RAPIDO.txt.tmp"
+mv "$DEST/01-INICIO-RAPIDO.txt.tmp" "$DEST/01-INICIO-RAPIDO.txt"
 
 # ---------------------------------------------------------------------------
 # 4. Metadatos e integridad
@@ -202,11 +265,14 @@ cat > "$DEST/imagenes/03-INFORMACION-IMAGENES.txt" <<EOF
 Ansible Control Center - imágenes incluidas
 ===============================
 
+Versión     : $VERSION
 Empaquetado : $(date -u '+%Y-%m-%d %H:%M UTC')
 Commit      : $GIT_COMMIT
 Sin confirmar: $GIT_DIRTY
 Arquitectura: $ARCH
 Tamaño      : $SIZE
+
+Tags        : $VERSION, $MAJOR_MINOR, latest, sha-$GIT_COMMIT
 
 $APP_IMAGE
   id: $APP_DIGEST
@@ -215,6 +281,9 @@ $APP_IMAGE
 $NGINX_IMAGE
   id: $NGINX_DIGEST
   Nginx 1.27 con TLS y generación de certificado autofirmado
+
+El paquete fija ACC_IMAGE_TAG=$VERSION en .env.docker.example. Usa siempre
+esa etiqueta exacta; latest es solo un alias de consulta.
 
 Cargar con:
   docker load -i imagenes/ansible-control-center-images.tar
@@ -233,6 +302,7 @@ log "Paquete listo: $DEST"
 cat <<EOF
 
   Arquitectura : $ARCH
+  Versión      : $VERSION
   Imagen .tar  : $SIZE
   Punto de entrada: $DEST/01-INICIO-RAPIDO.txt
   Guía completa   : $DEST/02-GUIA-COMPLETA-DESPLIEGUE.md

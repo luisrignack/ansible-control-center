@@ -41,6 +41,7 @@ Flask (app.py → acc.bootstrap.create_app)
 | `acc/approvals.py` | Parámetros estables y payload de aprobaciones |
 | `acc/scheduling.py` | Validación de formularios y lanzamiento de programaciones |
 | `acc/cli.py` | Comandos `flask --app app …` |
+| `acc/version.py` | Versión (`VERSION`) y commit de construcción |
 | `acc/web/*` | Rutas (`auth`, `tasks`, `inventory`, `schedules`, `approvals`, `passwords`, `admin`, `errors`) y hooks |
 | `config.py` | Configuración central, rutas *fail-closed* en producción y logging |
 | `models/db.py` | Conexiones SQLite, WAL, busy_timeout y migraciones |

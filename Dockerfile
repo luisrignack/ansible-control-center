@@ -1,5 +1,13 @@
 FROM python:3.12-slim
 
+ARG APP_VERSION=0.0.0
+ARG APP_COMMIT=
+
+LABEL org.opencontainers.image.title="Ansible Control Center" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${APP_COMMIT}" \
+      org.opencontainers.image.source="https://github.com/luisrignack/ansible-control-center"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -11,7 +19,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     ACC_WORKERS=1 \
     ACC_GUNICORN_WORKER_CLASS=gthread \
     ACC_GUNICORN_THREADS=8 \
-    ACC_GUNICORN_TIMEOUT=330
+    ACC_GUNICORN_TIMEOUT=330 \
+    ACC_BUILD_COMMIT="${APP_COMMIT}"
 
 # sshpass y openssh-client son necesarios para la autenticación por contraseña
 # que usa Ansible. tini actúa como PID 1 y propaga las señales.

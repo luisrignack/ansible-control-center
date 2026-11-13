@@ -157,6 +157,8 @@ from acc.task_state import (
     sse_retry,
     update_task,
 )
+from acc.version import BUILD_COMMIT as APP_BUILD_COMMIT
+from acc.version import __version__ as APP_VERSION
 from acc.web.admin import (
     _local_password_error,
     api_metricas,
@@ -257,6 +259,8 @@ from services.vault_manager import (
 )
 
 __all__ = [
+    "APP_BUILD_COMMIT",
+    "APP_VERSION",
     "APT_MIN_FREE_GB",
     "DEBUG",
     "DRY_RUN_SETTING_KEY",

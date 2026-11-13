@@ -25,6 +25,10 @@
             programaciones y auditoría.
         </p>
         <div class="d-inline-block text-start">
+            <div class="sum-row"><span class="k">Versión</span><span class="v">{{ app_version }}</span></div>
+            {% if build_commit %}
+            <div class="sum-row"><span class="k">Commit</span><span class="v">{{ build_commit }}</span></div>
+            {% endif %}
             <div class="sum-row"><span class="k">Fecha del host</span><span class="v">{{ host_date }}</span></div>
             <div class="sum-row"><span class="k">Entorno</span><span class="v">{{ 'Producción (DRY RUN activo)' if dry_run else 'Producción' if is_production else 'Desarrollo' }}</span></div>
         </div>
