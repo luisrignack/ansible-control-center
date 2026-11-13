@@ -205,6 +205,30 @@ LDAPS entran con rol `viewer` en su primer login y deben ser promovidos a
 > “Servidor LDAP no disponible”; el admin local sigue entrando con
 > normalidad.
 
+### Cuentas locales y roles
+
+En **Usuarios** (`/usuarios`, solo `admin`) se gestionan las cuentas locales
+además de las corporativas:
+
+- **Crear**: «Nuevo usuario local» pide usuario, contraseña, confirmación, rol
+  y estado inicial. El nombre admite letras, números, punto, guion, guion bajo
+  o `@`, sin espacios, y no puede repetir una cuenta existente. La contraseña
+  debe tener al menos `ACC_ADMIN_PASSWORD_MIN_LENGTH` caracteres (12 por
+  defecto).
+- **Cambiar contraseña**: botón «Contraseña» de la fila. Sustituye el hash,
+  desbloquea la cuenta si estaba bloqueada por intentos fallidos y no cierra
+  las sesiones ya abiertas.
+- **Eliminar**: botón «Eliminar», escribiendo el nombre exacto para confirmar.
+  Sus programaciones y grupos privados de inventario pasan al administrador que
+  ejecuta el borrado, nunca a todos los usuarios.
+- **LDAPS**: no tienen contraseña local ni se eliminan desde la aplicación. Su
+  contraseña se cambia en el directorio y, para bloquear el acceso, se usa
+  «Desactivar». El sistema impide eliminar, desactivar o retirar el rol a la
+  última cuenta de administración **local** activa.
+
+El alta, el cambio de contraseña y la baja quedan registrados en `/audit`
+como `local_user_created`, `password_changed` y `local_user_deleted`.
+
 ---
 
 ## 5. Certificado
@@ -344,7 +368,7 @@ Vistas útiles de la interfaz (según rol):
 | `/inventario` | Grupos, hosts, criticidad y ventana de mantenimiento (UTC) |
 | `/programaciones` | Ejecuciones únicas, diarias o semanales |
 | `/aprobaciones` | Doble aprobación de tareas destructivas |
-| `/usuarios` | Roles y acceso corporativo LDAPS (solo admin local para el interruptor) |
+| `/usuarios` | Cuentas locales (alta, contraseña, baja), roles y acceso corporativo LDAPS (solo admin local para el interruptor) |
 | `/history` y `/audit` | Historial de lotes y eventos de seguridad |
 | `/metricas` | p50/p95 por ruta y peticiones lentas (solo admin) |
 | `/acerca-de` | Identidad del servicio, entorno y fecha del host |

@@ -172,6 +172,10 @@ DESPUÉS DEL ARRANQUE
   - La tarjeta «Actualización del sistema» está en preparación. Mientras
     tanto, usa el procedimiento apt-get de la guía 02, §10.
   - Acceso corporativo LDAPS (opcional): pasos en la guía 02, §4.1.
+  - Usuarios: en /usuarios (admin) puedes crear cuentas locales con su
+    contraseña y rol, cambiar contraseñas o eliminar la cuenta. Las cuentas
+    LDAPS se validan en el directorio y solo se activan/desactivan aquí
+    (guía 02, §4).
   - El modo Simulación cambia desde la barra superior de la interfaz.
   - Vistas: /inventario, /programaciones, /aprobaciones, /usuarios,
     /history, /audit y /metricas (admin).
