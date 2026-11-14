@@ -46,6 +46,59 @@ def test_ci_executes_every_gate():
 def test_mypy_covers_production_code():
     config = _read("mypy.ini")
     assert "files = app.py, config.py, acc, models, services" in config
+    assert "python_version = 3.12" in config
+
+
+def _requirements_names(text: str) -> set[str]:
+    """Nombres de paquete declarados, ignorando comentarios y opciones."""
+    names: set[str] = set()
+    for raw_line in text.splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line or line.startswith("-"):
+            continue
+        match = re.match(r"([A-Za-z0-9][A-Za-z0-9_.-]*)", line)
+        if match:
+            names.add(match.group(1).lower().replace("_", "-"))
+    return names
+
+
+def test_runtime_requirements_exclude_tests_and_sca():
+    """La imagen no debe instalar pytest, pip-audit ni herramientas de CI."""
+    runtime = _requirements_names(_read("requirements.txt"))
+    for unwanted in ("pytest", "pytest-cov", "pip-audit", "pyyaml"):
+        assert unwanted not in runtime, (
+            f"{unwanted} no es dependencia de ejecución: muévelo a "
+            "requirements-test.txt o requirements-dev.txt"
+        )
+    for tool in ("ruff", "mypy", "bandit", "black"):
+        assert tool not in runtime
+
+    test_deps = _read("requirements-test.txt")
+    for required in ("pytest-timeout", "pytest-cov", "PyYAML"):
+        assert required in test_deps, f"Falta {required} en requirements-test.txt"
+    assert "-r requirements.txt" in test_deps
+
+
+def test_docker_builds_from_lockfile():
+    dockerfile = _read("Dockerfile")
+    assert "pip install -r requirements.lock" in dockerfile
+    assert "pip install -r requirements.txt" not in dockerfile
+
+
+def test_ci_builds_images_and_uses_test_requirements():
+    workflow = _read(".github/workflows/ci.yml")
+    assert "requirements-test.txt" in workflow
+    assert "requirements.lock" in workflow
+    assert "docker build" in workflow
+    assert "docker/nginx" in workflow
+    assert '"3.14"' in workflow
+    assert "--cov-fail-under=78" in workflow
+
+
+def test_pytest_has_a_timeout():
+    config = _read("pytest.ini")
+    assert re.search(r"^timeout\s*=\s*\d+", config, re.MULTILINE)
+    assert "timeout_method" in config
 
 
 def test_production_code_has_no_bandit_findings():

@@ -80,6 +80,10 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 # Alternativa reproducible: pines exactos de dependencias directas.
 # python -m pip install -r requirements.lock
+# Pruebas (pytest, pytest-cov, pytest-timeout y PyYAML):
+# python -m pip install -r requirements-test.txt
+# Herramientas de calidad del CI (ruff, black, mypy, bandit, pip-audit):
+# python -m pip install -r requirements-dev.txt
 sudo apt install sshpass
 
 sudo install -d -m 0750 /etc/ansible-control-center

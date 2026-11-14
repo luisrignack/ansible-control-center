@@ -1,0 +1,16 @@
+# Dependencias para ejecutar la suite de pruebas.
+#
+# Uso:
+#   python -m pip install -r requirements-test.txt
+#   python -m pytest
+#
+# Incluye las dependencias de ejecución porque las pruebas importan la
+# aplicación real. La imagen de producción no instala este fichero.
+-r requirements.txt
+
+pytest>=9.0.3,<10.0
+pytest-cov>=6.3.0,<7.0
+pytest-timeout>=2.4.0,<3.0
+
+# Las pruebas validan los playbooks de Ansible con yaml.safe_load.
+PyYAML>=6.0,<7.0

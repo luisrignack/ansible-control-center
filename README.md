@@ -372,6 +372,11 @@ source .venv/bin/activate
 # python -m pip install -r requirements.lock
 python -m pip install -r requirements.txt
 
+# Solo para ejecutar pruebas:
+# python -m pip install -r requirements-test.txt
+# Para ruff, black, mypy, bandit y pip-audit (CI):
+# python -m pip install -r requirements-dev.txt
+
 # Base de datos y usuario administrador
 flask --app app init-db
 flask --app app init-admin

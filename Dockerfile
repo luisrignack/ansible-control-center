@@ -37,10 +37,13 @@ RUN groupadd --gid 10001 acc \
 
 WORKDIR /app
 
-COPY requirements.txt ./
+# Se instala el lock, no el rango de requirements.txt: la imagen debe
+# reproducirse con las mismas versiones en cualquier equipo. vendor/wheels
+# permite resolver ldap3/pyasn1 sin red cuando el índice no responde.
+COPY requirements.lock ./
 COPY vendor/wheels/ /wheels/
 RUN python -m pip install --upgrade pip \
-    && python -m pip install -r requirements.txt --find-links /wheels
+    && python -m pip install -r requirements.lock --find-links /wheels
 
 COPY --chown=acc:acc . .
 

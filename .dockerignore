@@ -26,6 +26,10 @@ certs
 conftest.py
 tests
 docs
+requirements-test.txt
+requirements-dev.txt
+pytest.ini
+mypy.ini
 ANALISIS.md
 CHANGELOG.md
 DEPLOYMENT.md

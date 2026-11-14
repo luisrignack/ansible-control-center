@@ -1,14 +1,19 @@
 # Herramientas de calidad usadas por el CI y por el desarrollo local.
 #
-# No forman parte de la imagen de producción: se instalan después de
-# requirements.txt y solo en el runner o en el entorno de desarrollo.
+# No forman parte de la imagen de producción: se instalan después de las
+# dependencias de ejecución y solo en el runner o en el entorno de desarrollo.
 # Las versiones están fijadas para que `black --check` y `mypy` den el mismo
 # resultado en local y en CI (una versión distinta de black reformatea el
 # repositorio entero).
 #
-# Uso: python -m pip install -r requirements.txt -r requirements-dev.txt
+# Uso: python -m pip install -r requirements-dev.txt
+-r requirements-test.txt
 
 ruff==0.17.4
 mypy==2.4.1
 bandit==1.9.4
 black==26.10.1
+
+# Auditoría de dependencias (SCA). Consulta PyPI/OSV; tools/audit_dependencies.py
+# añade el fallback de índice para redes corporativas.
+pip-audit>=2.7,<3.0
