@@ -92,6 +92,33 @@ la aplicación admite `ACC_SECRET_KEY_FILE`, `ACC_PASSWORD_PEPPER_FILE` y
 `ACC_ADMIN_PASSWORD_FILE`. Apunta cada una al fichero de un Docker secret o de
 una credencial montada; si existen a la vez, el valor directo tiene prioridad.
 
+### 3.1 Secretos por fichero (recomendado en producción)
+
+El compose base sigue funcionando con variables de entorno. En producción usa
+el override `docker-compose.secrets.yml`, que monta los secretos en
+`/run/secrets` y deja las variables en claro vacías:
+
+```bash
+./docker/generate-secrets.sh      # crea secrets.d/ (0700, ficheros 0600)
+docker compose -f docker-compose.yml -f docker-compose.secrets.yml up -d
+```
+
+| Fichero | Variable que lo lee | Uso |
+|---|---|---|
+| `secrets.d/acc_secret_key` | `ACC_SECRET_KEY_FILE` | Clave de sesión de Flask |
+| `secrets.d/acc_admin_password` | `ACC_ADMIN_PASSWORD_FILE` | Administrador del primer arranque |
+| `secrets.d/acc_ldap_bind_password` | `ACC_LDAP_BIND_PASSWORD_FILE` | Bind LDAPS (vacío si no se usa) |
+
+Notas:
+
+- El script **no sobrescribe** ficheros existentes: se puede ejecutar en cada
+  despliegue sin invalidar sesiones ni rotar contraseñas.
+- Funciona **sin conexión**: solo usa `openssl` del sistema.
+- `secrets.d/` está excluido por `.gitignore` y `.dockerignore`, así que nunca
+  se versiona ni entra en la imagen.
+- La contraseña recién generada está en `secrets.d/acc_admin_password`; puedes
+  rotarla después con `flask --app app init-admin`.
+
 Para crearlo o rotarlo manualmente:
 
 ```bash

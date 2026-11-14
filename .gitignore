@@ -30,3 +30,6 @@ certs/*.pem
 # Paquetes generados por docker/export-images.sh
 dist/
 *.tar
+
+# Secretos de Docker Compose (.dockerignore también los excluye)
+secrets.d/
