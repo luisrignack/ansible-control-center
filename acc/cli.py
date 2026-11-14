@@ -22,6 +22,7 @@ from models.batch import ExecutionBatch
 from models.ops import HostGroup
 from models.user import User
 from services import scheduler
+from services.demo_data import purge_demo_data, seed_demo_data
 from services.ssh_host_keys import ensure_host_keys
 
 
@@ -104,6 +105,67 @@ def register_cli(flask_app: Flask) -> None:
         """Marca como error los lotes que quedaron en curso."""
         count = ExecutionBatch.reconcile_orphans(db_path=runtime.get_db_path())
         click.echo(f"Lotes huérfanos reconciliados: {count}")
+
+    @flask_app.cli.command("seed-demo")
+    @click.option(
+        "--yes",
+        is_flag=True,
+        help="Confirma que se insertarán datos ficticios en la base actual.",
+    )
+    @click.option(
+        "--reset",
+        is_flag=True,
+        help="Elimina los datos de demostración existentes y los recrea.",
+    )
+    @click.option(
+        "--purge",
+        is_flag=True,
+        help="Solo elimina los datos de demostración y termina.",
+    )
+    @click.option(
+        "--no-running",
+        is_flag=True,
+        help="No crea el lote de demostración en curso.",
+    )
+    def seed_demo_command(yes: bool, reset: bool, purge: bool, no_running: bool):
+        """Puebla la base con grupos, hosts, lotes y eventos ficticios.
+
+        Todo lleva la marca «Demo» y las programaciones quedan inactivas para
+        que el planificador no las ejecute. Usa ``--purge`` para deshacerlo.
+        """
+        if not yes:
+            raise click.ClickException(
+                "Los datos son ficticios pero se escriben en la base actual. "
+                "Repite el comando con --yes para confirmar."
+            )
+        if purge and reset:
+            raise click.ClickException("Usa --purge o --reset, no ambos.")
+        db_path = str(runtime.get_db_path())
+        if purge:
+            removed = purge_demo_data(db_path)
+            click.echo(
+                "Datos de demostración eliminados: "
+                f"{removed['groups']} grupo(s), {removed['batches']} lote(s), "
+                f"{removed['schedules']} programación(es), "
+                f"{removed['approvals']} solicitud(es) y "
+                f"{removed['events']} evento(s)."
+            )
+            return
+        try:
+            summary = seed_demo_data(
+                db_path, with_running=not no_running, reset=reset
+            )
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(
+            "Datos de demostración insertados: "
+            f"{summary['groups']} grupo(s), {summary['hosts']} host(s), "
+            f"{summary['batches']} lote(s), "
+            f"{summary['host_results']} resultado(s) por host, "
+            f"{summary['schedules']} programación(es) inactiva(s), "
+            f"{summary['approvals']} solicitud(es) y "
+            f"{summary['events']} evento(s) de auditoría."
+        )
 
     @flask_app.cli.command("sync-known-hosts")
     def sync_known_hosts_command():

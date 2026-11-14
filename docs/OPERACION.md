@@ -647,6 +647,68 @@ sudo sqlite3 /var/lib/ansible-control-center/acc.db "VACUUM;"
 
 Ejecuta `VACUUM` con el servicio parado o en ventana de baja actividad.
 
+### 7.3. Borrar el historial desde la interfaz
+
+En **Ejecuciones → Historial**, un usuario con rol `admin` dispone del botón
+**Borrar historial**. La acción:
+
+- elimina **todos** los lotes terminados y su detalle por host, también los
+  que no caben en la página (el historial se muestra limitado a 100 lotes);
+- **conserva** los lotes en estado `running`, para no dejar una ejecución en
+  marcha sin registro;
+- exige escribir `BORRAR` en el cuadro de confirmación (se acepta cualquier
+  combinación de mayúsculas y minúsculas);
+- registra un evento `history_cleared` en **Sistema → Auditoría** con el
+  nombre del administrador y el número de lotes eliminados.
+
+Es irreversible: haz copia de la base antes (§6) si necesitas conservar el
+histórico para un informe. Para borrados selectivos por antigüedad usa la
+purga automática o el SQL de §7.1.
+
+### 7.4. Datos ficticios para previsualizar producción
+
+El comando `seed-demo` puebla la base con un conjunto realista de datos de
+demostración: grupos, hosts, lotes con resultados por host, programaciones,
+solicitudes de aprobación y eventos de auditoría.
+
+```bash
+# Instalación nativa
+sudo -u ansible-control-center .venv/bin/flask --app app seed-demo --yes
+
+# Contenedor
+docker compose --env-file .env.docker exec app flask --app app seed-demo --yes
+```
+
+Todo lo creado lleva una marca reconocible para poder retirarlo:
+
+| Elemento | Marca |
+|---|---|
+| Grupos y programaciones | prefijo `Demo · ` |
+| Lotes | `batch_id` con prefijo `demo-` y operador `demo.*` |
+| Solicitudes | solicitante `demo.*` |
+| Eventos de auditoría | detalle con `[demo]` |
+
+Las **programaciones demo quedan inactivas**: el planificador nunca las
+ejecutará contra las direcciones ficticias `10.99.0.0/16`. Si las activas a
+mano, apuntarán a hosts que no existen.
+
+Opciones:
+
+- `--reset`: elimina los datos demo existentes y los vuelve a crear.
+- `--purge`: elimina **solo** los datos demo y termina; no toca grupos,
+  lotes ni eventos reales.
+- `--no-running`: no crea el lote de demostración en curso (útil si no
+  quieres que aparezca actividad ficticia en el panel).
+
+El lote demo `running` puede pasar a `error` tras un reinicio si supera el
+umbral de reconciliación (`ACC_RECOVERY_STALE_MINUTES`, 15 min). Usa
+`--no-running` para evitarlo en instalaciones de larga duración.
+
+> No ejecutes `seed-demo` sobre una instalación con datos reales si no vas a
+> poder distinguirlos después: aunque la purga es selectiva, los datos demo
+> comparten base con los reales. En producción, siémbralos solo en una
+> instancia de revisión o tras una copia de seguridad.
+
 ---
 
 ## 8. Mantenimiento

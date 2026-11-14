@@ -412,6 +412,34 @@ def ejecuciones():
     )
 
 
+@app.route("/ejecuciones/borrar", methods=["POST"])
+@roles_required("admin")
+def ejecuciones_borrar():
+    """Borra el historial de ejecuciones terminadas (solo administradores).
+
+    Es irreversible y no toca los lotes en curso. La propia eliminación queda
+    registrada en auditoría para que exista rastro de quién la ejecutó.
+    """
+    if request.form.get("confirmar", "").strip().upper() != "BORRAR":
+        flash("Escribe BORRAR para confirmar la eliminación del historial.", "danger")
+        return redirect(url_for("ejecuciones", tab="historial"))
+
+    deleted = ExecutionBatch.delete_history(db_path=runtime.get_db_path())
+    AuthEvent.record(
+        getattr(current_user, "username", current_user.get_id()),
+        _client_ip(),
+        "history_cleared",
+        f"Historial de ejecuciones borrado: {deleted} lote(s).",
+        db_path=runtime.get_db_path(),
+    )
+    flash(
+        f"Historial borrado: {deleted} lote(s) eliminado(s). "
+        "Las ejecuciones en curso se han conservado.",
+        "success",
+    )
+    return redirect(url_for("ejecuciones", tab="historial"))
+
+
 @app.route("/configuracion")
 @login_required
 def configuracion():

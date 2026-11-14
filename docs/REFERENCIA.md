@@ -61,6 +61,7 @@ offline fija `ACC_IMAGE_TAG` a la versión exacta.
 | GET, POST | `/tareas` | Sí | Catálogo de tareas; `?tab=ocultas` |
 | GET | `/tarea/<task_id>` | Sí | Detalle de la tarea; `?mode=schedule` preselecciona Programar |
 | GET | `/ejecuciones` | Sí | En curso (`tab=curso`) e historial (`tab=historial`) |
+| POST | `/ejecuciones/borrar` | Admin | Borra el historial terminado; exige escribir `BORRAR` y conserva los lotes en curso |
 | GET | `/solicitudes` | Operador | Mis solicitudes y, para admin, bandeja de aprobaciones |
 | GET, POST | `/solicitudes/<id>/ejecutar` | Operador | Ejecuta una solicitud propia aprobada |
 | GET, POST | `/credenciales` | Sí | Vault compartido: lectura para todos; alta/borrado solo `admin` |
@@ -153,6 +154,7 @@ activa, porque el acceso LDAPS depende de que el directorio esté disponible.
 flask --app app init-db
 flask --app app init-admin [--username USUARIO]
 flask --app app reconcile-batches
+flask --app app seed-demo --yes [--reset | --purge] [--no-running]
 flask --app app scheduler [--once]
 ```
 
@@ -161,6 +163,10 @@ flask --app app scheduler [--once]
   `stale_minutes` por defecto, solo los que no tienen actividad reciente).
 - `init-admin`: crea o actualiza el usuario administrador; pide contraseña y
   exige la longitud mínima configurada.
+- `seed-demo`: inserta grupos, hosts, lotes, programaciones, solicitudes y
+  eventos ficticios para revisar la interfaz con volumen realista. Exige
+  `--yes`; `--reset` recrea el conjunto, `--purge` borra solo esos datos y
+  `--no-running` omite el lote en curso. Las programaciones quedan inactivas.
 - `scheduler`: ejecuta el programador en primer plano; `--once` hace una sola
   revisión. Recomendado con `ACC_ROLE=worker` y el servicio web en
   `ACC_ROLE=web`.

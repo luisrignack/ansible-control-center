@@ -8,6 +8,22 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.6] — 2026-11-14
+
+### Añadido
+
+- **Borrar historial** en Ejecuciones → Historial, disponible solo para
+  administradores. Exige escribir `BORRAR`, conserva los lotes en curso y deja
+  un evento `history_cleared` en Auditoría con el número de lotes eliminados.
+- Comando `flask --app app seed-demo` para poblar una instalación con grupos,
+  hosts, lotes, programaciones, solicitudes y eventos de auditoría ficticios.
+  Todo lleva la marca «Demo», las programaciones quedan inactivas y
+  `--purge` elimina únicamente esos datos.
+
+### Documentación
+
+- Guía de datos de demostración y borrado del historial en `docs/OPERACION.md`.
+
 ## [0.9.5] — 2026-11-13
 
 ### Añadido

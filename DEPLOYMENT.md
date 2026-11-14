@@ -49,7 +49,7 @@ El script:
 3. Crea `/etc/ansible-control-center/secrets` (0700), `/var/lib/ansible-control-center` y
    `/var/log/ansible-control-center`.
 4. Genera `.env` con una `ACC_SECRET_KEY` aleatoria (0600).
-5. Ejecuta `flask --app app init-db` (esquema v6, migración no destructiva).
+5. Ejecuta `flask --app app init-db` (esquema v19, migración no destructiva).
 6. **No crea el usuario administrador**: ejecuta después
    `flask --app app init-admin`.
 
@@ -226,7 +226,7 @@ ejecutar el comando.
 
 ### Esquema de datos y migración
 
-El esquema actual es `PRAGMA user_version = 12`. `flask --app app init-db`
+El esquema actual es `PRAGMA user_version = 19`. `flask --app app init-db`
 aplica migraciones **no destructivas** al arrancar y es idempotente. Si la base
 tiene una versión **más nueva** que la soportada, el arranque se aborta para no
 corromperla.
@@ -436,19 +436,25 @@ Con HTTPS activa `ACC_COOKIE_SECURE=1` en `.env`.
 ## 6. Flujo de uso
 
 1. **Crear administrador** (`flask --app app init-admin`).
-2. **Contraseñas** → introducir candidatas y la contraseña maestra del vault.
+2. *(Opcional)* **Previsualizar con datos ficticios**:
+   `flask --app app seed-demo --yes` crea grupos, hosts, lotes,
+   programaciones inactivas, solicitudes y eventos con la marca `Demo`.
+   `--purge` los elimina sin tocar datos reales.
+3. **Contraseñas** → introducir candidatas y la contraseña maestra del vault.
    También puedes importar un `.txt` o un vault `.yml/.yaml` ya cifrado.
-3. **Panel** → IP o CIDR, usuario admin, origen de contraseñas, acción
+4. **Panel** → IP o CIDR, usuario admin, origen de contraseñas, acción
    (`TZ`/`TIME`), valor, semántica UTC/local, política NTP y opciones de RTC.
    En modo temporal se sube un `.txt` con una contraseña por línea.
-4. **Vista previa (opcional)** → inspecciona todos los hosts sin cambiar nada
+5. **Vista previa (opcional)** → inspecciona todos los hosts sin cambiar nada
    y muestra su estado actual, el plan y si haría falta cambiar algo.
-5. **Ejecución** → aplica el cambio en todos los hosts (best-effort), verifica
+6. **Ejecución** → aplica el cambio en todos los hosts (best-effort), verifica
    el estado final y registra un lote con el resultado de cada host.
-6. **Progreso** → la ejecución redirige a `/progress/<task_id>` con SSE y, al
+7. **Progreso** → la ejecución redirige a `/progress/<task_id>` con SSE y, al
    terminar, enlaza al detalle del lote en `/batches/<batch_id>`.
-7. **Ejecuciones** → `/ejecuciones?tab=historial` muestra los lotes con contadores, operador,
-   duración y enlace al detalle por host.
+8. **Ejecuciones** → `/ejecuciones?tab=historial` muestra los lotes con contadores, operador,
+   duración y enlace al detalle por host. Un administrador puede borrar el
+   historial terminado con el botón **Borrar historial** (confirmación
+   `BORRAR`); los lotes en curso se conservan y la acción queda auditada.
 
 Con `ACC_DRY_RUN=1` el playbook no se ejecuta: se simula el resultado.
 Para ejecutar de verdad, un administrador desactiva el interruptor
@@ -549,7 +555,7 @@ Prueba la restauración periódicamente. El procedimiento completo está en
 - SQLite en modo WAL: al copiar la base de datos en caliente, copia también
   `acc.db-wal` y `acc.db-shm`, o detén el servicio antes.
 - Las migraciones son no destructivas y se aplican al arrancar
-  (`PRAGMA user_version`). Esquema actual: **v11**. Haz copia de seguridad antes
+  (`PRAGMA user_version`). Esquema actual: **v19**. Haz copia de seguridad antes
   de actualizar. Una base creada por una versión más nueva aborta el arranque
   en lugar de degradarse.
 - El SSE y la consola se sirven desde memoria, con instantáneas en SQLite para

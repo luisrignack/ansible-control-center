@@ -15,6 +15,12 @@
         </p>
     </div>
     <div class="head-actions">
+        {% if tab == 'historial' and current_user.has_role('admin') %}
+        <button type="button" class="btn btn-outline-danger"
+                data-bs-toggle="modal" data-bs-target="#clearHistoryModal">
+            <i class="bi bi-trash3" aria-hidden="true"></i> Borrar historial
+        </button>
+        {% endif %}
         <a class="btn btn-primary" href="{{ url_for('tareas') }}">
             <i class="bi bi-play-fill" aria-hidden="true"></i> Nueva ejecución
         </a>
@@ -213,5 +219,61 @@
         </div>
     </div>
 </section>
+{% endif %}
+
+{% if tab == 'historial' and current_user.has_role('admin') %}
+<div class="modal fade" id="clearHistoryModal" tabindex="-1"
+     aria-labelledby="clearHistoryLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" action="{{ url_for('ejecuciones_borrar') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-header">
+                    <h2 class="modal-title h5" id="clearHistoryLabel">
+                        <i class="bi bi-trash3" aria-hidden="true"></i>
+                        Borrar historial de ejecuciones
+                    </h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"
+                            aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="banner banner-danger mb-3" role="alert">
+                        <div class="banner-icon" aria-hidden="true">
+                            <i class="bi bi-exclamation-triangle"></i>
+                        </div>
+                        <div>
+                            <div class="banner-title">Acción irreversible</div>
+                            <div class="banner-text">
+                                Se eliminarán todos los lotes terminados y su
+                                detalle por host, incluidos los que no se ven en
+                                esta página. Las ejecuciones en curso se
+                                conservan.
+                            </div>
+                        </div>
+                    </div>
+                    <p class="mb-3">
+                        Hay <strong>{{ batches | length }}</strong> lote(s) en
+                        pantalla; el borrado afecta a todo el historial
+                        terminado.
+                    </p>
+                    <label for="clearHistoryConfirm" class="form-label">
+                        Escribe <code>BORRAR</code> para confirmar
+                    </label>
+                    <input type="text" class="form-control" id="clearHistoryConfirm"
+                           name="confirmar" required autocomplete="off"
+                           spellcheck="false" placeholder="BORRAR">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary"
+                            data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger">
+                        <i class="bi bi-trash3" aria-hidden="true"></i>
+                        Borrar historial
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 {% endif %}
 {% endblock %}

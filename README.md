@@ -56,11 +56,11 @@ por defecto** (486 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 La versión vigente está en [`VERSION`](VERSION) y se aplica con versionado
 semántico (`MAJOR.MINOR.PATCH`). La misma cifra alimenta la aplicación, el tag
-de Git (`v0.9.5`) y los tags de Docker:
+de Git (`v0.9.6`) y los tags de Docker:
 
 | Tag | Uso |
 |---|---|
-| `ansible-control-center:0.9.5` | Versión exacta; es la que usa el paquete offline |
+| `ansible-control-center:0.9.6` | Versión exacta; es la que usa el paquete offline |
 | `ansible-control-center:0.9` | Alias de la minor |
 | `ansible-control-center:latest` | Alias de consulta; no usar para desplegar |
 | `ansible-control-center:sha-<commit>` | Trazabilidad al commit exacto |
@@ -245,7 +245,9 @@ conserva una copia de `VERSION`.
 - **Resultado por host** (`execution_hosts`): resultado, error, duración,
   estado previo, estado posterior, hash corto de la contraseña usada y origen.
 - **Ejecuciones** (`/ejecuciones`) con lotes en curso, historial y detalle por host
-  (`/batches/<batch_id>`).
+  (`/batches/<batch_id>`). Un administrador puede **borrar el historial**
+  terminado desde la propia sección; la acción queda registrada en Auditoría y
+  nunca elimina lotes en curso.
 - Se conserva el registro heredado `executions` por compatibilidad.
 
 ### Interfaz
@@ -684,6 +686,7 @@ administrador desactiva el interruptor **Simulación** de la barra superior
 | GET/POST | `/programaciones` | Sí | Programaciones (admin para cambios) |
 | GET | `/programaciones/nueva` | Admin | Selector de tarea para crear una programación |
 | GET | `/ejecuciones` | Sí | Ejecuciones: `tab=curso` (por defecto) e historial |
+| POST | `/ejecuciones/borrar` | Admin | Borra el historial terminado (confirmación `BORRAR`) |
 | GET | `/solicitudes` | Operador | `tab=mias` y, para admin, `tab=aprobaciones` |
 | GET/POST | `/solicitudes/<id>/ejecutar` | Operador | Ejecuta una solicitud propia aprobada y vigente |
 | GET | `/credenciales` | Sí | Gestión del vault de credenciales |
@@ -721,6 +724,7 @@ CLI:
 flask --app app init-db
 flask --app app init-admin [--username USUARIO] [--role viewer|operator|admin]
 flask --app app reconcile-batches
+flask --app app seed-demo --yes [--reset | --purge] [--no-running]
 ```
 
 ---

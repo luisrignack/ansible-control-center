@@ -25,13 +25,14 @@
                         <td><small><code>{{ event["ip"] or "—" }}</code></small></td>
                         <td>
                             {% set kind = event["event"] %}
-                            <span class="badge {% if kind == 'login_success' %}bg-success{% elif kind in ['account_locked', 'login_locked'] %}bg-danger{% elif kind in ['dry_run_on', 'dry_run_off'] %}bg-info text-dark{% else %}bg-warning text-dark{% endif %}">
+                            <span class="badge {% if kind == 'login_success' %}bg-success{% elif kind == 'history_cleared' %}bg-danger{% elif kind in ['account_locked', 'login_locked'] %}bg-danger{% elif kind in ['dry_run_on', 'dry_run_off'] %}bg-info text-dark{% else %}bg-warning text-dark{% endif %}">
                                 {% if kind == 'login_success' %}Acceso correcto
                                 {% elif kind == 'login_failure' %}Credenciales incorrectas
                                 {% elif kind == 'account_locked' %}Cuenta bloqueada
                                 {% elif kind == 'login_locked' %}Acceso a cuenta bloqueada
                                 {% elif kind == 'dry_run_on' %}Modo simulación activado
                                 {% elif kind == 'dry_run_off' %}Modo simulación desactivado
+                                {% elif kind == 'history_cleared' %}Historial borrado
                                 {% else %}{{ kind }}{% endif %}
                             </span>
                         </td>

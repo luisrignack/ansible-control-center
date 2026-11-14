@@ -780,6 +780,23 @@ class ExecutionBatch:
             )
             return int(cursor.rowcount or 0)
 
+    @staticmethod
+    def delete_history(db_path: str | None = None) -> int:
+        """Borra el historial de lotes terminados y sus resultados por host.
+
+        Los lotes en curso se conservan siempre: borrarlos mientras un hilo
+        los está ejecutando dejaría la operación sin registro. La eliminación
+        de ``execution_hosts`` ocurre por la clave foránea ``ON DELETE
+        CASCADE``. Devuelve el número de lotes eliminados.
+        """
+        if db_path is None:
+            db_path = _default_db_path()
+        with get_connection(db_path) as conn:
+            cursor = conn.execute(
+                "DELETE FROM execution_batches WHERE status != 'running'"
+            )
+            return int(cursor.rowcount or 0)
+
 
 def _derive_status(
     success: int,
