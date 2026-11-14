@@ -18,7 +18,7 @@
 | [ANALISIS_CALIDAD_ISO_25010](ANALISIS_CALIDAD_ISO_25010.md) | Análisis de brechas frente a ISO/IEC 25010:2023, métricas y plan priorizado |
 | [ANALISIS](../ANALISIS.md) | Análisis funcional y espacio de opciones |
 | [CHANGELOG](../CHANGELOG.md) | Historial de cambios P0–P4 |
-| [Propuestas de interfaz](propuestas-ui/index.html) | Galería con 10 propuestas de UI para Ansible Control Center |
+| [Propuestas de interfaz](propuestas-ui/index.html) | Galería con 12 propuestas de UI para Ansible Control Center |
 
 ## Lectura recomendada
 

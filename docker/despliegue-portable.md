@@ -383,11 +383,12 @@ Vistas útiles de la interfaz (según rol):
 |---|---|
 | `/inventario` | Grupos, hosts, criticidad y ventana de mantenimiento (UTC) |
 | `/programaciones` | Ejecuciones únicas, diarias o semanales |
-| `/aprobaciones` | Doble aprobación de tareas destructivas |
+| `/solicitudes` | Solicitudes propias y bandeja de aprobación (pestañas) |
+| `/credenciales` | Contraseñas candidatas y bóveda cifrada |
 | `/usuarios` | Cuentas locales (alta, contraseña, baja), roles y acceso corporativo LDAPS (solo admin local para el interruptor) |
-| `/history` y `/audit` | Historial de lotes y eventos de seguridad |
-| `/metricas` | p50/p95 por ruta y peticiones lentas (solo admin) |
-| `/acerca-de` | Identidad del servicio, entorno y fecha del host |
+| `/ejecuciones` | Lotes en curso e historial, con exportación y borrado (admin) |
+| `/sistema` | Auditoría, rendimiento, ajustes y «Acerca de» (pestañas) |
+| `/cuenta` | Identidad, rol y preferencias del usuario |
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
@@ -401,8 +402,9 @@ Vistas útiles de la interfaz (según rol):
 | Lote queda `running` | Proceso reiniciado | Se marca `error` al arrancar; usa `reconcile-batches` |
 | NTP revierte el cambio | Política `keep` con NTP activo | Usa `off`, `restore` o `configure` |
 | Ejecución bloqueada en un host `critical` | Fuera de la ventana de mantenimiento | Ajusta la ventana en `/inventario` o autoriza una excepción con motivo (solo admin) |
-| WinRM no conecta | Puerto, transporte o certificado | Revisa 5985/5986, `ACC_WINRM_TRANSPORT` y `ACC_WINRM_SERVER_CERT_VALIDATION` |
-| «Actualización del sistema» no se puede ejecutar | Tarjeta en estado “En preparación” | Usa el procedimiento `apt-get` de §10 mientras no se habilite la acción `APT` |
+| WinRM no conecta | Puerto, transporte o certificado | Revisa 5986/TLS por defecto, `ACC_WINRM_TRANSPORT` y `ACC_WINRM_SERVER_CERT_VALIDATION`; 5985 exige `ACC_WINRM_ALLOW_INSECURE=1` |
+| «Actualización del sistema» omite el host | Ubuntu 20.04, Linux Mint 20, Linux Lite 5 o MX 19 | Requieren migración de distribución; usa una versión soportada |
+| La actualización avisa de reinicio | Kernel o librerías del sistema actualizadas | Programa el reinicio en la ventana de mantenimiento; la tarjeta no reinicia |
 | El tapiz falla en una estación | Sin GNOME/dconf, sin `gsettings` o imagen no válida | Comprueba que sea Linux con GNOME; la imagen se valida por firma (PNG/JPEG/WebP/GIF/BMP) y el informe PDF indica la causa |
 
 ---
@@ -450,10 +452,12 @@ Vistas útiles de la interfaz (según rol):
 - **Doble aprobación**: las tareas destructivas requieren la aprobación de un
   administrador distinto del ejecutor. La aprobación caduca
   (`ACC_APPROVAL_TTL_MINUTES`) y es de un solo uso.
-- **Actualización del sistema (apt)**: la tarjeta `apt-upgrade` está en estado
-  “En preparación”; el motor actual solo ejecuta `TZ`/`TIME`. El playbook
-  `apt_upgrade.yml` ya define la política segura. Mientras no se active, el
-  equivalente manual es:
+- **Actualización del sistema (apt)**: la tarjeta `apt-upgrade` está activa
+  (rol admin, programable). Antes de ejecutar comprueba el espacio libre
+  mínimo y omite Ubuntu 20.04 y derivados; aplica `apt-get upgrade` sin
+  eliminar paquetes ni reiniciar, y al terminar informa de paquetes pendientes
+  y de si el host requiere reinicio. Para una intervención manual, el
+  equivalente es:
 
   ```bash
   sudo apt-get update

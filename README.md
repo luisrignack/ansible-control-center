@@ -143,7 +143,8 @@ conserva una copia de `VERSION`.
   aprobación de un administrador distinto del ejecutor y son de un solo uso.
   La solicitud queda **pendiente de aprobación** durante
   `ACC_APPROVAL_REQUEST_TTL_HOURS` (24 h por defecto) y, una vez aprobada, el
-  solicitante dispone de `ACC_APPROVAL_TTL_MINUTES` (24 h por defecto) para
+  solicitante dispone de `ACC_APPROVAL_TTL_MINUTES` (24 h por defecto; el
+  `docker-compose.yml` incluido fija 30 min) para
   lanzarla desde **Mis solicitudes**, sin volver a rellenar el formulario.
 - **Notificaciones SMTP** opcionales de resultados (`failures` o `all`) y
   **re-ejecución** de un lote desde su detalle cuando el estado lo permite.
@@ -516,7 +517,7 @@ una `ACC_SECRET_KEY` aleatoria.
 | `ACC_VAULT_RATE_LIMIT` | `20` | Operaciones de vault por ventana |
 | `ACC_VAULT_RATE_WINDOW` | `60` | Ventana de vault (s) |
 | `ACC_ADMIN_PASSWORD_MIN_LENGTH` | `12` | Longitud mínima del admin |
-| `ACC_USERNAME` | `admin` | Usuario por defecto de `init-admin` |
+| `ACC_ADMIN_USERNAME` | `admin` | Usuario por defecto de `init-admin` (`ACC_USERNAME` se acepta como alias heredado) |
 
 ### LDAPS (autenticación corporativa)
 
@@ -560,7 +561,7 @@ lote, en lugar de enviar la contraseña en claro.
 | Variable | Por defecto | Descripción |
 |---|---|---|
 | `ACC_APPROVAL_REQUEST_TTL_HOURS` | `24` | Plazo de una solicitud pendiente de decisión |
-| `ACC_APPROVAL_TTL_MINUTES` | `1440` | Validez de una aprobación ya concedida (24 h) |
+| `ACC_APPROVAL_TTL_MINUTES` | `1440` | Validez de una aprobación ya concedida (24 h). El compose incluido usa `30` |
 
 ### Logging
 

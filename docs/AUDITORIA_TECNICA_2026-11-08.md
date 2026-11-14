@@ -10,6 +10,10 @@ documentación.
 (360 pruebas recopiladas) y `tools/quality_check.py` correcto sobre 28
 archivos.
 
+> **Nota de vigencia:** las tablas y cifras de este documento describen el
+> estado del 2026-11-08. La sección «Actualización 2026-11-14» del final
+> resume qué hallazgos se cerraron después y con qué evidencia.
+
 ---
 
 ## 1. Veredicto general
@@ -111,7 +115,7 @@ hallazgos críticos ni altos.
 | S2 | WinRM sin TLS por defecto (5985 + NTLM) | Media | **Corregido 2026-11-14** (5986 por defecto + validación en producción) |
 | S3 | `/api/task-status` permite leer consolas ajenas | Media-baja | **Corregido 2026-11-08** |
 | S4 | SMTP sin cifrar si se usan credenciales fuera del puerto 587 | Baja | **Corregido 2026-11-08** |
-| S5 | Rate limiter en memoria por proceso | Baja | Limitación aceptada con 1 worker |
+| S5 | Rate limiter en memoria por proceso | Baja | Limitación aceptada y documentada con 1 worker (aviso de arranque) |
 | S6 | `certs/` e `instance/` con permisos 0775 | Baja | **Corregido 2026-11-14** (`certs/` y `certs-ca/` separados, `tools/check_permissions.py`) |
 | S7 | Secretos por variable de entorno en `docker inspect` | Baja-media | **Corregido 2026-11-14** (`docker-compose.secrets.yml` + `docker/generate-secrets.sh`) |
 
@@ -230,14 +234,14 @@ producción; dejar las variables planas solo para desarrollo.
 
 | ID | Hallazgo | Severidad | Estado |
 |---|---|---|---|
-| A1 | `app.py` monolítico (5.485 líneas, 30 rutas, 126 funciones) | Media | Abierto |
-| A2 | Funciones gigantes con 21–28 parámetros | Media | Abierto |
-| A3 | Duplicación entre vista previa y ejecución | Media | Abierto |
-| A4 | Estado de tareas en memoria: limita a 1 worker | Media | Abierto |
-| A5 | 81 imports directos de `config` | Baja | Abierto |
-| A6 | Lógica de frontend duplicada y 760 líneas de JS inline | Baja | Abierto |
-| A7 | Manejo de errores inconsistente (404 sin rama JSON) | Baja | Abierto |
-| A8 | Gate de calidad estrecho | Baja | Abierto |
+| A1 | `app.py` monolítico (5.485 líneas, 30 rutas, 126 funciones) | Media | **Parcial 2026-11-14**: `app.py` es fachada de 488 líneas; rutas en `acc/web/`, motor en `acc/execution.py` |
+| A2 | Funciones gigantes con 21–28 parámetros | Media | **Parcial 2026-11-14**: helpers extraídos; quedan `_run_apply_batch` (493), `execute_with_progress` (387) y `apply_host` (343) |
+| A3 | Duplicación entre vista previa y ejecución | Media | **Parcial 2026-11-14**: cupo, clasificación y objetivos compartidos; preview/apply siguen separados |
+| A4 | Estado de tareas en memoria: limita a 1 worker | Media | **Mitigado 2026-11-14**: aviso de Gunicorn y límite documentado; el estado sigue en memoria |
+| A5 | 81 imports directos de `config` | Baja | Abierto (182 nombres importados en el árbol actual) |
+| A6 | Lógica de frontend duplicada y 760 líneas de JS inline | Baja | **Corregido 2026-11-14**: ocho módulos en `static/js/` y prueba de contrato |
+| A7 | Manejo de errores inconsistente (404 sin rama JSON) | Baja | **Corregido 2026-11-14**: el 404 responde JSON a los clientes API |
+| A8 | Gate de calidad estrecho | Baja | **Corregido 2026-11-14**: CI con ruff/black/mypy/bandit, SCA, cobertura 78 % y build Docker |
 
 #### A1. Monolito
 
@@ -291,9 +295,9 @@ opcional; después permitir varios workers.
 
 | ID | Hallazgo | Severidad | Estado |
 |---|---|---|---|
-| T1 | Integración real de SSH/LDAP/WinRM/scheduler incompleta | Media | Abierto |
-| T2 | `conftest.py` usa `setdefault` para variables sensibles | Baja | Abierto |
-| T3 | Tests organizados por sprint/fecha | Baja | Abierto |
+| T1 | Integración real de SSH/LDAP/WinRM/scheduler incompleta | Media | Abierto (la integración SSH sigue siendo opcional) |
+| T2 | `conftest.py` usa `setdefault` para variables sensibles | Baja | Abierto (decisión consciente: permite sobrescribir en local) |
+| T3 | Tests organizados por sprint/fecha | Baja | Abierto (los nuevos siguen el mismo patrón) |
 
 - **T1:** SSH real es opcional y no corre en CI; LDAP usa `FakeConnection`;
   WinRM está mockeado; el scheduler y las carreras multiproceso no se prueban
@@ -308,12 +312,12 @@ opcional; después permitir varios workers.
 
 | ID | Hallazgo | Severidad | Estado |
 |---|---|---|---|
-| D1 | La imagen Docker no usa el lockfile | Media | Abierto |
-| D2 | CI sin linters, auditoría de dependencias ni build de imagen | Media | Abierto |
-| D3 | Dependencias envejecidas o sin cota superior | Baja-media | Abierto |
-| D4 | Caches de mypy/ruff fuera de `.gitignore` | Baja | Abierto |
+| D1 | La imagen Docker no usa el lockfile | Media | **Corregido 2026-11-14**: `Dockerfile` instala `requirements.lock` |
+| D2 | CI sin linters, auditoría de dependencias ni build de imagen | Media | **Corregido 2026-11-14**: gates, SCA, build de app y Nginx |
+| D3 | Dependencias envejecidas o sin cota superior | Baja-media | **Corregido 2026-11-14**: cotas superiores en `requirements.txt` |
+| D4 | Caches de mypy/ruff fuera de `.gitignore` | Baja | **Corregido 2026-11-14**: `.mypy_cache/` y `.ruff_cache/` ignorados |
 | D5 | `dist/` es un artefacto ignorado que puede quedar obsoleto | Baja | Aceptado |
-| D6 | Deriva menor en la guía portable | Baja | Abierto |
+| D6 | Deriva menor en la guía portable | Baja | **Corregido 2026-11-14**: guía y arranque rápido actualizados |
 
 - **D1:** `Dockerfile:31-34` instala `requirements.txt` (rangos), no
   `requirements.lock`. El lock solo fija dependencias directas y no tiene
@@ -474,3 +478,41 @@ S4 (SMTP fail-closed), con pruebas de regresión, documentación y un perfil
 `docker-compose.lab.yml` para laboratorio. Siguen abiertos S2 (WinRM), S6
 (permisos), S7 (secretos `_FILE`) y todo el bloque 1. El siguiente paso
 recomendado es el lockfile con hashes y el build reproducible de la imagen.
+
+### Actualización 2026-11-14 — bloques 0, 1 y 2 de calidad
+
+Tras los bloques P1 y P2 del plan de acción, el estado verificable es:
+
+| Comprobación | Resultado |
+|---|---|
+| `pytest -q` | **569 passed, 1 skipped** (570 recopiladas) |
+| `ruff check .` | Limpio |
+| `black --check .` | 106 archivos sin cambios |
+| `mypy` | 0 errores en 57 archivos |
+| `bandit -ll` | 0 hallazgos medios o altos, sin `# nosec` |
+| `pytest --cov-fail-under` | Umbral del 78 % en CI |
+| `tools/quality_check.py` | OK, 57 archivos |
+| `tools/check_permissions.py` | OK |
+| Imagen Docker | Construida en CI desde `requirements.lock`; matriz 3.12/3.13/3.14 |
+
+Hallazgos cerrados después del informe original:
+
+- **S2** (WinRM 5986/TLS por defecto), **S6** (permisos y CA separada) y
+  **S7** (secretos por fichero) ya estaban cerrados en 0.9.7.
+- **A6** (JS inline), **A7** (404 JSON) y **A8** (gates de calidad) cerrados en
+  0.9.8.
+- **D1** (lockfile en la imagen), **D2** (CI con lint, SCA y build), **D3**
+  (cotas de dependencias), **D4** (caches ignoradas) y **D6** (guía portable)
+  cerrados en 0.9.7–0.9.8.
+- **A1–A4** quedan mitigados o parcialmente corregidos: `app.py` es una
+  fachada y el motor está en `acc/`, pero `_run_apply_batch`,
+  `execute_with_progress` y `apply_host` siguen siendo funciones largas y el
+  estado de tareas continúa en memoria (un worker, con aviso de arranque).
+- **A5**, **T1–T3** y la integración real de SSH/LDAP/WinRM/scheduler siguen
+  abiertos o aceptados. El escalado horizontal requiere un `TaskStore`
+  compartido y una cola distribuida.
+
+La documentación afectada (`README.md`, `docs/README.md`, `docs/OPERACION.md`,
+`docker/despliegue-portable.md` y el arranque rápido generado) se alineó con
+estas cifras y con los valores reales de `ACC_APPROVAL_TTL_MINUTES` y
+`ACC_ADMIN_USERNAME`.

@@ -212,21 +212,26 @@ DESPUÉS DEL ARRANQUE
     El fondo se publica como valor predeterminado del sistema: sobrevive al
     reinicio y se aplica a los usuarios que inicien sesión. La tarjeta
     incluye un informe PDF con estación, fecha/hora y causa del error.
-  - Estaciones Windows: requieren WinRM (5985/tcp con NTLM o 5986/tcp con
-    TLS) y una cuenta de administrador local (guía 02, §6).
+  - Estaciones Windows: requieren WinRM sobre HTTPS (5986/tcp; el 5985/tcp
+    con NTLM queda para un laboratorio aislado) y una cuenta de
+    administrador local (guía 02, §6).
   - Inventario: asigna criticidad y ventana de mantenimiento en UTC. Los
     hosts «critical» se bloquean fuera de ventana; la vista previa y el
     DRY RUN no se bloquean (guía 02, §10).
-  - La tarjeta «Actualización del sistema» está en preparación. Mientras
-    tanto, usa el procedimiento apt-get de la guía 02, §10.
+  - La tarjeta «Actualización del sistema» aplica una actualización segura
+    (apt-get upgrade) sin eliminar paquetes ni reiniciar, omite Ubuntu 20.04
+    y derivados y avisa si la estación requiere reinicio.
+  - La tarjeta «Contraseña administrativa» cambia la contraseña de la cuenta
+    de destino sin guardarla en claro (guía 02, §10).
   - Acceso corporativo LDAPS (opcional): pasos en la guía 02, §4.1.
   - Usuarios: en /usuarios (admin) puedes crear cuentas locales con su
     contraseña y rol, cambiar contraseñas o eliminar la cuenta. Las cuentas
     LDAPS se validan en el directorio y solo se activan/desactivan aquí
     (guía 02, §4).
   - El modo Simulación cambia desde la barra superior de la interfaz.
-  - Vistas: /inventario, /programaciones, /aprobaciones, /usuarios,
-    /history, /audit y /metricas (admin).
+  - Vistas: /ejecuciones (lotes e historial), /solicitudes (aprobaciones),
+    /credenciales, /inventario, /programaciones, /usuarios, /sistema
+    (auditoría, rendimiento, ajustes y acerca de) y /cuenta.
 EOF
 
 cp -a docker-compose.yml Dockerfile .env.docker.example VERSION "$DEST/"

@@ -49,6 +49,19 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 - Las pruebas de frontend comprueban el JS estático y la configuración JSON
   en lugar de buscar bloques inline que ya no existen.
 
+### Documentación
+
+- `README.md` refleja la suite real (569/570), la versión 0.9.8, el TTL de
+  aprobación del compose (30 min) y `ACC_ADMIN_USERNAME` (con `ACC_USERNAME`
+  como alias heredado).
+- `docs/README.md` enumera las 12 propuestas de interfaz.
+- `docs/OPERACION.md`, `docs/AUDITORIA_TECNICA_2026-11-08.md` y la guía
+  portable se alinean con el estado real; el arranque rápido generado ya no
+  describe la actualización APT como «en preparación» y usa las rutas nuevas
+  (`/ejecuciones`, `/sistema`, `/solicitudes`).
+- `config.py` acepta `ACC_ADMIN_USERNAME` y mantiene `ACC_USERNAME` como
+  alternativa para instalaciones existentes.
+
 ## [0.9.7] — 2026-11-14
 
 ### Añadido

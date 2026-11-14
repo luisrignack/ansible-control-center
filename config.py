@@ -414,7 +414,9 @@ LDAP_DEFAULT_ROLE = os.environ.get("ACC_LDAP_DEFAULT_ROLE", "viewer").strip().lo
 if LDAP_DEFAULT_ROLE not in ("viewer", "operator"):
     LDAP_DEFAULT_ROLE = "viewer"
 
-ADMIN_USERNAME = os.environ.get("ACC_USERNAME", "admin")
+ADMIN_USERNAME = (
+    os.environ.get("ACC_ADMIN_USERNAME") or os.environ.get("ACC_USERNAME") or "admin"
+).strip() or "admin"
 ADMIN_PASSWORD_MIN_LENGTH = _env_int(
     "ACC_ADMIN_PASSWORD_MIN_LENGTH", 12, minimum=8, maximum=128
 )
