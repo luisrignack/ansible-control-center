@@ -61,7 +61,7 @@ def test_login_page_renders(client):
 
 
 def test_protected_route_redirects_to_login(client):
-    response = client.get("/")
+    response = client.get("/tareas")
     assert response.status_code == 302
     assert "/login" in response.headers["Location"]
 
@@ -70,7 +70,7 @@ def test_login_and_dashboard(client):
     response = _login(client)
     assert response.status_code == 302
 
-    catalog = client.get("/")
+    catalog = client.get("/tareas")
     assert catalog.status_code == 200
     assert "Catálogo de tareas".encode() in catalog.data
     assert b"Formulario de" not in catalog.data
@@ -103,7 +103,7 @@ def test_task_detail_routes(client):
 
     unknown = client.get("/tarea/loquesea")
     assert unknown.status_code == 302
-    assert unknown.headers["Location"].endswith("/")
+    assert unknown.headers["Location"].endswith("/tareas")
 
 
 def test_task_detail_requires_login(client):
@@ -123,7 +123,7 @@ def test_invalid_credentials(client):
 def test_post_without_csrf_token_is_rejected(client):
     _login(client)
     response = client.post(
-        "/",
+        "/tareas",
         data={
             "target_ip": "127.0.0.1",
             "admin_user": "root",
@@ -175,7 +175,7 @@ def test_index_validation(client):
     _login(client)
     response = _post(
         client,
-        "/",
+        "/tareas",
         {
             "target_ip": "no-es-una-ip",
             "admin_user": "root",
@@ -192,7 +192,7 @@ def test_index_rejects_invalid_octets(client):
     _login(client)
     response = _post(
         client,
-        "/",
+        "/tareas",
         {
             "target_ip": "999.1.1.1",
             "admin_user": "root",
@@ -209,7 +209,7 @@ def test_index_rejects_huge_cidr(client):
     _login(client)
     response = _post(
         client,
-        "/",
+        "/tareas",
         {
             "target_ip": "10.0.0.0/8",
             "admin_user": "root",
@@ -226,7 +226,7 @@ def test_temporal_txt_requires_txt_file(client):
     _login(client)
     response = _post(
         client,
-        "/",
+        "/tareas",
         {
             "target_ip": "127.0.0.1",
             "admin_user": "root",
@@ -263,7 +263,7 @@ def test_temporal_txt_execution_records_history(client, monkeypatch):
     _login(client)
     response = _post(
         client,
-        "/",
+        "/tareas",
         {
             "target_ip": "127.0.0.1",
             "admin_user": "root",
@@ -288,14 +288,14 @@ def test_temporal_txt_execution_records_history(client, monkeypatch):
         time.sleep(0.02)
 
     assert status.get("overall_result") == "success", status
-    history = client.get("/history")
+    history = client.get("/ejecuciones", query_string={"tab": "historial"})
     assert b"127.0.0.1" in history.data
     assert b"success" in history.data.lower()
 
 
 def test_passwords_view_has_password_toggles_without_origin_selector(client):
     _login(client)
-    response = client.get("/passwords")
+    response = client.get("/credenciales")
     body = response.get_data(as_text=True)
 
     assert 'id="passwordOriginModal"' not in body

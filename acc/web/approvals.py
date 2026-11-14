@@ -32,27 +32,64 @@ from services import task_catalog
 app = RouteRegistry()
 
 
-@app.route("/mis-solicitudes", methods=["GET"])
+@app.route("/solicitudes", methods=["GET"])
 @roles_required("operator")
-def mis_solicitudes():
-    """Estado de las solicitudes de doble aprobación del propio usuario."""
+def solicitudes():
+    """Solicitudes propias y, para administradores, la bandeja de aprobación."""
     db_path = runtime.get_db_path()
     ApprovalRequest.expire_stale(
         APPROVAL_REQUEST_TTL_HOURS, APPROVAL_TTL_MINUTES, db_path=db_path
     )
     username = getattr(current_user, "username", "") or ""
-    return render_template(
-        "mis_solicitudes.html",
-        requests=[
+    requests = [
+        _approval_row(req)
+        for req in ApprovalRequest.list_for_requester(username, db_path=db_path)
+    ]
+    pending: list[dict] = []
+    decided: list[dict] = []
+    if current_user.has_role("admin"):
+        pending = [
             _approval_row(req)
-            for req in ApprovalRequest.list_for_requester(username, db_path=db_path)
-        ],
+            for req in ApprovalRequest.list_status(
+                APPROVAL_PENDING, db_path=db_path
+            )
+        ]
+        decided = [
+            _approval_row(req)
+            for req in ApprovalRequest.list_status(
+                APPROVAL_APPROVED, db_path=db_path
+            )
+            + ApprovalRequest.list_status(
+                APPROVAL_REJECTED, db_path=db_path
+            )
+            + ApprovalRequest.list_status(
+                APPROVAL_EXPIRED, db_path=db_path
+            )
+        ]
+    requested_tab = request.args.get("tab", "mias")
+    tab = "aprobaciones" if requested_tab == "aprobaciones" else "mias"
+    if tab == "aprobaciones" and not current_user.has_role("admin"):
+        tab = "mias"
+    return render_template(
+        "solicitudes.html",
+        tab=tab,
+        requests=requests,
+        pending=pending,
+        decided=decided,
         request_ttl_hours=APPROVAL_REQUEST_TTL_HOURS,
         approval_ttl_minutes=APPROVAL_TTL_MINUTES,
     )
 
 
+@app.route("/mis-solicitudes", methods=["GET"])
+@roles_required("operator")
+def mis_solicitudes():
+    """Compatibilidad: Mis solicitudes vive en Solicitudes → Mis solicitudes."""
+    return redirect(url_for("solicitudes", tab="mias"), code=301)
+
+
 @app.route("/mis-solicitudes/<int:request_id>/ejecutar", methods=["GET", "POST"])
+@app.route("/solicitudes/<int:request_id>/ejecutar", methods=["GET", "POST"])
 @roles_required("operator")
 def ejecutar_aprobacion(request_id):
     """Ejecuta una solicitud propia ya aprobada sin repetir el formulario.
@@ -69,14 +106,14 @@ def ejecutar_aprobacion(request_id):
     username = getattr(current_user, "username", "") or ""
     if req is None or req.requested_by != username:
         flash("La solicitud no existe o no pertenece a tu usuario.", "warning")
-        return redirect(url_for("mis_solicitudes"))
+        return redirect(url_for("solicitudes", tab="mias"))
     if req.status != APPROVAL_APPROVED:
         flash(
             "Solo se puede ejecutar una solicitud aprobada y vigente "
             f"(estado actual: {req.status}).",
             "warning",
         )
-        return redirect(url_for("mis_solicitudes"))
+        return redirect(url_for("solicitudes", tab="mias"))
     if not req.payload:
         flash(
             "Esta solicitud se creó antes de habilitar la ejecución directa y "
@@ -84,7 +121,7 @@ def ejecutar_aprobacion(request_id):
             "aprobación vigente se aplicará al reenviarlo.",
             "warning",
         )
-        return redirect(url_for("mis_solicitudes"))
+        return redirect(url_for("solicitudes", tab="mias"))
     if request.method == "GET":
         return render_template(
             "ejecutar_aprobacion.html",
@@ -121,7 +158,7 @@ def aprobaciones():
         request_id = request.form.get("request_id", "").strip()
         if not request_id.isdigit():
             flash("Solicitud no válida.", "warning")
-            return redirect(url_for("aprobaciones"))
+            return redirect(url_for("solicitudes", tab="aprobaciones"))
         if action == "approve":
             decided, decide_error = ApprovalRequest.decide(
                 int(request_id),
@@ -155,26 +192,9 @@ def aprobaciones():
                 flash(f"Solicitud #{decided.id} rechazada.", "info")
         else:
             flash("Acción de aprobación no válida.", "warning")
-        return redirect(url_for("aprobaciones"))
+        return redirect(url_for("solicitudes", tab="aprobaciones"))
 
-    ApprovalRequest.expire_stale(
-        APPROVAL_REQUEST_TTL_HOURS, APPROVAL_TTL_MINUTES, db_path=db_path
-    )
-    return render_template(
-        "approvals.html",
-        approval_ttl_minutes=APPROVAL_TTL_MINUTES,
-        request_ttl_hours=APPROVAL_REQUEST_TTL_HOURS,
-        pending=[
-            _approval_row(req)
-            for req in ApprovalRequest.list_status(APPROVAL_PENDING, db_path=db_path)
-        ],
-        decided=[
-            _approval_row(req)
-            for req in ApprovalRequest.list_status(APPROVAL_APPROVED, db_path=db_path)
-            + ApprovalRequest.list_status(APPROVAL_REJECTED, db_path=db_path)
-            + ApprovalRequest.list_status(APPROVAL_EXPIRED, db_path=db_path)
-        ],
-    )
+    return redirect(url_for("solicitudes", tab="aprobaciones"), code=301)
 
 def register(flask_app) -> None:
     app.apply(flask_app)

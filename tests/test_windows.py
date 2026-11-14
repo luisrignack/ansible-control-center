@@ -130,7 +130,7 @@ def test_retired_task_rejected_with_clear_message(client):
     _login(client)
     response = _post(
         client,
-        "/",
+        "/tareas",
         data={
             "task": "hora",
             "target_ip": "10.55.0.1",
@@ -201,7 +201,7 @@ def test_zona_todas_accepts_windows_group(client, monkeypatch):
 
     response = _post(
         client,
-        "/",
+        "/tareas",
         data={
             "task": "zona-todas",
             "target_mode": "group",
@@ -227,7 +227,7 @@ def test_zona_todas_rejects_action_time(client):
     _login(client)
     response = _post(
         client,
-        "/",
+        "/tareas",
         data={
             "task": "zona-todas",
             "target_ip": "10.55.0.3",

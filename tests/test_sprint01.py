@@ -230,7 +230,7 @@ def test_form_rejects_dst_gap(client):
     _login(client)
     response = _post(
         client,
-        "/",
+        "/tareas",
         _execution_form(
             action="TIME",
             value="2026-03-29T02:30",
@@ -248,7 +248,7 @@ def test_form_rejects_ambiguous_time_without_fold(client):
     _login(client)
     response = _post(
         client,
-        "/",
+        "/tareas",
         _execution_form(
             action="TIME",
             value="2026-10-25T02:30",
@@ -267,7 +267,7 @@ def test_form_rejects_unknown_timezone(client):
     _login(client)
     response = _post(
         client,
-        "/",
+        "/tareas",
         _execution_form(
             action="TIME",
             value="2026-01-01T10:00",
@@ -285,7 +285,7 @@ def test_time_with_ntp_keep_is_rejected_on_execute(client):
     _login(client)
     response = _post(
         client,
-        "/",
+        "/tareas",
         _execution_form(
             action="TIME",
             value="2026-01-01T10:00",
@@ -413,8 +413,8 @@ def test_viewer_is_read_only(client, tmp_path):
     )
     assert _login(client, "viewer", "viewer-password-123").status_code == 302
 
-    assert client.get("/").status_code == 200
-    assert client.get("/history").status_code == 200
+    assert client.get("/tareas").status_code == 200
+    assert client.get("/ejecuciones", query_string={"tab": "historial"}).status_code == 200
     assert client.get("/audit").status_code == 403
     assert _post(client, "/execute", _execution_form()).status_code == 403
 
@@ -441,10 +441,10 @@ def test_admin_can_read_audit(client):
         "Prueba",
         db_path=runtime.get_db_path(),
     )
-    response = client.get("/audit")
+    response = client.get("/sistema", query_string={"tab": "auditoria"})
     assert response.status_code == 200
     body = response.get_data(as_text=True)
-    assert "Auditoría de acceso" in body
+    assert "Registro de autenticación" in body
     assert "Acceso correcto" in body
 
 

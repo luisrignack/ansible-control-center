@@ -207,7 +207,7 @@ def test_payload_guarda_el_formulario_sin_secretos():
 def _request_password_change(client):
     return _post(
         client,
-        "/",
+        "/tareas",
         data={
             "task": "contrasena",
             "target_ip": "10.55.0.9",
@@ -238,7 +238,7 @@ def test_flujo_completo_aprobacion_y_ejecucion(client, db_path, monkeypatch):
     assert "new_password" not in req.payload
 
     # El solicitante ve su solicitud pendiente y no puede ejecutarla aún.
-    page = client.get("/mis-solicitudes")
+    page = client.get("/solicitudes", query_string={"tab": "mias"})
     assert page.status_code == 200
     assert "pendiente de aprobación" in page.get_data(as_text=True)
     blocked = client.get(f"/mis-solicitudes/{req.id}/ejecutar")
@@ -246,7 +246,7 @@ def test_flujo_completo_aprobacion_y_ejecucion(client, db_path, monkeypatch):
 
     # Otro admin la aprueba desde la bandeja.
     _login(client, "admin2", "admin2-password-123")
-    inbox = client.get("/aprobaciones")
+    inbox = client.get("/solicitudes", query_string={"tab": "aprobaciones"})
     assert inbox.status_code == 200
     body = inbox.get_data(as_text=True)
     assert "Caduca" in body

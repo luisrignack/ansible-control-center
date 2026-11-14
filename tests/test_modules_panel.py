@@ -67,31 +67,31 @@ SHOW_KASPERSKY = b'action="/modulos/kaspersky/mostrar"'
 
 def test_hide_and_restore_moves_card_between_views(client):
     _login(client)
-    assert HIDE_KASPERSKY in client.get("/").data
+    assert HIDE_KASPERSKY in client.get("/tareas").data
 
     response = _hide(client)
     assert response.status_code == 302
-    panel = client.get("/").data
+    panel = client.get("/tareas").data
     assert HIDE_KASPERSKY not in panel
-    assert "Módulos".encode() in panel
+    assert b"Ocultas" in panel
 
-    parked = client.get("/modulos").data
+    parked = client.get("/tareas?tab=ocultas").data
     assert SHOW_KASPERSKY in parked
 
     response = _show(client)
     assert response.status_code == 302
-    assert HIDE_KASPERSKY in client.get("/").data
-    assert SHOW_KASPERSKY not in client.get("/modulos").data
+    assert HIDE_KASPERSKY in client.get("/tareas").data
+    assert SHOW_KASPERSKY not in client.get("/tareas?tab=ocultas").data
 
 
 def test_hidden_cards_are_per_user(client):
     _login(client, "operador", "operador-password-123")
     _hide(client, "tapiz")
-    assert b'action="/modulos/tapiz/ocultar"' not in client.get("/").data
+    assert b'action="/modulos/tapiz/ocultar"' not in client.get("/tareas").data
 
     _login(client, "viewer", "viewer-password-123")
-    assert b'action="/modulos/tapiz/ocultar"' in client.get("/").data
-    assert b'action="/modulos/tapiz/mostrar"' not in client.get("/modulos").data
+    assert b'action="/modulos/tapiz/ocultar"' in client.get("/tareas").data
+    assert b'action="/modulos/tapiz/mostrar"' not in client.get("/tareas?tab=ocultas").data
 
 
 def test_hidden_card_still_opens_by_url(client):
@@ -118,48 +118,47 @@ def test_restore_all_returns_every_card(client):
     _login(client)
     _hide(client, "kaspersky")
     _hide(client, "tapiz")
-    assert b'action="/modulos/kaspersky/ocultar"' not in client.get("/").data
+    assert b'action="/modulos/kaspersky/ocultar"' not in client.get("/tareas").data
 
     response = _post(client, "/modulos/restaurar")
     assert response.status_code == 302
-    panel = client.get("/").data
+    panel = client.get("/tareas").data
     assert b'action="/modulos/kaspersky/ocultar"' in panel
     assert b'action="/modulos/tapiz/ocultar"' in panel
-    assert b"No hay m" in client.get("/modulos").data
+    assert b"No hay tareas ocultas" in client.get("/tareas?tab=ocultas").data
 
 
-def test_configuration_tabs_respect_roles(client):
+def test_navigation_respects_roles(client):
     _login(client, "operador", "operador-password-123")
     body = client.get("/inventario").data
-    assert b"config-tabs" in body
+    assert b"/credenciales" in body
+    assert b"/solicitudes" in body
     assert b"/usuarios" not in body
-    assert b"/aprobaciones" not in body
+    assert b"/sistema" not in body
 
     _login(client)
     body = client.get("/inventario").data
     assert b"/usuarios" in body
-    assert b"/aprobaciones" in body
-    assert b"/modulos" in body
+    assert b"/sistema" in body
 
 
-def test_configuration_entry_redirects_to_inventory(client):
+def test_configuration_entry_redirects_to_system_settings(client):
     _login(client)
     response = client.get("/configuracion")
-    assert response.status_code == 302
-    assert response.headers["Location"].endswith("/inventario")
+    assert response.status_code == 301
+    assert response.headers["Location"].endswith("/sistema?tab=ajustes")
 
 
-def test_feature_flag_restores_previous_ui(client, monkeypatch):
+def test_feature_flag_hides_panel_customization(client, monkeypatch):
     monkeypatch.setattr(runtime, "UI_CONFIG_PANEL", False)
     _login(client)
 
-    panel = client.get("/").data
+    panel = client.get("/tareas").data
     assert b"task-hide" not in panel
+    assert b"tab=ocultas" not in panel
     assert client.get("/modulos").status_code == 404
-    assert client.get("/configuracion").status_code == 404
 
+    # Las secciones principales de la nueva navegación siguen disponibles.
     body = client.get("/inventario").data
-    assert b"config-tabs" not in body
-    # El menú anterior sigue mostrando las categorías sueltas.
-    assert b"Credenciales" in body
-    assert b"Programaciones" in body
+    assert b"/credenciales" in body
+    assert b"/programaciones" in body

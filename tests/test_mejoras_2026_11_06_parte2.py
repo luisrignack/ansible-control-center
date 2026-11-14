@@ -121,7 +121,7 @@ def test_formulario_manual_rechaza_plataforma_del_grupo(client, db_path, monkeyp
     assert _login(client, "admin", "admin-password-123").status_code == 302
     response = _post(
         client,
-        "/",
+        "/tareas",
         {
             "task": "tarea-x",
             "target_mode": "group",

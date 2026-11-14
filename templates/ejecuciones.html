@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+
+{% block title %}Ejecuciones{% endblock %}
+
+{% block breadcrumb %}Ejecuciones{% endblock %}
+
+{% block content %}
+<div class="page-head fade-in">
+    <div>
+        <div class="eyebrow">Operación</div>
+        <h1>Ejecuciones</h1>
+        <p class="sub">
+            Lotes en curso y registro histórico de ejecuciones, con su resultado
+            global y el detalle por host.
+        </p>
+    </div>
+    <div class="head-actions">
+        <a class="btn btn-primary" href="{{ url_for('tareas') }}">
+            <i class="bi bi-play-fill" aria-hidden="true"></i> Nueva ejecución
+        </a>
+    </div>
+</div>
+
+<nav class="seg-tabs section-tabs" aria-label="Vistas de ejecuciones">
+    <a class="seg-tab{% if tab == 'curso' %} is-active{% endif %}"
+       href="{{ url_for('ejecuciones', tab='curso') }}"
+       {% if tab == 'curso' %}aria-current="page"{% endif %}>
+        <i class="bi bi-activity" aria-hidden="true"></i> En curso
+        <span class="count">{{ running_batches | length }}</span>
+    </a>
+    <a class="seg-tab{% if tab == 'historial' %} is-active{% endif %}"
+       href="{{ url_for('ejecuciones', tab='historial') }}"
+       {% if tab == 'historial' %}aria-current="page"{% endif %}>
+        <i class="bi bi-clock-history" aria-hidden="true"></i> Historial
+        <span class="count">{{ batches | length }}</span>
+    </a>
+</nav>
+
+<div class="stat-grid fade-in">
+    <div class="stat">
+        <div class="stat-value">{{ stats.batches }}</div>
+        <div class="stat-label">Lotes registrados</div>
+    </div>
+    <div class="stat is-ok">
+        <div class="stat-value">{{ stats.success }}</div>
+        <div class="stat-label">Éxitos reales</div>
+    </div>
+    <div class="stat is-danger">
+        <div class="stat-value">{{ stats.failure }}</div>
+        <div class="stat-label">Fallos</div>
+    </div>
+    <div class="stat is-warn">
+        <div class="stat-value">{{ stats.error }}</div>
+        <div class="stat-label">Errores</div>
+    </div>
+    <div class="stat is-info">
+        <div class="stat-value">{{ stats.simulated }}</div>
+        <div class="stat-label">Hosts simulados</div>
+    </div>
+</div>
+
+{% if tab == 'curso' %}
+<section class="card fade-in" aria-labelledby="running-title">
+    <div class="card-header">
+        <h2 class="card-title" id="running-title">
+            <i class="bi bi-activity" aria-hidden="true"></i> Lotes en curso
+        </h2>
+        <span class="badge {% if running_batches %}bg-info text-dark{% else %}bg-secondary{% endif %}">
+            {{ running_batches | length }}
+        </span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive p-3">
+            <table class="table table-borderless mb-0 table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th scope="col">Lote</th>
+                        <th scope="col">Operador</th>
+                        <th scope="col">Objetivo</th>
+                        <th scope="col">Acción</th>
+                        <th scope="col" class="col-progress">Progreso</th>
+                        <th scope="col">Inicio</th>
+                        <th scope="col" class="text-end">Detalle</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for batch in running_batches %}
+                    {% set percent = ((batch.processed_count * 100 / batch.total_hosts) | round(0, 'floor') | int) if batch.total_hosts else 0 %}
+                    <tr>
+                        <td><a href="{{ url_for('batch_detail', batch_id=batch.batch_id) }}"><code>{{ batch.batch_id[:8] }}</code></a></td>
+                        <td><small>{{ batch.operator or '—' }}</small></td>
+                        <td><small><code>{{ batch.target }}</code></small></td>
+                        <td><small>{{ batch.action or '—' }}</small></td>
+                        <td>
+                            <progress class="hora-progress" value="{{ percent }}" max="100"
+                                      aria-label="Progreso del lote {{ batch.batch_id[:8] }}">
+                                {{ percent }} %
+                            </progress>
+                            <small class="text-secondary">
+                                {{ batch.processed_count }} de {{ batch.total_hosts }} hosts
+                            </small>
+                        </td>
+                        <td><small>{{ batch.created_at.strftime('%Y-%m-%d %H:%M:%S') if batch.created_at else '—' }}</small></td>
+                        <td class="text-end">
+                            <a class="btn btn-sm btn-primary"
+                               href="{{ url_for('batch_detail', batch_id=batch.batch_id) }}">
+                                <i class="bi bi-terminal" aria-hidden="true"></i> Ver progreso
+                            </a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center py-4">
+                            <small class="text-secondary">No hay ninguna ejecución en curso.</small>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{% else %}
+<section class="card fade-in" aria-labelledby="history-title">
+    <div class="card-header">
+        <h2 class="card-title" id="history-title">
+            <i class="bi bi-clock-history" aria-hidden="true"></i> Ejecuciones registradas
+        </h2>
+        <span class="badge bg-secondary">{{ batches | length }} en pantalla</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive p-3">
+            <table class="table table-borderless mb-0 table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th scope="col">Fecha</th>
+                        <th scope="col">Lote</th>
+                        <th scope="col">Operador</th>
+                        <th scope="col">Objetivo</th>
+                        <th scope="col">Acción</th>
+                        <th scope="col">Valor</th>
+                        <th scope="col">Hosts</th>
+                        <th scope="col">Resultado</th>
+                        <th scope="col">Duración</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for batch in batches %}
+                    <tr>
+                        <td>
+                            <small>{{ batch.created_at.strftime('%Y-%m-%d %H:%M:%S') if batch.created_at else 'N/A' }}</small>
+                        </td>
+                        <td>
+                            <a href="{{ url_for('batch_detail', batch_id=batch.batch_id) }}">
+                                <code>{{ batch.batch_id[:8] }}</code>
+                            </a>
+                        </td>
+                        <td><small>{{ batch.operator or '—' }}</small></td>
+                        <td><small><code>{{ batch.target }}</code></small></td>
+                        <td>
+                            <small>
+                                {% if batch.action == 'TZ' %}
+                                    <span class="text-info"><i class="bi bi-globe2" aria-hidden="true"></i> Zona horaria</span>
+                                {% elif batch.action == 'WALLPAPER' %}
+                                    <span class="text-warning"><i class="bi bi-image" aria-hidden="true"></i> Tapiz</span>
+                                {% elif batch.action == 'APT' %}
+                                    <span class="text-warning"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Actualización APT</span>
+                                {% elif batch.action == 'PASSWORD' %}
+                                    <span class="text-warning"><i class="bi bi-key" aria-hidden="true"></i> Cambio de contraseña</span>
+                                {% elif batch.action == 'FIREWALL' %}
+                                    <span class="text-warning"><i class="bi bi-shield-lock" aria-hidden="true"></i> Firewall</span>
+                                {% else %}
+                                    <span class="text-warning"><i class="bi bi-clock" aria-hidden="true"></i> Hora exacta</span>
+                                {% endif %}
+                            </small>
+                        </td>
+                        <td><small>{{ batch.value | default('N/A') }}</small></td>
+                        <td>
+                            <small>
+                                {{ batch.success_count }}/{{ batch.total_hosts }} OK
+                                {% if batch.failure_count %}· {{ batch.failure_count }} fallo(s){% endif %}
+                                {% if batch.error_count %}· {{ batch.error_count }} error(es){% endif %}
+                                {% if batch.attention_count %}· {{ batch.attention_count }} requieren atención{% endif %}
+                                {% if batch.preview_count %}· {{ batch.preview_count }} preview{% endif %}
+                            </small>
+                        </td>
+                        <td>
+                            <span class="badge {% if batch.status == 'success' %}bg-success{% elif batch.status in ['partial', 'incomplete'] %}bg-warning text-dark{% elif batch.status == 'preview' %}bg-info text-dark{% elif batch.status == 'cancelled' %}bg-secondary{% else %}bg-danger{% endif %}"
+                                  data-status="{{ batch.status }}">{{ status_labels.get(batch.status, batch.status) }}</span>
+                            {% if batch.dry_run %}
+                            <span class="badge bg-warning text-dark" title="Ejecución simulada">DRY RUN</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <small>
+                                {% if batch.duration_seconds is not none %}
+                                    {{ batch.duration_seconds }} s
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </small>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="9" class="text-center py-4">
+                            <small class="text-secondary">No hay lotes registrados.</small>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{% endif %}
+{% endblock %}

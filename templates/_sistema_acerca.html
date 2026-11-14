@@ -1,23 +1,4 @@
-{% extends "base.html" %}
-
-{% block title %}Acerca de{% endblock %}
-
-{% block content %}
 {% set environment_label = ('Producción' if is_production else 'Desarrollo') ~ (' · DRY RUN activo' if dry_run else '') %}
-<div class="page-head">
-    <div>
-        <div class="eyebrow">Sistema</div>
-        <h1>Acerca de</h1>
-        <p class="sub">Identidad institucional, alcance operativo y datos técnicos de la plataforma.</p>
-    </div>
-    <div class="head-actions">
-        <span class="about-version">
-            <i class="bi bi-box-seam" aria-hidden="true"></i>
-            Versión {{ app_version }}
-        </span>
-    </div>
-</div>
-
 <section class="card about-hero fade-in" aria-labelledby="about-product">
     <div class="about-hero-body">
         {% include "_brand_logo.html" %}
@@ -170,4 +151,3 @@
     <span>© {{ current_year }} ETECSA · Grupo de Migración a Código Abierto / DCTI</span>
     <span>Ansible Control Center {{ app_version }}{% if build_commit %} · {{ build_commit }}{% endif %}</span>
 </footer>
-{% endblock %}

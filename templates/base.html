@@ -18,9 +18,12 @@
 
 {% if current_user.is_authenticated %}
 {% set endpoint = request.endpoint or '' %}
+{% set es_operacion = endpoint in ['panel', 'panel_alias', 'tareas', 'task_view', 'progress_page', 'progress_sse', 'ejecuciones', 'inventario', 'programaciones', 'schedule_edit', 'programacion_nueva'] %}
+{% set es_seguridad = endpoint in ['solicitudes', 'ejecutar_aprobacion', 'credenciales', 'passwords'] %}
+{% set es_admin = endpoint in ['usuarios', 'sistema', 'audit', 'metricas', 'configuracion', 'acerca_de'] %}
 <div class="app-shell">
     <aside class="sidebar" id="sidebar" aria-label="Navegación principal">
-        <a class="brand" href="{{ url_for('index') }}">
+        <a class="brand" href="{{ url_for('panel') }}">
             {% include "_brand_logo.html" %}
             <span>
                 <span class="brand-name">Ansible Control Center</span>
@@ -36,101 +39,58 @@
 
         <nav class="nav" aria-label="Secciones">
             <div class="nav-label">Operación</div>
-            <a class="nav-item {% if endpoint in ['index', 'task_view'] %}is-active{% endif %}"
-               href="{{ url_for('index') }}"
-               {% if endpoint in ['index', 'task_view'] %}aria-current="page"{% endif %}>
-                <i class="bi bi-grid icon" aria-hidden="true"></i> Tareas
+            <a class="nav-item {% if endpoint in ['panel', 'panel_alias'] %}is-active{% endif %}"
+               href="{{ url_for('panel') }}"
+               {% if endpoint in ['panel', 'panel_alias'] %}aria-current="page"{% endif %}>
+                <i class="bi bi-grid icon" aria-hidden="true"></i> Panel
             </a>
-            <a class="nav-item {% if endpoint in ['history', 'batch_detail'] %}is-active{% endif %}"
-               href="{{ url_for('history') }}"
-               {% if endpoint in ['history', 'batch_detail'] %}aria-current="page"{% endif %}>
-                <i class="bi bi-clock-history icon" aria-hidden="true"></i> Historial
+            <a class="nav-item {% if endpoint in ['tareas', 'task_view'] %}is-active{% endif %}"
+               href="{{ url_for('tareas') }}"
+               {% if endpoint in ['tareas', 'task_view'] %}aria-current="page"{% endif %}>
+                <i class="bi bi-list-task icon" aria-hidden="true"></i> Tareas
             </a>
-            {% if current_user.has_role('admin', 'operator') %}
-            <a class="nav-item {% if endpoint in ['mis_solicitudes', 'ejecutar_aprobacion'] %}is-active{% endif %}"
-               href="{{ url_for('mis_solicitudes') }}"
-               {% if endpoint in ['mis_solicitudes', 'ejecutar_aprobacion'] %}aria-current="page"{% endif %}>
-                <i class="bi bi-clipboard-check icon" aria-hidden="true"></i> Mis solicitudes
-            </a>
-            {% endif %}
-            {% if ui_config_panel %}
-            {% set config_endpoints = ['inventario', 'programaciones', 'aprobaciones',
-                                       'passwords', 'usuarios', 'modulos', 'configuracion'] %}
-            <div class="nav-label">Configuración</div>
-            <a class="nav-item {% if endpoint in config_endpoints %}is-active{% endif %}"
-               href="{{ url_for('configuracion') }}"
-               {% if endpoint in config_endpoints %}aria-current="page"{% endif %}>
-                <i class="bi bi-sliders icon" aria-hidden="true"></i> Configuración
-            </a>
-            <div class="nav-label">Seguridad</div>
-            {% if current_user.has_role('admin') %}
-            <a class="nav-item {% if endpoint == 'audit' %}is-active{% endif %}"
-               href="{{ url_for('audit') }}"
-               {% if endpoint == 'audit' %}aria-current="page"{% endif %}>
-                <i class="bi bi-shield-check icon" aria-hidden="true"></i> Auditoría
-            </a>
-            {% endif %}
-            <div class="nav-label">Sistema</div>
-            {% if current_user.has_role('admin') %}
-            <a class="nav-item {% if endpoint == 'metricas' %}is-active{% endif %}"
-               href="{{ url_for('metricas') }}"
-               {% if endpoint == 'metricas' %}aria-current="page"{% endif %}>
-                <i class="bi bi-speedometer2 icon" aria-hidden="true"></i> Rendimiento
-            </a>
-            {% endif %}
-            <a class="nav-item {% if endpoint == 'acerca_de' %}is-active{% endif %}"
-               href="{{ url_for('acerca_de') }}"
-               {% if endpoint == 'acerca_de' %}aria-current="page"{% endif %}>
-                <i class="bi bi-info-circle icon" aria-hidden="true"></i> Acerca de
-            </a>
-            {% else %}
-            <a class="nav-item {% if endpoint == 'passwords' %}is-active{% endif %}"
-               href="{{ url_for('passwords') }}"
-               {% if endpoint == 'passwords' %}aria-current="page"{% endif %}>
-                <i class="bi bi-key icon" aria-hidden="true"></i> Credenciales
+            <a class="nav-item {% if endpoint in ['ejecuciones', 'progress_page', 'progress_sse'] %}is-active{% endif %}"
+               href="{{ url_for('ejecuciones') }}"
+               {% if endpoint in ['ejecuciones', 'progress_page', 'progress_sse'] %}aria-current="page"{% endif %}>
+                <i class="bi bi-clock-history icon" aria-hidden="true"></i> Ejecuciones
             </a>
             <a class="nav-item {% if endpoint == 'inventario' %}is-active{% endif %}"
                href="{{ url_for('inventario') }}"
                {% if endpoint == 'inventario' %}aria-current="page"{% endif %}>
                 <i class="bi bi-hdd-rack icon" aria-hidden="true"></i> Inventario
             </a>
-            <a class="nav-item {% if endpoint == 'programaciones' %}is-active{% endif %}"
+            <a class="nav-item {% if endpoint in ['programaciones', 'schedule_edit', 'programacion_nueva'] %}is-active{% endif %}"
                href="{{ url_for('programaciones') }}"
-               {% if endpoint == 'programaciones' %}aria-current="page"{% endif %}>
+               {% if endpoint in ['programaciones', 'schedule_edit', 'programacion_nueva'] %}aria-current="page"{% endif %}>
                 <i class="bi bi-calendar2-week icon" aria-hidden="true"></i> Programaciones
             </a>
-            {% if current_user.has_role('admin') %}
-            <a class="nav-item {% if endpoint == 'aprobaciones' %}is-active{% endif %}"
-               href="{{ url_for('aprobaciones') }}"
-               {% if endpoint == 'aprobaciones' %}aria-current="page"{% endif %}>
-                <i class="bi bi-clipboard2-check icon" aria-hidden="true"></i> Aprobaciones
+
+            <div class="nav-label">Seguridad</div>
+            {% if current_user.has_role('admin', 'operator') %}
+            <a class="nav-item {% if endpoint in ['solicitudes', 'ejecutar_aprobacion'] %}is-active{% endif %}"
+               href="{{ url_for('solicitudes') }}"
+               {% if endpoint in ['solicitudes', 'ejecutar_aprobacion'] %}aria-current="page"{% endif %}>
+                <i class="bi bi-inbox icon" aria-hidden="true"></i> Solicitudes
+                {% if pending_approvals %}<span class="badge-count is-warn">{{ pending_approvals }}</span>{% endif %}
             </a>
             {% endif %}
+            <a class="nav-item {% if endpoint in ['credenciales', 'passwords'] %}is-active{% endif %}"
+               href="{{ url_for('credenciales') }}"
+               {% if endpoint in ['credenciales', 'passwords'] %}aria-current="page"{% endif %}>
+                <i class="bi bi-key icon" aria-hidden="true"></i> Credenciales
+            </a>
+
             {% if current_user.has_role('admin') %}
+            <div class="nav-label">Administración</div>
             <a class="nav-item {% if endpoint == 'usuarios' %}is-active{% endif %}"
                href="{{ url_for('usuarios') }}"
                {% if endpoint == 'usuarios' %}aria-current="page"{% endif %}>
                 <i class="bi bi-people icon" aria-hidden="true"></i> Usuarios
             </a>
-            {% endif %}
-            {% if current_user.has_role('admin') %}
-            <div class="nav-label">Seguridad</div>
-            <a class="nav-item {% if endpoint == 'audit' %}is-active{% endif %}"
-               href="{{ url_for('audit') }}"
-               {% if endpoint == 'audit' %}aria-current="page"{% endif %}>
-                <i class="bi bi-shield-check icon" aria-hidden="true"></i> Auditoría
-            </a>
-            <a class="nav-item {% if endpoint == 'metricas' %}is-active{% endif %}"
-               href="{{ url_for('metricas') }}"
-               {% if endpoint == 'metricas' %}aria-current="page"{% endif %}>
-                <i class="bi bi-speedometer2 icon" aria-hidden="true"></i> Rendimiento
-            </a>
-            {% endif %}
-            <div class="nav-label">Sistema</div>
-            <a class="nav-item {% if endpoint == 'acerca_de' %}is-active{% endif %}"
-               href="{{ url_for('acerca_de') }}"
-               {% if endpoint == 'acerca_de' %}aria-current="page"{% endif %}>
-                <i class="bi bi-info-circle icon" aria-hidden="true"></i> Acerca de
+            <a class="nav-item {% if endpoint in ['sistema', 'audit', 'metricas', 'configuracion', 'acerca_de'] %}is-active{% endif %}"
+               href="{{ url_for('sistema') }}"
+               {% if endpoint in ['sistema', 'audit', 'metricas', 'configuracion', 'acerca_de'] %}aria-current="page"{% endif %}>
+                <i class="bi bi-sliders2 icon" aria-hidden="true"></i> Sistema
             </a>
             {% endif %}
         </nav>
@@ -153,24 +113,6 @@
                     {% endif %}
                 </span>
             </div>
-
-            <div class="user-card">
-                <div class="avatar" aria-hidden="true">{{ current_user.username[:2] | upper }}</div>
-                <div class="user-meta">
-                    <strong>{{ current_user.username }}</strong>
-                    <span>
-                        {% if current_user.role == 'admin' %}Administrador
-                        {% elif current_user.role == 'operator' %}Operador
-                        {% else %}Consulta{% endif %}
-                    </span>
-                </div>
-                <form method="post" action="{{ url_for('logout') }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="icon-btn" title="Cerrar sesión" aria-label="Cerrar sesión">
-                        <i class="bi bi-box-arrow-right" aria-hidden="true"></i>
-                    </button>
-                </form>
-            </div>
         </div>
     </aside>
 
@@ -186,6 +128,13 @@
                 <strong>{% block breadcrumb %}{{ self.title() }}{% endblock %}</strong>
             </div>
             <div class="topbar-actions">
+                <button class="search-trigger" id="searchTrigger" type="button"
+                        aria-label="Buscar o ejecutar un comando"
+                        aria-haspopup="dialog" aria-controls="commandPalette">
+                    <i class="bi bi-search icon-sm" aria-hidden="true"></i>
+                    <span>Buscar o ejecutar…</span>
+                    <kbd>⌘K</kbd>
+                </button>
                 {% if current_user.has_role('admin') %}
                 <form class="mode-switch-form{% if not dry_run %} is-live{% endif %}" id="dryRunForm" method="post"
                       action="{{ url_for('update_dry_run') }}">
@@ -210,7 +159,7 @@
                     </label>
                 </form>
                 {% else %}
-                <span class="badge {{ 'bg-warning' if dry_run else 'bg-success' }}"
+                <span class="badge {{ 'bg-warning' if dry_run else 'bg-success' }} hide-sm"
                       title="Solo un administrador puede cambiar este modo">
                     {% if dry_run %}
                     <i class="bi bi-exclamation-triangle" aria-hidden="true"></i> Simulación
@@ -224,6 +173,47 @@
                         aria-label="Cambiar tema" title="Cambiar tema">
                     <i class="bi bi-moon-stars" id="themeIcon" aria-hidden="true"></i>
                 </button>
+                <div class="user-menu" id="userMenu">
+                    <button class="user-avatar" id="userMenuBtn" type="button"
+                            aria-haspopup="true" aria-expanded="false"
+                            aria-controls="userMenuPanel"
+                            title="{{ current_user.username }}">
+                        {{ current_user.username[:2] | upper }}
+                    </button>
+                    <div class="user-menu-panel" id="userMenuPanel" hidden>
+                        <div class="user-menu-head">
+                            <span class="user-avatar is-static" aria-hidden="true">
+                                {{ current_user.username[:2] | upper }}
+                            </span>
+                            <div class="user-menu-meta">
+                                <strong>{{ current_user.username }}</strong>
+                                <span>
+                                    {% if current_user.role == 'admin' %}Administrador
+                                    {% elif current_user.role == 'operator' %}Operador
+                                    {% else %}Consulta{% endif %}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="user-menu-links">
+                            <a href="{{ url_for('cuenta') }}">
+                                <i class="bi bi-person" aria-hidden="true"></i>
+                                Mi cuenta
+                            </a>
+                            <a href="{{ url_for('cuenta') }}#preferencias">
+                                <i class="bi bi-sliders" aria-hidden="true"></i>
+                                Preferencias
+                            </a>
+                        </div>
+                        <form method="post" action="{{ url_for('logout') }}"
+                              class="user-menu-logout">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="user-menu-btn">
+                                <i class="bi bi-box-arrow-right" aria-hidden="true"></i>
+                                Cerrar sesión
+                            </button>
+                        </form>
+                    </div>
+                </div>
             </div>
         </header>
 
@@ -264,6 +254,78 @@
 </div>
 
 <div class="overlay" id="sidebarOverlay" aria-hidden="true"></div>
+
+{% if current_user.has_role('admin', 'operator') %}
+<div class="palette" id="commandPalette" hidden>
+    <div class="palette-dialog" role="dialog" aria-modal="true" aria-label="Buscar o ejecutar">
+        <div class="palette-input">
+            <i class="bi bi-search" aria-hidden="true"></i>
+            <input id="paletteInput" type="text" autocomplete="off"
+                   placeholder="Buscar páginas, tareas o comandos…">
+            <kbd>Esc</kbd>
+        </div>
+        <ul class="palette-list" id="paletteList">
+            <li class="palette-group">Ir a</li>
+            <li class="palette-item" data-href="{{ url_for('panel') }}">
+                <i class="bi bi-grid" aria-hidden="true"></i> Panel <span class="hint">Inicio</span>
+            </li>
+            <li class="palette-item" data-href="{{ url_for('tareas') }}">
+                <i class="bi bi-list-task" aria-hidden="true"></i> Tareas <span class="hint">Catálogo</span>
+            </li>
+            <li class="palette-item" data-href="{{ url_for('ejecuciones') }}">
+                <i class="bi bi-clock-history" aria-hidden="true"></i> Ejecuciones <span class="hint">En curso e historial</span>
+            </li>
+            <li class="palette-item" data-href="{{ url_for('inventario') }}">
+                <i class="bi bi-hdd-rack" aria-hidden="true"></i> Inventario
+            </li>
+            <li class="palette-item" data-href="{{ url_for('programaciones') }}">
+                <i class="bi bi-calendar2-week" aria-hidden="true"></i> Programaciones
+            </li>
+            <li class="palette-item" data-href="{{ url_for('solicitudes') }}">
+                <i class="bi bi-inbox" aria-hidden="true"></i> Solicitudes
+            </li>
+            <li class="palette-item" data-href="{{ url_for('credenciales') }}">
+                <i class="bi bi-key" aria-hidden="true"></i> Credenciales
+            </li>
+            {% if current_user.has_role('admin') %}
+            <li class="palette-item" data-href="{{ url_for('usuarios') }}">
+                <i class="bi bi-people" aria-hidden="true"></i> Usuarios
+            </li>
+            <li class="palette-item" data-href="{{ url_for('sistema') }}">
+                <i class="bi bi-sliders2" aria-hidden="true"></i> Sistema <span class="hint">Auditoría y ajustes</span>
+            </li>
+            {% endif %}
+            <li class="palette-group">Tareas</li>
+            {% for task in palette_tasks %}
+            <li class="palette-item" data-href="{{ url_for('task_view', task_id=task.id) }}">
+                <i class="bi {{ task.icon }}" aria-hidden="true"></i> {{ task.name }}
+                <span class="hint">Abrir</span>
+            </li>
+            {% endfor %}
+            <li class="palette-group">Crear</li>
+            <li class="palette-item" data-href="{{ url_for('tareas') }}">
+                <i class="bi bi-play" aria-hidden="true"></i> Nueva ejecución <span class="hint">Tareas</span>
+            </li>
+            {% if current_user.has_role('admin') %}
+            <li class="palette-item" data-href="{{ url_for('programacion_nueva') }}">
+                <i class="bi bi-plus-lg" aria-hidden="true"></i> Nueva programación
+            </li>
+            {% endif %}
+            <li class="palette-item" data-href="{{ url_for('inventario') }}">
+                <i class="bi bi-plus-lg" aria-hidden="true"></i> Nuevo grupo de hosts
+            </li>
+            {% if current_user.has_role('admin') %}
+            <li class="palette-item" data-href="{{ url_for('credenciales') }}">
+                <i class="bi bi-plus-lg" aria-hidden="true"></i> Añadir credencial
+            </li>
+            {% endif %}
+        </ul>
+        <div class="palette-foot">
+            <span>↑ ↓ navegar</span><span>↵ abrir</span><span>Esc cerrar</span>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% else %}
     </main>
 </div>
@@ -378,6 +440,34 @@
         });
     }
 
+    // Menú del usuario: se abre con el avatar y se cierra al pulsar fuera.
+    const userMenu = document.getElementById('userMenu');
+    const userMenuBtn = document.getElementById('userMenuBtn');
+    const userMenuPanel = document.getElementById('userMenuPanel');
+
+    function setUserMenu(open) {
+        if (!userMenu || !userMenuBtn || !userMenuPanel) return;
+        userMenuPanel.hidden = !open;
+        userMenuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        userMenu.classList.toggle('is-open', open);
+    }
+
+    if (userMenu && userMenuBtn && userMenuPanel) {
+        userMenuBtn.addEventListener('click', function (event) {
+            event.stopPropagation();
+            setUserMenu(userMenuPanel.hidden);
+        });
+        document.addEventListener('click', function (event) {
+            if (!userMenu.contains(event.target)) setUserMenu(false);
+        });
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') {
+                setUserMenu(false);
+                userMenuBtn.focus();
+            }
+        });
+    }
+
     const menuBtn = document.getElementById('menuBtn');
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('sidebarOverlay');
@@ -400,6 +490,120 @@
         sidebar.querySelectorAll('a').forEach(function (link) {
             link.addEventListener('click', function () { setMenu(false); });
         });
+    }
+
+    // Paleta de comandos: ⌘K / Ctrl+K abre, filtra y navega sin ratón.
+    const palette = document.getElementById('commandPalette');
+    const paletteInput = document.getElementById('paletteInput');
+    const paletteList = document.getElementById('paletteList');
+    const searchTrigger = document.getElementById('searchTrigger');
+
+    if (palette && paletteInput && paletteList) {
+        const items = Array.prototype.slice.call(
+            paletteList.querySelectorAll('.palette-item')
+        );
+        let selected = 0;
+
+        function visibleItems() {
+            return items.filter(function (item) { return !item.hidden; });
+        }
+
+        function paintSelection() {
+            const visible = visibleItems();
+            items.forEach(function (item) { item.classList.remove('is-selected'); });
+            if (!visible.length) return;
+            if (selected < 0) selected = 0;
+            if (selected >= visible.length) selected = visible.length - 1;
+            visible[selected].classList.add('is-selected');
+            if (visible[selected].scrollIntoView) {
+                visible[selected].scrollIntoView({ block: 'nearest' });
+            }
+        }
+
+        function filterPalette() {
+            const query = (paletteInput.value || '').trim().toLowerCase();
+            items.forEach(function (item) {
+                const haystack = item.textContent.toLowerCase();
+                item.hidden = query !== '' && haystack.indexOf(query) === -1;
+            });
+            paletteList.querySelectorAll('.palette-group').forEach(function (group) {
+                let next = group.nextElementSibling;
+                let hasVisible = false;
+                while (next && !next.classList.contains('palette-group')) {
+                    if (next.classList.contains('palette-item') && !next.hidden) {
+                        hasVisible = true;
+                    }
+                    next = next.nextElementSibling;
+                }
+                group.hidden = !hasVisible;
+            });
+            selected = 0;
+            paintSelection();
+        }
+
+        function openPalette() {
+            palette.hidden = false;
+            paletteInput.value = '';
+            filterPalette();
+            paletteInput.focus();
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closePalette() {
+            if (palette.hidden) return;
+            palette.hidden = true;
+            document.body.style.overflow = '';
+        }
+
+        function runItem(item) {
+            if (!item) return;
+            const href = item.getAttribute('data-href');
+            closePalette();
+            if (href) window.location.href = href;
+        }
+
+        if (searchTrigger) searchTrigger.addEventListener('click', openPalette);
+        paletteInput.addEventListener('input', filterPalette);
+        paletteList.addEventListener('mousemove', function (event) {
+            const item = event.target.closest('.palette-item');
+            if (!item || item.hidden) return;
+            selected = visibleItems().indexOf(item);
+            paintSelection();
+        });
+        paletteList.addEventListener('click', function (event) {
+            const item = event.target.closest('.palette-item');
+            if (item) runItem(item);
+        });
+        palette.addEventListener('click', function (event) {
+            if (event.target === palette) closePalette();
+        });
+        document.addEventListener('keydown', function (event) {
+            const isMac = navigator.platform && /Mac/i.test(navigator.platform);
+            const combo = (isMac ? event.metaKey : event.ctrlKey)
+                && event.key.toLowerCase() === 'k';
+            if (combo) {
+                event.preventDefault();
+                if (palette.hidden) openPalette(); else closePalette();
+                return;
+            }
+            if (palette.hidden) return;
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                closePalette();
+            } else if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                selected += 1;
+                paintSelection();
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                selected -= 1;
+                paintSelection();
+            } else if (event.key === 'Enter') {
+                event.preventDefault();
+                runItem(visibleItems()[selected]);
+            }
+        });
+        paintSelection();
     }
 
     // Interruptor de simulación: solo se envía al servidor al cambiarlo.

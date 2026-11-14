@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 
-{% block title %}Gestión de Contraseñas{% endblock %}
+{% block title %}Credenciales{% endblock %}
+
+{% block breadcrumb %}Seguridad / Credenciales{% endblock %}
 
 {% block content %}
-{% include "_config_tabs.html" %}
 <div class="page-head">
     <div>
         <div class="eyebrow">Credenciales</div>
@@ -96,7 +97,7 @@
             <h2 class="card-title"><i class="bi bi-upload" aria-hidden="true"></i> Importar archivo</h2>
         </div>
         <div class="card-body">
-            <form method="POST" action="{{ url_for('passwords') }}" enctype="multipart/form-data">
+            <form method="POST" action="{{ url_for('credenciales') }}" enctype="multipart/form-data">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="action" value="load_file">
                 <div class="mb-3">
@@ -187,6 +188,7 @@
 
 <script nonce="{{ csp_nonce }}">
 const CSRF_TOKEN = {{ csrf_token() | tojson }};
+const CREDENTIALS_URL = {{ url_for('credenciales') | tojson }};
 
 function deletePassword(id) {
     if (!confirm('¿Estás seguro de eliminar esta contraseña del vault?')) {
@@ -196,7 +198,7 @@ function deletePassword(id) {
     if (masterPassword === null) {
         return;
     }
-    fetch('/passwords', {
+    fetch(CREDENTIALS_URL, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
@@ -246,7 +248,7 @@ function savePasswords(btn) {
     btn.textContent = 'Cifrando...';
     showModalStatus('Cifrando y guardando en el vault…', false);
 
-    fetch('/passwords', {
+    fetch(CREDENTIALS_URL, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',

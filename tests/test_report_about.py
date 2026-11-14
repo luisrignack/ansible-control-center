@@ -327,7 +327,7 @@ def test_task_view_has_download_report_button(client):
 # ---------------------------------------------------------------------------
 def test_about_page_content(client):
     _login(client)
-    response = client.get("/acerca-de")
+    response = client.get("/sistema", query_string={"tab": "acerca-de"})
     assert response.status_code == 200
     body = response.get_data(as_text=True)
     assert "Grupo de Migración a Código Abierto / DCTI - ETECSA" in body
@@ -362,19 +362,21 @@ def test_brand_logos_in_login_sidebar_and_about(client):
     assert "img/logo-negro.png" in login_body
 
     _login(client)
-    sidebar_body = client.get("/").get_data(as_text=True)
+    sidebar_body = client.get("/tareas").get_data(as_text=True)
     assert "img/logo-azul.png" in sidebar_body
     assert "img/logo-negro.png" in sidebar_body
 
-    about_body = client.get("/acerca-de").get_data(as_text=True)
+    about_body = client.get("/sistema", query_string={"tab": "acerca-de"}).get_data(as_text=True)
     assert "img/logo-azul.png" in about_body
     assert "img/logo-negro.png" in about_body
 
 
-def test_about_link_in_sidebar(client):
+def test_about_reachable_from_system_section(client):
     _login(client)
-    response = client.get("/")
-    assert "acerca-de" in response.get_data(as_text=True)
+    response = client.get("/tareas")
+    body = response.get_data(as_text=True)
+    assert "/sistema" in body
+    assert "Sistema" in body
 
 
 def test_about_requires_login(client):
@@ -398,7 +400,7 @@ def test_favicon_static_served(client):
 
 def test_favicon_linked_in_base_template(client):
     _login(client)
-    response = client.get("/acerca-de")
+    response = client.get("/sistema", query_string={"tab": "acerca-de"})
     body = response.get_data(as_text=True)
     assert "img/favicon-etecsa-48.png" in body
     assert 'rel="icon"' in body

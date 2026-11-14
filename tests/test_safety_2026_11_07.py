@@ -434,7 +434,7 @@ def test_schedule_creation_rejects_outside_window(client, db_path):
 
     response = _post(
         client,
-        "/",
+        "/tareas",
         {
             "mode": "schedule",
             "schedule_intent": "schedule",

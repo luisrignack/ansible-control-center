@@ -211,11 +211,11 @@ def test_form_without_marker_is_rejected(client):
 
 def test_switch_visible_only_for_admins(client):
     _login(client, "admin", "admin-password-123")
-    admin_page = client.get("/").get_data(as_text=True)
+    admin_page = client.get("/tareas").get_data(as_text=True)
     assert 'id="dryRunToggle"' in admin_page
     assert 'role="switch"' in admin_page
 
     _logout(client)
     _login(client, "operator", "operator-password-123")
-    operator_page = client.get("/").get_data(as_text=True)
+    operator_page = client.get("/tareas").get_data(as_text=True)
     assert 'id="dryRunToggle"' not in operator_page

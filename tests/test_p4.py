@@ -76,7 +76,7 @@ def _start_execution(client, mode: str, **overrides):
         ),
     }
     data.update(overrides)
-    response = _post(client, "/", data=data, content_type="multipart/form-data")
+    response = _post(client, "/tareas", data=data, content_type="multipart/form-data")
     assert response.status_code == 302, response.data
     task_id = response.headers["Location"].rstrip("/").split("/")[-1]
     return task_id
@@ -243,7 +243,7 @@ def test_execution_processes_all_hosts_and_retries_passwords(client, monkeypatch
         ]
     )
 
-    history = client.get("/history")
+    history = client.get("/ejecuciones", query_string={"tab": "historial"})
     assert history.status_code == 200
     assert b"10.0.0.0/24" in history.data
     assert b"partial" in history.data

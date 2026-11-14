@@ -67,7 +67,7 @@ def _login(client):
 
 def test_acerca_de_muestra_la_version(client):
     _login(client)
-    response = client.get("/acerca-de")
+    response = client.get("/sistema", query_string={"tab": "acerca-de"})
     assert response.status_code == 200
     body = response.get_data(as_text=True)
     assert "Versión" in body

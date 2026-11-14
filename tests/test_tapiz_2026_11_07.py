@@ -169,7 +169,7 @@ def test_tapiz_form_stores_image_and_enqueues_wallpaper(client, monkeypatch):
 
     response = _post(
         client,
-        "/",
+        "/tareas",
         {
             "operation_id": "op-tapiz-valida",
             "task": "tapiz",
@@ -204,7 +204,7 @@ def test_tapiz_form_rejects_non_image(client):
     _login(client)
     response = _post(
         client,
-        "/",
+        "/tareas",
         {
             "operation_id": "op-tapiz-invalida",
             "task": "tapiz",

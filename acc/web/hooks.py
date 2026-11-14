@@ -8,6 +8,7 @@ import secrets
 import time
 
 from flask import g, request
+from flask_login import current_user
 
 from acc import runtime
 from acc.runtime import (
@@ -28,6 +29,11 @@ from models.batch import (
     HOST_RESULT_LABELS,
     STATUS_LABELS,
 )
+from models.ops import (
+    APPROVAL_PENDING,
+    ApprovalRequest,
+)
+from services import task_catalog
 from services.csrf import (
     csrf_protect,
     generate_csrf_token,
@@ -78,6 +84,34 @@ def _security_before_request():
 
 @app.context_processor
 def _security_context():
+    pending_approvals = 0
+    if current_user.is_authenticated and current_user.has_role("admin", "operator"):
+        try:
+            db_path = runtime.get_db_path()
+            if current_user.has_role("admin"):
+                pending_approvals = len(
+                    ApprovalRequest.list_status(
+                        APPROVAL_PENDING, limit=50, db_path=db_path
+                    )
+                )
+            else:
+                pending_approvals = sum(
+                    1
+                    for item in ApprovalRequest.list_for_requester(
+                        current_user.username, limit=50, db_path=db_path
+                    )
+                    if item.status == APPROVAL_PENDING
+                )
+        except Exception:  # noqa: BLE001 - contexto nunca debe romper
+            pending_approvals = 0
+    palette_tasks = [
+        {
+            "id": task["id"],
+            "name": task["name"],
+            "icon": task.get("icon", "bi-lightning-charge"),
+        }
+        for task in task_catalog.TASK_CATALOG
+    ]
     return {
         "csrf_token": generate_csrf_token,
         "csp_nonce": getattr(g, "csp_nonce", ""),
@@ -87,6 +121,8 @@ def _security_context():
         "status_labels": STATUS_LABELS,
         "host_result_labels": HOST_RESULT_LABELS,
         "ui_config_panel": runtime.UI_CONFIG_PANEL,
+        "pending_approvals": pending_approvals,
+        "palette_tasks": palette_tasks,
     }
 
 

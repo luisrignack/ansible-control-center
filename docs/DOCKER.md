@@ -336,13 +336,13 @@ etiqueta cada release así:
 
 | Tag | Uso |
 |---|---|
-| `ansible-control-center:0.9.4` | Versión exacta; la usa el paquete offline |
+| `ansible-control-center:0.9.5` | Versión exacta; la usa el paquete offline |
 | `ansible-control-center:0.9` | Alias de la minor |
 | `ansible-control-center:latest` | Alias de consulta; no usar para desplegar |
 | `ansible-control-center:sha-<commit>` | Trazabilidad al commit exacto |
 
 El `Dockerfile` recibe `APP_VERSION` y `APP_COMMIT` como build args y los
-guarda en labels OCI. `ACC_BUILD_COMMIT` queda disponible para `/acerca-de`.
+guarda en labels OCI. `ACC_BUILD_COMMIT` queda disponible para `/sistema?tab=acerca-de`.
 El paquete offline fija `ACC_IMAGE_TAG` a la versión exacta en
 `.env.docker.example`; no lo cambies por `latest` en producción.
 

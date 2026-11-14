@@ -192,7 +192,7 @@ def test_execution_with_inventory_group(operator_client, monkeypatch):
 
     response = _post(
         client,
-        "/",
+        "/tareas",
         data={
             "target_mode": "group",
             "target_group": group.id,
@@ -226,7 +226,7 @@ def test_execution_with_empty_inventory_group_fails(operator_client, client):
     group = HostGroup.create("Vacío", db_path=db_path)
     response = _post(
         operator_client,
-        "/",
+        "/tareas",
         data={
             "target_mode": "group",
             "target_group": group.id,
@@ -369,7 +369,7 @@ def test_schedule_next_run_after_long_downtime_is_in_the_future(client):
 def test_deactivated_user_session_is_rejected(client):
     """Desactivar una cuenta invalida su sesión en la siguiente petición."""
     _login(client)
-    assert client.get("/").status_code == 200
+    assert client.get("/tareas").status_code == 200
 
     User.set_active("admin", False, db_path=runtime.get_db_path())
 
@@ -713,7 +713,7 @@ def test_group_ssh_key_used_in_execution(operator_client, monkeypatch, tmp_path)
 
     response = _post(
         client,
-        "/",
+        "/tareas",
         data={
             "target_mode": "group",
             "target_group": group.id,
@@ -757,7 +757,7 @@ def test_schedule_create_uses_task_form_and_forces_fixed_value(client):
     _login(client)
     response = _post(
         client,
-        "/",
+        "/tareas",
         _task_schedule_payload(schedule_name="ventana", value="Europe/Madrid"),
         follow_redirects=True,
     )
@@ -772,7 +772,7 @@ def test_schedule_create_rejects_action_not_allowed_by_task(client):
     _login(client)
     response = _post(
         client,
-        "/",
+        "/tareas",
         _task_schedule_payload(action="TIME", value="2026-12-01T10:00"),
         follow_redirects=True,
     )
@@ -800,7 +800,7 @@ def test_schedule_create_rejects_unknown_timezone(client, monkeypatch):
     )
     response = _post(
         client,
-        "/",
+        "/tareas",
         _task_schedule_payload(task="tz-libre", value="America/Atlantida"),
         follow_redirects=True,
     )
@@ -839,7 +839,7 @@ def test_schedule_can_be_created_from_task_form(client):
 
     response = _post(
         client,
-        "/",
+        "/tareas",
         _task_schedule_payload(
             target_mode="group",
             target_group=str(group.id),
@@ -868,7 +868,7 @@ def test_schedule_from_task_form_requires_admin(client):
     )
     _login(client, "operador", "operador-clave-456")
 
-    response = _post(client, "/", _task_schedule_payload())
+    response = _post(client, "/tareas", _task_schedule_payload())
 
     assert response.status_code == 403
     assert Schedule.all(db_path=runtime.get_db_path()) == []
@@ -879,7 +879,7 @@ def test_schedule_from_task_form_rejects_temporary_passwords(client):
 
     response = _post(
         client,
-        "/",
+        "/tareas",
         _task_schedule_payload(password_origin="temporal"),
         follow_redirects=True,
     )
@@ -893,7 +893,7 @@ def test_schedule_create_password_encrypts_new_secret(client):
 
     response = _post(
         client,
-        "/",
+        "/tareas",
         _task_schedule_payload(
             task="contrasena",
             schedule_name="rotación",
@@ -925,7 +925,7 @@ def test_schedule_create_firewall_stores_normalized_operation(client):
 
     response = _post(
         client,
-        "/",
+        "/tareas",
         _task_schedule_payload(
             task="firewall",
             schedule_name="regla de red",
@@ -949,7 +949,7 @@ def test_schedule_create_firewall_rejects_open_network(client):
 
     response = _post(
         client,
-        "/",
+        "/tareas",
         _task_schedule_payload(
             task="firewall",
             action="FIREWALL",
@@ -976,7 +976,7 @@ def test_schedule_create_tapiz_persists_private_image(client, monkeypatch, tmp_p
 
     response = _post(
         client,
-        "/",
+        "/tareas",
         payload,
         content_type="multipart/form-data",
         follow_redirects=True,
@@ -1256,7 +1256,7 @@ def test_schedules_page_filters_by_group_and_has_no_create_form(client):
     assert "de sucursal" in body
     assert "de otra sede" not in body
     assert "Programaciones por ejecutar" in body
-    assert "Nueva programación" not in body
+    assert 'href="/programaciones/nueva"' in body
     assert "Crear programación" not in body
     assert f"/programaciones/{first.id}/editar" in body
 
@@ -1517,7 +1517,7 @@ def test_manual_execution_forces_task_fixed_value(client, monkeypatch):
 
     response = _post(
         client,
-        "/",
+        "/tareas",
         data={
             "task": "zona-todas",
             "target_ip": "10.42.0.60",

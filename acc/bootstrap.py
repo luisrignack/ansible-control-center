@@ -190,6 +190,7 @@ _WEB_MODULES = (
     "acc.web.approvals",
     "acc.web.passwords",
     "acc.web.admin",
+    "acc.web.system",
     "acc.web.errors",
 )
 

@@ -1,25 +1,4 @@
-{% extends "base.html" %}
-
-{% block title %}Métricas de rendimiento{% endblock %}
-
-{% block content %}
-<div class="page-head">
-    <div>
-        <div class="eyebrow">Sistema</div>
-        <h1>Métricas de rendimiento</h1>
-        <p class="sub">
-            Latencia reciente por ruta (ventana de {{ window }} muestras por endpoint).
-            No se persiste: se reinicia con el proceso.
-        </p>
-    </div>
-    <div class="head-actions">
-        <a href="{{ url_for('api_metricas') }}" class="btn btn-secondary">
-            <i class="bi bi-braces" aria-hidden="true"></i> Ver JSON
-        </a>
-    </div>
-</div>
-
-<div class="stat-grid mb-3">
+<div class="stat-grid mb-3 fade-in">
     <div class="stat">
         <div class="stat-value">{{ summary.endpoints }}</div>
         <div class="stat-label">Rutas medidas</div>
@@ -40,7 +19,7 @@
     </div>
 </div>
 
-<div class="stat-grid mb-3">
+<div class="stat-grid mb-3 fade-in">
     <div class="stat">
         <div class="stat-value">{{ queue.depth }}</div>
         <div class="stat-label">Trabajos en cola</div>
@@ -59,10 +38,12 @@
     </div>
 </div>
 
-<div class="card fade-in">
+<section class="card fade-in" aria-labelledby="perf-title">
     <div class="card-header">
-        <h2 class="card-title"><i class="bi bi-speedometer2" aria-hidden="true"></i> Latencia por ruta</h2>
-        <span class="badge badge-accent">Umbral de aviso: {{ slow_request_ms }} ms</span>
+        <h2 class="card-title" id="perf-title">
+            <i class="bi bi-speedometer2" aria-hidden="true"></i> Latencia por ruta
+        </h2>
+        <span class="badge badge-accent">Ventana de {{ window }} · aviso {{ slow_request_ms }} ms</span>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive p-3">
@@ -79,40 +60,38 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% if rows %}
-                        {% for name, data in rows %}
-                        <tr>
-                            <td><code>{{ name }}</code></td>
-                            <td class="text-end">{{ data.count }}</td>
-                            <td class="text-end">
-                                {% if data.errors %}
-                                    <span class="badge bg-danger">{{ data.errors }}</span>
-                                {% else %}
-                                    0
-                                {% endif %}
-                            </td>
-                            <td class="text-end">{{ data.avg_ms }} ms</td>
-                            <td class="text-end">{{ data.p50_ms }} ms</td>
-                            <td class="text-end">
-                                <strong {% if data.p95_ms >= slow_request_ms %}class="text-warning"{% endif %}>{{ data.p95_ms }} ms</strong>
-                            </td>
-                            <td class="text-end">{{ data.max_ms }} ms</td>
-                        </tr>
-                        {% endfor %}
+                    {% for name, data in rows %}
+                    <tr>
+                        <td><code>{{ name }}</code></td>
+                        <td class="text-end">{{ data.count }}</td>
+                        <td class="text-end">
+                            {% if data.errors %}
+                                <span class="badge bg-danger">{{ data.errors }}</span>
+                            {% else %}
+                                0
+                            {% endif %}
+                        </td>
+                        <td class="text-end">{{ data.avg_ms }} ms</td>
+                        <td class="text-end">{{ data.p50_ms }} ms</td>
+                        <td class="text-end">
+                            <strong {% if data.p95_ms >= slow_request_ms %}class="text-warning"{% endif %}>{{ data.p95_ms }} ms</strong>
+                        </td>
+                        <td class="text-end">{{ data.max_ms }} ms</td>
+                    </tr>
                     {% else %}
                     <tr>
                         <td colspan="7" class="text-center py-4">
-                            <small class="text-secondary">Todavía no hay muestras. Navega por la aplicación y vuelve a esta página.</small>
+                            <small class="text-secondary">Todavía no hay muestras. Navega por la aplicación y vuelve a esta pestaña.</small>
                         </td>
                     </tr>
-                    {% endif %}
+                    {% endfor %}
                 </tbody>
             </table>
         </div>
     </div>
     <div class="card-footer small text-secondary">
-        Los SLO de referencia están en <code>docs/RENDIMIENTO.md</code>. La latencia por lote
-        (p50/p95 por host) se conserva en SQLite y aparece en el detalle de cada lote.
+        Las métricas no se persisten: se reinician con el proceso. Los SLO de
+        referencia están en <code>docs/RENDIMIENTO.md</code> y la latencia por
+        lote se conserva en SQLite.
     </div>
-</div>
-{% endblock %}
+</section>

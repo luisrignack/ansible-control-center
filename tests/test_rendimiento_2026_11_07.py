@@ -194,18 +194,18 @@ def test_metrics_endpoints_require_admin(client):
     assert response.status_code == 302
 
     assert _login(client).status_code == 302
-    client.get("/")
+    client.get("/tareas")
     response = client.get("/api/metricas")
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["window"] >= 50
-    assert "index" in payload["endpoints"]
-    assert payload["endpoints"]["index"]["count"] >= 1
+    assert "tareas" in payload["endpoints"]
+    assert payload["endpoints"]["tareas"]["count"] >= 1
     assert payload["queue"]["workers"] >= 1
     assert "depth" in payload["queue"]
     assert "wait" in payload["queue"]
 
-    page = client.get("/metricas")
+    page = client.get("/sistema", query_string={"tab": "rendimiento"})
     assert page.status_code == 200
     assert b"Latencia por ruta" in page.data
     assert b"Trabajos en cola" in page.data

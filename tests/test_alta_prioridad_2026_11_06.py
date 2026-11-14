@@ -188,7 +188,7 @@ def test_queue_full_releases_approval(monkeypatch, db_path):
     app_module.app.config.update(TESTING=True)
     with app_module.app.test_client() as client:
         _post(client, "/login", {"username": "admin", "password": "admin-password-123"})
-        response = _post(client, "/", {"operation_id": "op-cola-llena"})
+        response = _post(client, "/tareas", {"operation_id": "op-cola-llena"})
         assert response.status_code == 302
 
     assert ApprovalRequest.get(req.id, db_path=db_path).status == "approved"
@@ -217,7 +217,7 @@ def test_group_approval_snapshot_changes_with_membership(db_path):
         payload = dict(data)
         payload["password_file"] = (io.BytesIO(b"clave\n"), "p.txt")
         with app_module.app.test_request_context(
-            "/", method="POST", data=payload, content_type="multipart/form-data"
+            "/tareas", method="POST", data=payload, content_type="multipart/form-data"
         ):
             return app_module._parse_operation_form()
 

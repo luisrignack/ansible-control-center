@@ -12,12 +12,12 @@ mismo criterio.
 | Métrica | Objetivo | Dónde se mide |
 |---|---|---|
 | p95 de vista previa (256 hosts) | < 1.000 ms | Prueba de carga / `duration_ms` del lote |
-| p95 de UI | < 500 ms | `/metricas` (endpoint `index`, `history`, …) |
-| p95 de API de estado | < 200 ms | `/metricas` (endpoint `api_task_status`) |
+| p95 de UI | < 500 ms | `/sistema?tab=rendimiento` (endpoint `index`, `history`, …) |
+| p95 de API de estado | < 200 ms | `/sistema?tab=rendimiento` (endpoint `api_task_status`) |
 | Primer evento SSE | < 1 s | Log de la app / prueba manual |
-| Espera p95 en cola | < 30 s | `/metricas` (`queue.wait.p95_seconds`) |
+| Espera p95 en cola | < 30 s | `/sistema?tab=rendimiento` (`queue.wait.p95_seconds`) |
 | Lote de 256 hosts | < 60 min | `execution_batches` + `execution_hosts` |
-| Errores 5xx | 0 en operación normal | `/metricas` (`summary.errors`) |
+| Errores 5xx | 0 en operación normal | `/sistema?tab=rendimiento` (`summary.errors`) |
 
 Los umbrales son deliberadamente conservadores: un fallo de SLO debe abrir una
 investigación, no bloquear un despliegue por sí solo.
@@ -32,7 +32,7 @@ Cada petición HTTP (salvo `/healthz`, estáticos y el stream SSE) registra su
 duración en una ventana acotada por endpoint. Se calculan media, p50, p95 y
 máximo con la muestra reciente.
 
-- Panel: `GET /metricas` (solo `admin`).
+- Panel: `GET /sistema?tab=rendimiento` (solo `admin`).
 - JSON: `GET /api/metricas` (solo `admin`).
 - Configuración:
   - `ACC_REQUEST_METRICS=1` activa la instrumentación (por defecto).
@@ -81,7 +81,7 @@ no una promesa: depende del número de hosts, de la red y de los reintentos.
 
 ```bash
 # Panel HTML (requiere sesión de administrador)
-https://<host>/metricas
+https://<host>/sistema?tab=rendimiento
 
 # JSON para scripts o comprobaciones de SLO
 curl -ks -b cookies.txt https://<host>/api/metricas | jq '.summary, .endpoints'
@@ -93,9 +93,9 @@ https://<host>/batches/<batch_id>
 Secuencia mínima para una comparación reproducible:
 
 1. Reinicia la app (ventana de métricas limpia).
-2. Inicia sesión y visita `/`, `/history`, `/inventario`.
+2. Inicia sesión y visita `/`, `/ejecuciones`, `/inventario`.
 3. Abre una vista previa de 256 hosts.
-4. Consulta `/metricas` y anota p50/p95.
+4. Consulta `/sistema?tab=rendimiento` y anota p50/p95.
 5. Repite con la misma secuencia tras el cambio.
 
 ### 3.1. Prueba sintética de 4 operadores

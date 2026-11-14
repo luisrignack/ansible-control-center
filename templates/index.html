@@ -7,20 +7,12 @@
 {% block content %}
 <div class="page-head detail-head">
     <div>
-        <a class="back-link" href="{{ url_for('index') }}">
+        <a class="back-link" href="{{ url_for('tareas') }}">
             <i class="bi bi-arrow-left" aria-hidden="true"></i> Volver al catálogo
         </a>
         <div class="eyebrow">{% if selected_task.status == 'active' %}Tarea operativa{% else %}Tarea en preparación{% endif %}</div>
         <h1>{{ selected_task.name }}</h1>
         <p class="sub">{{ selected_task.summary }}</p>
-    </div>
-    <div class="head-actions">
-        <a class="btn btn-secondary" href="{{ url_for('history') }}">
-            <i class="bi bi-clock-history" aria-hidden="true"></i> Ver historial
-        </a>
-        <a class="btn btn-secondary" href="{{ url_for('passwords') }}">
-            <i class="bi bi-key" aria-hidden="true"></i> Credenciales
-        </a>
     </div>
 </div>
 
@@ -76,7 +68,7 @@
         </div>
     </div>
     <div class="card-footer">
-        <a class="btn btn-secondary" href="{{ url_for('index') }}">
+        <a class="btn btn-secondary" href="{{ url_for('tareas') }}">
             <i class="bi bi-arrow-left" aria-hidden="true"></i> Volver al catálogo
         </a>
     </div>
@@ -89,7 +81,7 @@
             <span class="badge badge-accent">Paso único</span>
         </div>
         <div class="card-body p-4">
-            <form id="execForm" method="POST" action="{{ url_for('index') }}"
+            <form id="execForm" method="POST" action="{{ url_for('tareas') }}"
                 enctype="multipart/form-data">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="operation_id" value="{{ prefill.get('operation_id', '') }}">
@@ -717,12 +709,6 @@
                 <i class="bi bi-file-earmark-arrow-up" aria-hidden="true"></i> Informe de migración
             </a>
             {% endif %}
-            <a class="btn btn-secondary" href="{{ url_for('history') }}">
-                <i class="bi bi-clock-history" aria-hidden="true"></i> Historial de lotes
-            </a>
-            <a class="btn btn-secondary" href="{{ url_for('passwords') }}">
-                <i class="bi bi-shield-lock" aria-hidden="true"></i> Gestionar vault
-            </a>
         </div>
     </aside>
 </div>
@@ -809,6 +795,12 @@ const osPasswordMinLength = {{ os_password_min_length | tojson }};
             const nameField = document.getElementById('scheduleName');
             if (nameField) nameField.focus();
         });
+    }
+    // «Nueva programación» llega con mode=schedule: deja el formulario listo
+    // para guardar la operación sin ejecutarla.
+    if (prefill && prefill.schedule_intent === 'schedule' && intentSchedule) {
+        intentSchedule.checked = true;
+        if (intentNow) intentNow.checked = false;
     }
     syncIntent();
 })();

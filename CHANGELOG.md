@@ -8,6 +8,58 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.5] — 2026-11-13
+
+### Añadido
+
+- Navegación agrupada en **Operación** (Panel, Tareas, Ejecuciones, Inventario
+  y Programaciones), **Seguridad** (Solicitudes y Credenciales) y
+  **Administración** (Usuarios y Sistema). El menú del avatar queda reservado
+  para la cuenta: Mi cuenta, Preferencias y Cerrar sesión.
+- **Ejecuciones** unifica los lotes en curso y el historial en pestañas, con
+  estadísticas y acceso al progreso de cada lote.
+- **Solicitudes** reúne Mis solicitudes y, para administradores, la bandeja de
+  Aprobaciones en una sola sección con pestañas y contador de pendientes.
+- **Sistema** agrupa Auditoría, Rendimiento, Ajustes y Acerca de en pestañas;
+  incluye el estado de LDAPS, la retención de auditoría y el cambio de tema.
+- **Credenciales** pasa a ser una sección propia del grupo Seguridad.
+- Paleta de comandos con **⌘K / Ctrl+K** para buscar páginas, abrir tareas o
+  crear una ejecución, una programación o una credencial.
+- Página **Mi cuenta** (`/cuenta`) con identidad, rol, origen de la cuenta y
+  preferencias del navegador.
+- Selector real de tarea en **Nueva programación**
+  (`/programaciones/nueva`), que continúa en el formulario con la opción
+  Programar ya seleccionada.
+
+### Cambiado
+
+- **Tareas** usa pestañas Catálogo/Ocultas, búsqueda local y acciones por
+  tarjeta (informe, migración, programar y ocultar). Se elimina la vista
+  separada de Módulos.
+- La barra lateral muestra contadores de solicitudes pendientes y un buscador
+  con atajo de teclado.
+- Las secciones de Inventario, Programaciones, Usuarios y edición de
+  programaciones dejan de mostrar las antiguas pestañas de Configuración.
+
+### Eliminado
+
+- El menú del avatar con Historial, Mis solicitudes, Aprobaciones,
+  Credenciales, Configuración, Rendimiento y Acerca de.
+- Las plantillas duplicadas `_config_tabs.html`, `modules.html`,
+  `history.html`, `mis_solicitudes.html`, `approvals.html`, `audit.html`,
+  `metrics.html`, `about.html` y `passwords.html`.
+
+### Compatibilidad
+
+- Las rutas antiguas se conservan como redirecciones permanentes:
+  `/history` → `/ejecuciones?tab=historial`, `/modulos` →
+  `/tareas?tab=ocultas`, `/aprobaciones` → `/solicitudes?tab=aprobaciones`,
+  `/mis-solicitudes` → `/solicitudes?tab=mias`, `/passwords` →
+  `/credenciales` (los POST siguen aceptándose), `/audit` →
+  `/sistema?tab=auditoria`, `/metricas` → `/sistema?tab=rendimiento`,
+  `/configuracion` → `/sistema?tab=ajustes` y `/acerca-de` →
+  `/sistema?tab=acerca-de`.
+
 ## [0.9.4] — 2026-11-13
 
 ### Cambiado

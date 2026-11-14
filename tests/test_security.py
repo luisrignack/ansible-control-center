@@ -76,7 +76,7 @@ def test_vault_master_password_fields_disable_autofill():
         for tag in pattern.findall(content):
             fields.append((template.name, tag))
 
-    assert {"index.html", "passwords.html", "ejecutar_aprobacion.html"} <= {
+    assert {"index.html", "credenciales.html", "ejecutar_aprobacion.html"} <= {
         name for name, _ in fields
     }
 

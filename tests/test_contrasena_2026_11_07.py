@@ -355,6 +355,6 @@ def test_password_form_renders_user_and_confirmation_fields(client):
 
 def test_password_card_is_shown_in_catalog(client):
     _login(client)
-    body = client.get("/").get_data(as_text=True)
+    body = client.get("/tareas").get_data(as_text=True)
     assert "Contraseña administrativa" in body
     assert "Operativa" in body or "Abrir tarea" in body

@@ -5,45 +5,132 @@
 {% block breadcrumb %}Tareas{% endblock %}
 
 {% block content %}
-<div class="page-head">
+<div class="page-head fade-in">
     <div>
         <div class="eyebrow">Catálogo de tareas</div>
         <h1>Tareas</h1>
-        <p class="sub">Cada tarjeta es una tarea de Ansible. Elige una para abrir su vista de detalle: configuración, vista previa y ejecución.</p>
+        <p class="sub">
+            Cada tarjeta es una tarea de Ansible. Ábrela para configurar sus
+            parámetros, revisar la vista previa y ejecutarla o programarla.
+        </p>
     </div>
     <div class="head-actions">
         <a class="btn btn-acento" href="{{ contact_task_mailto }}"
            title="Abrir el cliente de correo con la solicitud de una tarea nueva">
             <i class="bi bi-envelope-plus" aria-hidden="true"></i> Solicitar nueva tarea
         </a>
-        {% if ui_config_panel %}
-        <a class="btn btn-secondary" href="{{ url_for('modulos') }}"
-           title="Tareas que has quitado del panel">
-            <i class="bi bi-box-seam" aria-hidden="true"></i> Módulos
-            {% if parked_count %}<span class="badge bg-secondary ms-1">{{ parked_count }}</span>{% endif %}
+        {% if current_user.has_role('admin') %}
+        <a class="btn btn-secondary" href="{{ url_for('programacion_nueva') }}">
+            <i class="bi bi-calendar2-plus" aria-hidden="true"></i> Nueva programación
         </a>
         {% endif %}
-        <a class="btn btn-secondary" href="{{ url_for('history') }}">
-            <i class="bi bi-clock-history" aria-hidden="true"></i> Ver historial
-        </a>
-        <a class="btn btn-secondary" href="{{ url_for('passwords') }}">
-            <i class="bi bi-key" aria-hidden="true"></i> Credenciales
-        </a>
     </div>
 </div>
 
-<!-- Catálogo de tareas: una tarjeta por tarea de Ansible. -->
+{% if ui_config_panel %}
+<nav class="seg-tabs section-tabs" aria-label="Vistas de tareas">
+    <a class="seg-tab{% if tab == 'catalogo' %} is-active{% endif %}"
+       href="{{ url_for('tareas') }}"
+       {% if tab == 'catalogo' %}aria-current="page"{% endif %}>
+        <i class="bi bi-grid" aria-hidden="true"></i> Catálogo
+        <span class="count">{{ task_catalog | length }}</span>
+    </a>
+    <a class="seg-tab{% if tab == 'ocultas' %} is-active{% endif %}"
+       href="{{ url_for('tareas', tab='ocultas') }}"
+       {% if tab == 'ocultas' %}aria-current="page"{% endif %}>
+        <i class="bi bi-eye-slash" aria-hidden="true"></i> Ocultas
+        <span class="count">{{ parked_catalog | length }}</span>
+    </a>
+</nav>
+{% endif %}
+
+{% if tab == 'ocultas' %}
+<div class="toolbar">
+    <div class="search-field">
+        <i class="bi bi-search icon-sm" aria-hidden="true"></i>
+        <input type="search" id="taskSearch" placeholder="Buscar en las tareas ocultas…"
+               aria-label="Buscar tareas ocultas">
+    </div>
+    <div class="toolbar-spacer"></div>
+    {% if parked_catalog %}
+    <form method="post" action="{{ url_for('modulos_restaurar') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-sm btn-secondary"
+                data-confirm="¿Restaurar todas las tareas al catálogo?">
+            <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Restaurar todas
+        </button>
+    </form>
+    {% endif %}
+</div>
+
+<section class="task-catalog" aria-label="Tareas ocultas">
+    <div class="task-grid" id="taskGrid">
+        {% for task in parked_catalog %}
+        <article class="task-card tone-{{ task.tone }}{% if task.status != 'active' %} is-planned-card{% endif %}"
+                 data-search="{{ (task.name ~ ' ' ~ task.summary ~ ' ' ~ task.playbook) | lower }}">
+            <a class="task-card-link" href="{{ url_for('task_view', task_id=task.id) }}">
+                <span class="task-top">
+                    <span class="task-icon" aria-hidden="true"><i class="bi {{ task.icon }}"></i></span>
+                    {% if task.status != 'active' %}<span class="task-status is-planned">En preparación</span>{% endif %}
+                </span>
+                <span class="task-name">{{ task.name }}</span>
+                <span class="task-desc">{{ task.summary }}</span>
+                <span class="task-chips">
+                    {% for chip in task.chips %}<span class="task-chip">{{ chip }}</span>{% endfor %}
+                </span>
+                <span class="task-foot">
+                    <span>{{ task.playbook }}</span>
+                    <span class="task-open">Abrir tarea <i class="bi bi-arrow-right" aria-hidden="true"></i></span>
+                </span>
+            </a>
+            <form class="task-hide-form" method="post"
+                  action="{{ url_for('modulo_mostrar', task_id=task.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="task-restore">
+                    <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Restaurar
+                </button>
+            </form>
+        </article>
+        {% else %}
+        <div class="card p-4">
+            <h2 class="card-title"><i class="bi bi-eye" aria-hidden="true"></i> No hay tareas ocultas</h2>
+            <p class="text-muted mb-3">
+                Todas las tareas del catálogo están visibles. Puedes ocultar una
+                tarjeta con el botón de la esquina superior.
+            </p>
+            <a class="btn btn-secondary" href="{{ url_for('tareas') }}">
+                <i class="bi bi-grid" aria-hidden="true"></i> Ir al catálogo
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+    <p class="text-secondary text-center py-4" id="taskEmpty" hidden>
+        <small>Ninguna tarea oculta coincide con la búsqueda.</small>
+    </p>
+</section>
+{% else %}
+<div class="toolbar">
+    <div class="search-field">
+        <i class="bi bi-search icon-sm" aria-hidden="true"></i>
+        <input type="search" id="taskSearch" placeholder="Buscar tareas…"
+               aria-label="Buscar tareas">
+    </div>
+    <div class="toolbar-spacer"></div>
+    <span class="badge bg-secondary">{{ task_catalog | length }} de {{ total_tasks }} visibles</span>
+</div>
+
 <section class="task-catalog" aria-label="Tareas disponibles">
-    <div class="task-grid">
+    <div class="task-grid" id="taskGrid">
         {% for task in task_catalog %}
-        <article class="task-card tone-{{ task.tone }}{% if task.status != 'active' %} is-planned-card{% endif %}">
+        <article class="task-card tone-{{ task.tone }}{% if task.status != 'active' %} is-planned-card{% endif %}"
+                 data-search="{{ (task.name ~ ' ' ~ task.summary ~ ' ' ~ task.playbook ~ ' ' ~ task.chips | join(' ')) | lower }}">
             {% if ui_config_panel %}
             <form class="task-hide-form" method="post"
                   action="{{ url_for('modulo_ocultar', task_id=task.id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="task-hide"
-                        title="Quitar del panel y mover a Módulos"
-                        aria-label="Quitar «{{ task.name }}» del panel y moverla a Módulos">
+                        title="Ocultar esta tarea del catálogo"
+                        aria-label="Ocultar «{{ task.name }}» del catálogo">
                     <i class="bi bi-x-lg" aria-hidden="true"></i>
                 </button>
             </form>
@@ -63,19 +150,70 @@
                     <span class="task-open">{% if task.status == 'active' %}Abrir tarea <i class="bi bi-arrow-right" aria-hidden="true"></i>{% else %}Ver detalle <i class="bi bi-arrow-right" aria-hidden="true"></i>{% endif %}</span>
                 </span>
             </a>
+            {% if task.status == 'active' %}
+            <div class="task-card-tools">
+                <a class="task-tool" href="{{ url_for('task_report_pdf', task_id=task.id) }}"
+                   title="Descargar el informe de la última ejecución de «{{ task.name }}»">
+                    <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Informe
+                </a>
+                {% if 'APT' in task.actions %}
+                <a class="task-tool" href="{{ url_for('task_migration_pdf', task_id=task.id) }}"
+                   title="Descargar el informe de estaciones que requieren migración">
+                    <i class="bi bi-file-earmark-arrow-up" aria-hidden="true"></i> Migración
+                </a>
+                {% endif %}
+                {% if current_user.has_role('admin') and task.schedulable | default(true) %}
+                <a class="task-tool" href="{{ url_for('task_view', task_id=task.id, mode='schedule') }}"
+                   title="Programar esta tarea sin ejecutarla ahora">
+                    <i class="bi bi-calendar2-plus" aria-hidden="true"></i> Programar
+                </a>
+                {% endif %}
+            </div>
+            {% endif %}
         </article>
         {% else %}
         <div class="card p-4">
-            <h2 class="card-title"><i class="bi bi-box-seam" aria-hidden="true"></i> No hay tareas en el panel</h2>
+            <h2 class="card-title"><i class="bi bi-box-seam" aria-hidden="true"></i> No hay tareas visibles</h2>
             <p class="text-muted mb-3">
-                Has quitado todas las tarjetas. Puedes recuperarlas desde
-                <a href="{{ url_for('modulos') }}">Módulos</a>.
+                Has ocultado todas las tarjetas. Recupéralas desde la pestaña
+                <a href="{{ url_for('tareas', tab='ocultas') }}">Ocultas</a>.
             </p>
-            <a class="btn btn-secondary" href="{{ url_for('modulos') }}">
-                <i class="bi bi-box-seam" aria-hidden="true"></i> Ir a Módulos
+            <a class="btn btn-secondary" href="{{ url_for('tareas', tab='ocultas') }}">
+                <i class="bi bi-eye-slash" aria-hidden="true"></i> Ir a Ocultas
             </a>
         </div>
         {% endfor %}
     </div>
+    <p class="text-secondary text-center py-4" id="taskEmpty" hidden>
+        <small>Ninguna tarea coincide con la búsqueda.</small>
+    </p>
 </section>
+{% endif %}
+
+<script nonce="{{ csp_nonce }}">
+(function () {
+    const input = document.getElementById('taskSearch');
+    const grid = document.getElementById('taskGrid');
+    const empty = document.getElementById('taskEmpty');
+    if (!input || !grid) return;
+
+    const cards = Array.prototype.slice.call(
+        grid.querySelectorAll('.task-card[data-search]')
+    );
+
+    function filter() {
+        const query = (input.value || '').trim().toLowerCase();
+        let visible = 0;
+        cards.forEach(function (card) {
+            const match = !query || (card.dataset.search || '').indexOf(query) !== -1;
+            card.hidden = !match;
+            if (match) visible += 1;
+        });
+        if (empty) empty.hidden = visible !== 0 || !query;
+    }
+
+    input.addEventListener('input', filter);
+    filter();
+})();
+</script>
 {% endblock %}

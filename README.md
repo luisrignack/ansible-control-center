@@ -56,16 +56,16 @@ por defecto** (486 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 La versión vigente está en [`VERSION`](VERSION) y se aplica con versionado
 semántico (`MAJOR.MINOR.PATCH`). La misma cifra alimenta la aplicación, el tag
-de Git (`v0.9.4`) y los tags de Docker:
+de Git (`v0.9.5`) y los tags de Docker:
 
 | Tag | Uso |
 |---|---|
-| `ansible-control-center:0.9.4` | Versión exacta; es la que usa el paquete offline |
+| `ansible-control-center:0.9.5` | Versión exacta; es la que usa el paquete offline |
 | `ansible-control-center:0.9` | Alias de la minor |
 | `ansible-control-center:latest` | Alias de consulta; no usar para desplegar |
 | `ansible-control-center:sha-<commit>` | Trazabilidad al commit exacto |
 
-`/acerca-de` muestra la versión y el commit de construcción. El paquete
+`/sistema?tab=acerca-de` muestra la versión y el commit de construcción. El paquete
 `dist/hora-admin-despliegue` fija `ACC_IMAGE_TAG` a la versión exacta y
 conserva una copia de `VERSION`.
 
@@ -184,13 +184,13 @@ conserva una copia de `VERSION`.
   sin cortar la sesión SSH en curso. Se rechaza `0.0.0.0/0` y `::/0` para no
   abrir el firewall a cualquier origen. La vista previa muestra el gestor, si
   está activo y las reglas de origen actuales. Solo `admin`, no programable.
-- **Métricas de rendimiento**: `/metricas` (solo `admin`) muestra p50/p95 por
-  ruta y `/api/metricas` las expone en JSON; cada lote incluye p50/p95 por
-  host desde SQLite. Los SLO están en
+- **Métricas de rendimiento**: `/sistema?tab=rendimiento` (solo `admin`)
+  muestra p50/p95 por ruta y `/api/metricas` las expone en JSON; cada lote
+  incluye p50/p95 por host desde SQLite. Los SLO están en
   [docs/RENDIMIENTO.md](docs/RENDIMIENTO.md).
-- **Auditoría de acceso**: `/audit` registra logins, cambios de rol y bloqueos;
-  `/usuarios` permite crear y eliminar cuentas locales, cambiar su contraseña,
-  asignar roles y gestionar las cuentas LDAPS.
+- **Auditoría de acceso**: `/sistema?tab=auditoria` registra logins, cambios de
+  rol y bloqueos; `/usuarios` permite crear y eliminar cuentas locales, cambiar
+  su contraseña, asignar roles y gestionar las cuentas LDAPS.
 
 ### Seguridad
 
@@ -231,11 +231,11 @@ conserva una copia de `VERSION`.
   la misma regla; el resto recibe el mismo 404 que una tarea inexistente.
 - Con credenciales SMTP, el envío exige STARTTLS o TLS implícito: el
   notificador rechaza el correo sin cifrar.
-- Panel personalizable: cada usuario puede quitar tarjetas del catálogo con la
-  **×** y recuperarlas desde **Configuración → Módulos**. La preferencia es
-  por usuario y solo afecta a su vista; no cambia permisos ni el catálogo de
-  los demás. Reversión: `ACC_UI_CONFIG_PANEL=0` devuelve el menú anterior y
-  desactiva Módulos sin tocar la base de datos.
+- Panel personalizable: cada usuario puede ocultar tarjetas del catálogo con
+  la **×** y recuperarlas desde **Tareas → Ocultas**. La preferencia es por
+  usuario y solo afecta a su vista; no cambia permisos ni el catálogo de los
+  demás. `ACC_UI_CONFIG_PANEL=0` desactiva la personalización sin tocar la
+  base de datos.
 - Modo temporal `.txt`: el archivo se procesa en memoria y no se guarda.
 
 ### Registro y auditoría
@@ -244,18 +244,27 @@ conserva una copia de `VERSION`.
   valor, semántica de hora, política NTP, estado global, contadores y duración.
 - **Resultado por host** (`execution_hosts`): resultado, error, duración,
   estado previo, estado posterior, hash corto de la contraseña usada y origen.
-- **Historial** (`/history`) con lotes y detalle por host
+- **Ejecuciones** (`/ejecuciones`) con lotes en curso, historial y detalle por host
   (`/batches/<batch_id>`).
 - Se conserva el registro heredado `executions` por compatibilidad.
 
 ### Interfaz
 
+- Navegación agrupada: **Operación** (Panel · Tareas · Ejecuciones ·
+  Inventario · Programaciones), **Seguridad** (Solicitudes · Credenciales) y
+  **Administración** (Usuarios · Sistema). El avatar queda reservado para la
+  cuenta: Mi cuenta, Preferencias y Cerrar sesión.
+- **Ejecuciones** unifica los lotes en curso y el historial; **Solicitudes**
+  reúne Mis solicitudes y, para administradores, la bandeja de Aprobaciones.
+- **Sistema** agrupa Auditoría, Rendimiento, Ajustes y Acerca de en pestañas.
+- Buscador de comandos con **⌘K / Ctrl+K** para ir a páginas, abrir tareas o
+  crear una ejecución o programación.
 - Panel de configuración con vista previa y ejecución.
 - Progreso en tiempo real por SSE con **consola de Ansible en vivo**, resumen
   de hitos y enlace al detalle del lote.
 - Detalle de lote con tabla por host y estados antes/después.
 - Gestión del vault: alta manual, importación `.txt`/`.yml`, borrado.
-- Historial de lotes y estadísticas.
+- Ejecuciones en curso, historial de lotes y estadísticas.
 
 ---
 
@@ -469,7 +478,7 @@ una `ACC_SECRET_KEY` aleatoria.
 | `ACC_REQUEST_METRICS` | `1` | Activa la instrumentación de latencia por ruta |
 | `ACC_REQUEST_METRICS_WINDOW` | `500` | Muestras por endpoint para p50/p95 (50–10.000) |
 | `ACC_SLOW_REQUEST_MS` | `1000` | Umbral para registrar una petición lenta en el log |
-| `ACC_UI_CONFIG_PANEL` | `1` | Menú «Configuración» con pestañas y vista «Módulos». Con `0` se recupera el menú anterior, las tarjetas se muestran siempre y `/modulos` desaparece |
+| `ACC_UI_CONFIG_PANEL` | `1` | Permite ocultar tarjetas del catálogo y usar la pestaña **Tareas → Ocultas**. Con `0` todas las tarjetas se muestran siempre y `/modulos` desaparece |
 | `ACC_HISTORY_DAYS` | `180` | Retención del historial de lotes (días) |
 | `ACC_AUTH_EVENT_DAYS` | `365` | Retención de eventos de autenticación (días) |
 | `ACC_RETENTION_INTERVAL_HOURS` | `24` | Cada cuántas horas el scheduler reaplica la retención (1–720) |
@@ -598,7 +607,7 @@ Estas variables las lee `gunicorn.conf.py`, no `config.py`:
    y registra un lote con el resultado de cada host.
 6. **Progreso**: `/progress/<task_id>` con SSE y consola de Ansible en vivo;
    al terminar enlaza al detalle.
-7. **Historial**: `/history` muestra lotes, contadores, operador y duración.
+7. **Ejecuciones**: `/ejecuciones?tab=historial` muestra lotes, contadores, operador y duración.
 
 Con `ACC_DRY_RUN=1` el playbook de cambio no se ejecuta: se simula el
 resultado y el lote queda marcado como simulación. La vista previa sí
@@ -663,17 +672,23 @@ administrador desactiva el interruptor **Simulación** de la barra superior
 | GET/POST | `/login` | No | Inicio de sesión |
 | GET | `/healthz` | No | Salud para Docker/balanceadores |
 | POST | `/logout` | Sí | Cierre de sesión |
-| GET/POST | `/` | Sí | Catálogo de tareas; POST ejecuta según `mode` |
-| GET | `/tarea/<task_id>` | Sí | Detalle y formulario de la tarea |
+| GET/POST | `/` | Sí | Panel de control; POST de operaciones desde el catálogo |
+| GET | `/panel` | Sí | Alias del panel |
+| GET/POST | `/tareas` | Sí | Catálogo de tareas; `?tab=ocultas` muestra las ocultas |
+| GET | `/tarea/<task_id>` | Sí | Detalle y formulario de la tarea (`?mode=schedule` preselecciona Programar) |
 | GET | `/tarea/<task_id>/informe.pdf` | Sí | Informe PDF de la ejecución |
 | GET | `/tarea/<task_id>/migracion.pdf` | Sí | Informe PDF de migración de la última corrida |
 | POST | `/preview` | Sí | Alias explícito de vista previa |
 | POST | `/execute` | Sí | Alias explícito de ejecución |
 | GET/POST | `/inventario` | Sí | Grupos, hosts y clave SSH (admin para cambios) |
 | GET/POST | `/programaciones` | Sí | Programaciones (admin para cambios) |
-| GET/POST | `/aprobaciones` | Admin | Bandeja de solicitudes pendientes: aprobar o rechazar |
-| GET | `/mis-solicitudes` | Operador | Estado de las solicitudes propias y ejecución de las aprobadas |
-| GET/POST | `/mis-solicitudes/<id>/ejecutar` | Operador | Ejecuta una solicitud propia aprobada y vigente |
+| GET | `/programaciones/nueva` | Admin | Selector de tarea para crear una programación |
+| GET | `/ejecuciones` | Sí | Ejecuciones: `tab=curso` (por defecto) e historial |
+| GET | `/solicitudes` | Operador | `tab=mias` y, para admin, `tab=aprobaciones` |
+| GET/POST | `/solicitudes/<id>/ejecutar` | Operador | Ejecuta una solicitud propia aprobada y vigente |
+| GET | `/credenciales` | Sí | Gestión del vault de credenciales |
+| GET | `/sistema` | Admin | Sistema: `tab=auditoria`, `rendimiento`, `ajustes`, `acerca-de` |
+| GET | `/cuenta` | Sí | Cuenta y preferencias del usuario |
 | GET | `/progress/<task_id>` | Sí | Página de progreso |
 | GET | `/progress/<task_id>/events` | Sí | Stream SSE de progreso |
 | GET | `/api/task-status/<task_id>` | Sí | Estado JSON de la tarea |
@@ -681,14 +696,24 @@ administrador desactiva el interruptor **Simulación** de la barra superior
 | GET | `/batches/<batch_id>` | Sí | Detalle del lote y hosts |
 | GET | `/batches/<batch_id>/migracion.pdf` | Sí | Informe PDF de migración de un lote |
 | GET | `/preview/<batch_id>` | Sí | Redirección al detalle del lote |
-| GET/POST | `/passwords` | Sí | Gestión del vault |
-| GET | `/history` | Sí | Historial de lotes |
-| GET | `/audit` | Admin | Eventos de autenticación y auditoría |
 | GET | `/usuarios` | Admin | Cuentas locales y LDAPS, roles y acceso LDAPS |
 | POST | `/usuarios/crear` | Admin | Alta de cuenta local con contraseña |
 | POST | `/usuarios/password` | Admin | Cambio de contraseña local |
 | POST | `/usuarios/eliminar` | Admin | Baja de cuenta local con transferencia de datos |
-| GET | `/acerca-de` | Sí | Versión, configuración efectiva y diagnóstico |
+
+Rutas antiguas conservadas como redirecciones de compatibilidad:
+
+| Ruta | Destino |
+|---|---|
+| `/history` | `/ejecuciones?tab=historial` |
+| `/modulos` | `/tareas?tab=ocultas` |
+| `/aprobaciones` | `/solicitudes?tab=aprobaciones` |
+| `/mis-solicitudes` | `/solicitudes?tab=mias` |
+| `/passwords` | `/credenciales` (los POST se siguen aceptando) |
+| `/audit` | `/sistema?tab=auditoria` |
+| `/metricas` | `/sistema?tab=rendimiento` |
+| `/configuracion` | `/sistema?tab=ajustes` |
+| `/acerca-de` | `/sistema?tab=acerca-de` |
 
 CLI:
 
@@ -962,7 +987,7 @@ Módulos:
 
 - `test_app.py`: login, CSRF, cabeceras, validación, historial.
 - `test_estructura_app.py`: mapa de URLs/endpoints, CLI, hooks y fachada.
-- `test_version.py`: `VERSION` como fuente única y versión en `/acerca-de`.
+- `test_version.py`: `VERSION` como fuente única y versión en `/sistema?tab=acerca-de`.
 - `test_security.py`: CSRF, rate limiter, CIDR.
 - `test_db.py`: migraciones, idempotencia, concurrencia, paginación.
 - `test_ansible_runner.py`: dry-run, fichero seguro, ping.

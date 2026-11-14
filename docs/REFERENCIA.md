@@ -38,7 +38,7 @@ en las pruebas.
 
 La versión vive en `VERSION` (SemVer) y `acc/version.py` la expone como
 `__version__`. `create_app()` publica `APP_VERSION` y `APP_BUILD_COMMIT` en la
-configuración de Flask, y `/acerca-de` los muestra. Las imágenes Docker usan
+configuración de Flask, y `/sistema?tab=acerca-de` los muestra. Las imágenes Docker usan
 la misma cifra: `<versión>`, `<minor>`, `latest` y `sha-<commit>`. El paquete
 offline fija `ACC_IMAGE_TAG` a la versión exacta.
 
@@ -57,16 +57,23 @@ offline fija `ACC_IMAGE_TAG` a la versión exacta.
 | GET | `/progress/<task_id>` | Sí (dueño/admin) | Página de progreso |
 | GET | `/progress/<task_id>/events` | Sí (dueño/admin) | Stream SSE |
 | GET | `/api/task-status/<task_id>` | Sí (dueño/admin) | Estado JSON de la tarea |
-| GET | `/configuracion` | Sí | Redirige a la primera pestaña de configuración (Inventario) |
-| GET | `/modulos` | Sí | Tareas que el usuario quitó de su panel |
-| POST | `/modulos/<task_id>/ocultar` | Sí | Mueve una tarjeta del panel a Módulos |
-| POST | `/modulos/<task_id>/mostrar` | Sí | Devuelve una tarjeta al panel |
-| POST | `/modulos/restaurar` | Sí | Devuelve todas las tarjetas al panel |
+| GET | `/panel` | Sí | Alias del panel |
+| GET, POST | `/tareas` | Sí | Catálogo de tareas; `?tab=ocultas` |
+| GET | `/tarea/<task_id>` | Sí | Detalle de la tarea; `?mode=schedule` preselecciona Programar |
+| GET | `/ejecuciones` | Sí | En curso (`tab=curso`) e historial (`tab=historial`) |
+| GET | `/solicitudes` | Operador | Mis solicitudes y, para admin, bandeja de aprobaciones |
+| GET, POST | `/solicitudes/<id>/ejecutar` | Operador | Ejecuta una solicitud propia aprobada |
+| GET, POST | `/credenciales` | Sí | Vault compartido: lectura para todos; alta/borrado solo `admin` |
+| GET | `/sistema` | Admin | `tab=auditoria`, `rendimiento`, `ajustes`, `acerca-de` |
+| GET | `/cuenta` | Sí | Cuenta y preferencias |
+| POST | `/modulos/<task_id>/ocultar` | Sí | Mueve una tarjeta del catálogo a Ocultas |
+| POST | `/modulos/<task_id>/mostrar` | Sí | Devuelve una tarjeta al catálogo |
+| POST | `/modulos/restaurar` | Sí | Devuelve todas las tarjetas al catálogo |
 | GET | `/batches/<batch_id>` | Sí | Detalle del lote |
 | GET | `/preview/<batch_id>` | Sí | Redirección a `/batches/<batch_id>` |
-| GET, POST | `/passwords` | Sí | Vault compartido: lectura para todos; alta/borrado solo `admin` |
 | GET, POST | `/inventario` | Sí | Grupos propios y compartidos; edición `admin`/`operator` |
 | GET, POST | `/programaciones` | Sí | Programaciones propias y compartidas; alta/edición `admin` |
+| GET | `/programaciones/nueva` | Admin | Selector de tarea para programar |
 | GET | `/usuarios` | Admin | Cuentas locales y LDAPS, roles, estado y acceso LDAPS |
 | POST | `/usuarios/crear` | Admin | Crea una cuenta local con contraseña propia |
 | POST | `/usuarios/password` | Admin | Cambia la contraseña de una cuenta local |
@@ -74,7 +81,14 @@ offline fija `ACC_IMAGE_TAG` a la versión exacta.
 | POST | `/usuarios/rol` | Admin | Asigna el rol de una cuenta |
 | POST | `/usuarios/estado` | Admin | Activa o desactiva una cuenta |
 | POST | `/usuarios/ldaps` | Admin local | Activa o desactiva el acceso LDAPS |
-| GET | `/history` | Sí | Historial de lotes |
+
+Rutas antiguas (redirección de compatibilidad): `/history` →
+`/ejecuciones?tab=historial`, `/modulos` → `/tareas?tab=ocultas`,
+`/aprobaciones` → `/solicitudes?tab=aprobaciones`, `/mis-solicitudes` →
+`/solicitudes?tab=mias`, `/passwords` → `/credenciales`, `/audit` →
+`/sistema?tab=auditoria`, `/metricas` → `/sistema?tab=rendimiento`,
+`/configuracion` → `/sistema?tab=ajustes`, `/acerca-de` →
+`/sistema?tab=acerca-de`.
 
 Errores: `400`, `404`, `429`, `500`. Las peticiones AJAX/JSON reciben JSON en
 `400`/`429`; el resto, HTML.
@@ -100,7 +114,7 @@ Campos aceptados por `/`, `/preview` y `/execute`:
 | `force` | `1`/`on` | No |
 | `csrf_token` | Token de sesión | Sí |
 
-### Acciones de `/passwords`
+### Acciones de `/credenciales`
 
 | `action` | Campos | Descripción |
 |---|---|---|
@@ -597,4 +611,4 @@ python -m pytest -q
 | `test_services.py` | Resolución y servicios |
 | `test_p4.py` | Lotes, todos los hosts, reintentos, preview, opciones P4 |
 | `test_estructura_app.py` | Contrato del troceado: mapa de URLs/endpoints, CLI, hooks, plantillas y fachada de `app.py` |
-| `test_version.py` | Fuente única de `VERSION`, configuración de Flask y versión en `/acerca-de` |
+| `test_version.py` | Fuente única de `VERSION`, configuración de Flask y versión en `/sistema?tab=acerca-de` |

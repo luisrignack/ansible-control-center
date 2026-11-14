@@ -29,7 +29,6 @@ from acc.task_state import (
 )
 from config import (
     ADMIN_PASSWORD_MIN_LENGTH,
-    AUTH_EVENT_RETENTION_DAYS,
     SLOW_REQUEST_MS,
 )
 from models.ops import (
@@ -54,22 +53,8 @@ app = RouteRegistry()
 @app.route("/metricas")
 @roles_required("admin")
 def metricas():
-    """Panel de latencia por ruta (ventana reciente, solo administradores)."""
-    snapshot = request_metrics.snapshot()
-    rows = sorted(
-        snapshot.items(),
-        key=lambda item: item[1].get("p95_ms", 0.0),
-        reverse=True,
-    )
-    return render_template(
-        "metrics.html",
-        metrics=snapshot,
-        rows=rows,
-        summary=summarize(snapshot),
-        queue=_queue_snapshot(),
-        window=request_metrics.window,
-        slow_request_ms=SLOW_REQUEST_MS,
-    )
+    """Compatibilidad: el rendimiento vive ahora en Sistema → Rendimiento."""
+    return redirect(url_for("sistema", tab="rendimiento"), code=301)
 
 
 @app.route("/api/metricas")
@@ -93,11 +78,8 @@ def api_metricas():
 @app.route("/audit")
 @roles_required("admin")
 def audit():
-    """Auditoría de inicios de sesión y eventos de autenticación."""
-    events = AuthEvent.recent(limit=200, db_path=runtime.get_db_path())
-    return render_template(
-        "audit.html", events=events, retention_days=AUTH_EVENT_RETENTION_DAYS
-    )
+    """Compatibilidad: la auditoría vive ahora en Sistema → Auditoría."""
+    return redirect(url_for("sistema", tab="auditoria"), code=301)
 
 
 @app.route("/usuarios")
@@ -506,7 +488,7 @@ def update_dry_run():
             if _wants_json():
                 return jsonify({"success": False, "message": message}), 400
             flash(message, "danger")
-            return redirect(url_for("index"))
+            return redirect(url_for("panel"))
 
     if _active_task_count():
         message = (
@@ -516,7 +498,7 @@ def update_dry_run():
         if _wants_json():
             return jsonify({"success": False, "message": message}), 409
         flash(message, "warning")
-        return redirect(url_for("index"))
+        return redirect(url_for("panel"))
 
     try:
         persist_dry_run(enabled)
@@ -527,7 +509,7 @@ def update_dry_run():
         if _wants_json():
             return jsonify({"success": False, "message": message}), 500
         flash(message, "danger")
-        return redirect(url_for("index"))
+        return redirect(url_for("panel"))
 
     message = (
         "Modo simulación activado: no se aplicarán cambios en los equipos."
@@ -559,7 +541,7 @@ def update_dry_run():
 
     flash(message, "info")
     target = request.form.get("next", "")
-    return redirect(target if _is_safe_redirect(target) else url_for("index"))
+    return redirect(target if _is_safe_redirect(target) else url_for("panel"))
 
 def register(flask_app) -> None:
     app.apply(flask_app)

@@ -142,7 +142,7 @@ def handle_execution(default_mode: str = "execute", form_data=None, files=None):
             flash(error, "danger")
         if _wants_json():
             return jsonify({"status": "error", "errors": errors}), 400
-        return redirect(url_for("index"))
+        return redirect(url_for("tareas"))
 
     if form is None:  # ``errors`` vacío implica formulario válido.
         logger.error("El formulario se validó sin errores pero sin resultado")
@@ -196,7 +196,7 @@ def handle_execution(default_mode: str = "execute", form_data=None, files=None):
         if _wants_json():
             return jsonify({"status": "duplicate", "message": message}), 409
         flash(message, "warning")
-        return redirect(url_for("index"))
+        return redirect(url_for("tareas"))
 
     approval_request_id: int | None = None
     if task is not None and task.get("destructive") and form["mode"] == "execute":
@@ -312,7 +312,7 @@ def handle_execution(default_mode: str = "execute", form_data=None, files=None):
         if _wants_json():
             return jsonify({"status": "error", "message": message}), 503
         flash(message, "warning")
-        return redirect(url_for("index"))
+        return redirect(url_for("tareas"))
     except Exception:
         # No dejar la operación a medias ni una aprobación reservada.
         remove_task(tid)

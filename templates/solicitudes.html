@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+
+{% block title %}Solicitudes{% endblock %}
+
+{% block breadcrumb %}Solicitudes{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div>
+        <div class="eyebrow">Seguridad</div>
+        <h1>Solicitudes</h1>
+        <p class="sub">
+            Doble aprobación para tareas sensibles: un administrador distinto del
+            ejecutor autoriza cada lanzamiento. Las solicitudes esperan decisión
+            {{ request_ttl_hours }} h y, ya aprobadas, dispones de
+            {{ (approval_ttl_minutes / 60) | round(0, 'floor') | int }} h para
+            ejecutarlas. Son de un solo uso.
+        </p>
+    </div>
+    <div class="head-actions">
+        <a class="btn btn-secondary" href="{{ url_for('tareas') }}">
+            <i class="bi bi-plus-lg" aria-hidden="true"></i> Nueva solicitud
+        </a>
+    </div>
+</div>
+
+<nav class="seg-tabs section-tabs" aria-label="Vistas de solicitudes">
+    <a class="seg-tab{% if tab == 'mias' %} is-active{% endif %}"
+       href="{{ url_for('solicitudes', tab='mias') }}"
+       {% if tab == 'mias' %}aria-current="page"{% endif %}>
+        <i class="bi bi-clipboard-check" aria-hidden="true"></i> Mis solicitudes
+        <span class="count">{{ requests | length }}</span>
+    </a>
+    {% if current_user.has_role('admin') %}
+    <a class="seg-tab{% if tab == 'aprobaciones' %} is-active{% endif %}"
+       href="{{ url_for('solicitudes', tab='aprobaciones') }}"
+       {% if tab == 'aprobaciones' %}aria-current="page"{% endif %}>
+        <i class="bi bi-shield-check" aria-hidden="true"></i> Aprobaciones
+        {% if pending %}<span class="count">{{ pending | length }}</span>{% endif %}
+    </a>
+    {% endif %}
+</nav>
+
+{% if tab == 'aprobaciones' %}
+<section class="card fade-in mb-4" aria-labelledby="pending-title">
+    <div class="card-header">
+        <h2 class="card-title" id="pending-title">
+            <i class="bi bi-hourglass-split" aria-hidden="true"></i> Pendientes de decisión
+        </h2>
+        <span class="badge badge-accent">{{ pending | length }}</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive p-3">
+            <table class="table table-borderless mb-0 table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th scope="col">#</th>
+                        <th scope="col">Tarea</th>
+                        <th scope="col">Solicitante</th>
+                        <th scope="col">Operación</th>
+                        <th scope="col">Fecha</th>
+                        <th scope="col">Caduca</th>
+                        <th scope="col">Decisión</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for req in pending %}
+                    <tr>
+                        <td><code>{{ req.id }}</code></td>
+                        <td><strong>{{ req.task_id }}</strong></td>
+                        <td><small>{{ req.requested_by }}</small></td>
+                        <td><small><code>{{ req.detail or '—' }}</code></small></td>
+                        <td><small>{{ req.requested_at[:16] }} UTC</small></td>
+                        <td><small>{{ (req.deadline or '—')[:16] }} UTC</small></td>
+                        <td>
+                            <form method="post" action="{{ url_for('aprobaciones') }}" class="d-flex gap-2 align-items-center">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="request_id" value="{{ req.id }}">
+                                <input type="text" class="form-control form-control-sm" name="note"
+                                    placeholder="nota (opcional)" maxlength="300" size="14">
+                                <button type="submit" name="action" value="approve"
+                                    class="btn btn-sm btn-success"
+                                    title="No puedes aprobar tu propia solicitud">
+                                    <i class="bi bi-check2-circle" aria-hidden="true"></i> Aprobar
+                                </button>
+                                <button type="submit" name="action" value="reject"
+                                    class="btn btn-sm btn-outline-danger">
+                                    <i class="bi bi-x-circle" aria-hidden="true"></i> Rechazar
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center py-4">
+                            <small class="text-secondary">No hay solicitudes pendientes.</small>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<section class="card fade-in" aria-labelledby="decided-title">
+    <div class="card-header">
+        <h2 class="card-title" id="decided-title">
+            <i class="bi bi-journal-check" aria-hidden="true"></i> Decididas
+        </h2>
+        <span class="badge bg-secondary">{{ decided | length }}</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive p-3">
+            <table class="table table-borderless mb-0 table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th scope="col">#</th>
+                        <th scope="col">Tarea</th>
+                        <th scope="col">Solicitante</th>
+                        <th scope="col">Estado</th>
+                        <th scope="col">Aprobador</th>
+                        <th scope="col">Decidida</th>
+                        <th scope="col">Nota</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for req in decided %}
+                    <tr>
+                        <td><code>{{ req.id }}</code></td>
+                        <td><strong>{{ req.task_id }}</strong></td>
+                        <td><small>{{ req.requested_by }}</small></td>
+                        <td>
+                            <span class="badge {% if req.status == 'approved' %}bg-success{% elif req.status == 'rejected' %}bg-danger{% else %}bg-secondary{% endif %}">
+                                {{ req.status }}
+                            </span>
+                        </td>
+                        <td><small>{{ req.approver or '—' }}</small></td>
+                        <td><small>{{ (req.decided_at or '—')[:16] }}</small></td>
+                        <td><small>{{ req.note or '—' }}</small></td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center py-4">
+                            <small class="text-secondary">Sin historial de decisiones todavía.</small>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{% else %}
+<section class="card fade-in" aria-labelledby="mine-title">
+    <div class="card-header">
+        <h2 class="card-title" id="mine-title">
+            <i class="bi bi-clipboard-check" aria-hidden="true"></i> Mis solicitudes
+        </h2>
+        <span class="badge bg-secondary">{{ requests | length }}</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive p-3">
+            <table class="table table-borderless mb-0 table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th scope="col">#</th>
+                        <th scope="col">Tarea</th>
+                        <th scope="col">Operación</th>
+                        <th scope="col">Estado</th>
+                        <th scope="col">Solicitada</th>
+                        <th scope="col">Límite</th>
+                        <th scope="col">Aprobador / nota</th>
+                        <th scope="col" class="text-end">Acción</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for req in requests %}
+                    <tr>
+                        <td><code>{{ req.id }}</code></td>
+                        <td><strong>{{ req.task_id }}</strong></td>
+                        <td><small><code>{{ req.detail or '—' }}</code></small></td>
+                        <td>
+                            <span class="badge {% if req.status == 'pending' %}bg-warning text-dark{% elif req.status == 'approved' %}bg-success{% elif req.status == 'consumed' %}bg-secondary{% elif req.status == 'rejected' %}bg-danger{% else %}bg-secondary{% endif %}">
+                                {% if req.status == 'pending' %}pendiente de aprobación
+                                {% elif req.status == 'approved' %}aprobada
+                                {% elif req.status == 'consumed' %}ejecutada
+                                {% elif req.status == 'rejected' %}rechazada
+                                {% elif req.status == 'expired' %}caducada
+                                {% else %}{{ req.status }}{% endif %}
+                            </span>
+                        </td>
+                        <td><small>{{ req.requested_at[:16] }} UTC</small></td>
+                        <td><small>{{ (req.deadline or '—')[:16] }} UTC</small></td>
+                        <td><small>
+                            {% if req.approver %}{{ req.approver }}{% else %}—{% endif %}
+                            {% if req.note %}<br><span class="text-secondary">{{ req.note }}</span>{% endif %}
+                        </small></td>
+                        <td class="text-end">
+                            {% if req.executable %}
+                            <a class="btn btn-sm btn-success"
+                               href="{{ url_for('ejecutar_aprobacion', request_id=req.id) }}">
+                                <i class="bi bi-play-fill" aria-hidden="true"></i> Ejecutar
+                            </a>
+                            {% else %}
+                            <small class="text-secondary">—</small>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="8" class="text-center py-4">
+                            <small class="text-secondary">Todavía no has creado solicitudes de aprobación.</small>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{% endif %}
+{% endblock %}

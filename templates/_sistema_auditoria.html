@@ -1,0 +1,55 @@
+<section class="card fade-in" aria-labelledby="audit-title">
+    <div class="card-header">
+        <h2 class="card-title" id="audit-title">
+            <i class="bi bi-shield-check" aria-hidden="true"></i> Registro de autenticación
+        </h2>
+        <span class="badge badge-accent">Últimos {{ retention_days }} días</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive p-3">
+            <table class="table table-borderless mb-0 table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th scope="col">Fecha (UTC)</th>
+                        <th scope="col">Usuario</th>
+                        <th scope="col">IP</th>
+                        <th scope="col">Evento</th>
+                        <th scope="col">Detalle</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for event in events %}
+                    <tr>
+                        <td><small>{{ (event["timestamp"] or "")[:19].replace("T", " ") }}</small></td>
+                        <td><small><code>{{ event["username"] or "—" }}</code></small></td>
+                        <td><small><code>{{ event["ip"] or "—" }}</code></small></td>
+                        <td>
+                            {% set kind = event["event"] %}
+                            <span class="badge {% if kind == 'login_success' %}bg-success{% elif kind in ['account_locked', 'login_locked'] %}bg-danger{% elif kind in ['dry_run_on', 'dry_run_off'] %}bg-info text-dark{% else %}bg-warning text-dark{% endif %}">
+                                {% if kind == 'login_success' %}Acceso correcto
+                                {% elif kind == 'login_failure' %}Credenciales incorrectas
+                                {% elif kind == 'account_locked' %}Cuenta bloqueada
+                                {% elif kind == 'login_locked' %}Acceso a cuenta bloqueada
+                                {% elif kind == 'dry_run_on' %}Modo simulación activado
+                                {% elif kind == 'dry_run_off' %}Modo simulación desactivado
+                                {% else %}{{ kind }}{% endif %}
+                            </span>
+                        </td>
+                        <td><small>{{ event["detail"] or "—" }}</small></td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center py-4">
+                            <small class="text-secondary">No hay eventos de autenticación.</small>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card-footer small text-secondary">
+        Se conservan los eventos de los últimos {{ retention_days }} días. El
+        registro es de solo lectura.
+    </div>
+</section>

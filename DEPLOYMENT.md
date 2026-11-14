@@ -218,7 +218,7 @@ flask --app app init-admin
 # Puedes indicar otro usuario y rol:
 #   flask --app app init-admin --username operador --role operator
 # Roles: viewer (solo lectura), operator (vista previa/ejecución/vault),
-# admin (todo, incluida /audit).
+# admin (todo, incluida /sistema?tab=auditoria).
 ```
 
 La contraseña se guarda como hash Werkzeug en SQLite. Para cambiarla, vuelve a
@@ -447,7 +447,7 @@ Con HTTPS activa `ACC_COOKIE_SECURE=1` en `.env`.
    el estado final y registra un lote con el resultado de cada host.
 6. **Progreso** → la ejecución redirige a `/progress/<task_id>` con SSE y, al
    terminar, enlaza al detalle del lote en `/batches/<batch_id>`.
-7. **Historial** → `/history` muestra los lotes con contadores, operador,
+7. **Ejecuciones** → `/ejecuciones?tab=historial` muestra los lotes con contadores, operador,
    duración y enlace al detalle por host.
 
 Con `ACC_DRY_RUN=1` el playbook no se ejecuta: se simula el resultado.

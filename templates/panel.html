@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+
+{% block title %}Panel{% endblock %}
+{% block breadcrumb %}Panel · Resumen general{% endblock %}
+
+{% block content %}
+<div class="page-head fade-in">
+    <div>
+        <div class="eyebrow">Resumen general</div>
+        <h1>Panel de control</h1>
+        <p class="sub">Estado del inventario, las ejecuciones y las programaciones de la consola.</p>
+    </div>
+    <div class="head-actions">
+        <a class="btn btn-primary" href="{{ url_for('tareas') }}">
+            <i class="bi bi-play-fill" aria-hidden="true"></i> Nueva ejecución
+        </a>
+    </div>
+</div>
+
+<div class="stat-grid fade-in">
+    <div class="stat is-info">
+        <div class="stat-value">{{ total_hosts }}</div>
+        <div class="stat-label">Hosts gestionados</div>
+        <div class="stat-foot">
+            {{ groups_count }} grupo(s) en el inventario
+        </div>
+    </div>
+    <div class="stat">
+        <div class="stat-value">{{ active_schedules_count }}</div>
+        <div class="stat-label">Programaciones activas</div>
+        <div class="stat-foot">
+            {% if upcoming_schedules %}
+                Próxima: {{ upcoming_schedules[0].next_run }}
+            {% else %}
+                Sin programaciones activas
+            {% endif %}
+        </div>
+    </div>
+    <div class="stat is-ok">
+        <div class="stat-value">
+            {% if success_pct is not none %}{{ success_pct }} %{% else %}—{% endif %}
+        </div>
+        <div class="stat-label">Éxito del último lote</div>
+        <div class="stat-foot">{{ success_foot }}</div>
+    </div>
+    <div class="stat {% if alert_count %}is-danger{% endif %}">
+        <div class="stat-value">{{ alert_count }}</div>
+        <div class="stat-label">Alertas abiertas</div>
+        <div class="stat-foot">
+            {% if alert_count %}Requieren revisión{% else %}Todo en orden{% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="grid grid-main fade-in">
+    <section class="card" aria-labelledby="panel-inventory-title">
+        <div class="card-head">
+            <h2 class="card-title" id="panel-inventory-title">
+                <i class="bi bi-hdd-rack" aria-hidden="true"></i> Inventario de hosts
+            </h2>
+            <a class="panel-link" href="{{ url_for('inventario') }}">Ver todo</a>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-borderless mb-0 table-sm align-middle">
+                    <thead>
+                        <tr>
+                            <th scope="col">Host</th>
+                            <th scope="col">Grupo</th>
+                            <th scope="col">Última ejecución</th>
+                            <th scope="col">Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for host in host_rows %}
+                        <tr>
+                            <td>
+                                <span class="host-cell">
+                                    <code>{{ host.address }}</code>
+                                    {% if host.label %}<small>{{ host.label }}</small>{% endif %}
+                                </span>
+                            </td>
+                            <td><small>{{ host.group_name }}</small></td>
+                            <td><small>{{ host.last_run }}</small></td>
+                            <td>
+                                {% if host.result == 'success' %}
+                                <span class="badge bg-success">Correcto</span>
+                                {% elif host.result in ['failure', 'error'] %}
+                                <span class="badge bg-danger">{{ host.result_label }}</span>
+                                {% elif host.result == 'attention' %}
+                                <span class="badge bg-warning text-dark">Atención</span>
+                                {% elif host.result == 'preview' %}
+                                <span class="badge bg-info text-dark">Vista previa</span>
+                                {% elif host.result == 'skipped' %}
+                                <span class="badge bg-secondary">Omitido</span>
+                                {% else %}
+                                <span class="badge bg-secondary">Sin datos</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="4" class="text-center py-4">
+                                <small class="text-secondary">
+                                    El inventario aún no tiene hosts.
+                                    <a href="{{ url_for('inventario') }}">Añadir un grupo</a>.
+                                </small>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <div class="stack">
+        <section class="card" aria-labelledby="panel-running-title">
+            <div class="card-head">
+                <h2 class="card-title" id="panel-running-title">
+                    <i class="bi bi-activity" aria-hidden="true"></i> Ejecución en curso
+                </h2>
+                {% if running %}
+                <span class="badge bg-info text-dark">En curso</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if running %}
+                <p class="panel-muted">
+                    Lote «{{ running.target }}» · {{ running.processed }} de
+                    {{ running.total }} hosts
+                </p>
+                <progress class="hora-progress" value="{{ running.percent }}"
+                          max="100" aria-label="Progreso del lote">
+                    {{ running.percent }} %
+                </progress>
+                <div class="panel-meta-row">
+                    <span>{{ running.percent }} %</span>
+                    <span>{{ running.operator or 'Sistema' }}</span>
+                </div>
+                <a class="btn btn-primary btn-sm w-100"
+                   href="{{ url_for('batch_detail', batch_id=running.batch_id) }}">
+                    Ver progreso
+                </a>
+                {% else %}
+                <p class="panel-empty">
+                    No hay ninguna ejecución en curso.
+                </p>
+                <a class="btn btn-secondary btn-sm w-100" href="{{ url_for('ejecuciones', tab='historial') }}">
+                    Ver ejecuciones recientes
+                </a>
+                {% endif %}
+            </div>
+        </section>
+
+        <section class="card" aria-labelledby="panel-alerts-title">
+            <div class="card-head">
+                <h2 class="card-title" id="panel-alerts-title">
+                    <i class="bi bi-bell" aria-hidden="true"></i> Alertas
+                </h2>
+                <span class="badge {% if alert_count %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                    {{ alert_count }}
+                </span>
+            </div>
+            <div class="card-body">
+                {% if alerts %}
+                <ul class="panel-alerts">
+                    {% for alert in alerts %}
+                    <li class="panel-alert is-{{ alert.level }}">
+                        <a href="{{ alert.href }}">
+                            <strong>{{ alert.title }}</strong>
+                            <span>{{ alert.text }}</span>
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="panel-empty">No hay alertas abiertas.</p>
+                {% endif %}
+            </div>
+        </section>
+
+        <section class="card" aria-labelledby="panel-schedules-title">
+            <div class="card-head">
+                <h2 class="card-title" id="panel-schedules-title">
+                    <i class="bi bi-calendar2-week" aria-hidden="true"></i>
+                    Próximas programaciones
+                </h2>
+                <span class="badge bg-secondary">{{ active_schedules_total }}</span>
+            </div>
+            <div class="card-body">
+                {% if upcoming_schedules %}
+                <ul class="panel-schedule-list">
+                    {% for schedule in upcoming_schedules %}
+                    <li>
+                        <span>
+                            <strong>{{ schedule.name }}</strong>
+                            <small>{{ schedule.task_name }} · {{ schedule.recurrence }}</small>
+                        </span>
+                        <span class="panel-schedule-when">{{ schedule.next_run }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="panel-empty">No hay programaciones activas.</p>
+                {% endif %}
+                <a class="btn btn-primary btn-sm w-100 mt-2"
+                   href="{{ url_for('programacion_nueva') }}">
+                    <i class="bi bi-plus-lg" aria-hidden="true"></i> Nueva programación
+                </a>
+            </div>
+        </section>
+    </div>
+</div>
+{% endblock %}

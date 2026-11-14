@@ -5,7 +5,6 @@
 {% block breadcrumb %}Programaciones{% endblock %}
 
 {% block content %}
-{% include "_config_tabs.html" %}
 {% if filter_group_name %}
 <div class="banner banner-info mb-3" role="status">
     <div class="banner-icon" aria-hidden="true"><i class="bi bi-funnel"></i></div>
@@ -24,7 +23,7 @@
         <h1>Programaciones</h1>
         <p class="sub">
             Listado de tareas programadas por ejecutar. Para crear una nueva,
-            abre la tarea desde el catálogo y usa <strong>Programar</strong>.
+            pulsa <strong>Nueva programación</strong> y elige la tarea.
         </p>
     </div>
     <div class="head-actions">
@@ -39,8 +38,8 @@
             </a>
             {% endif %}
         {% endif %}
-        <a class="btn btn-secondary" href="{{ url_for('index') }}">
-            <i class="bi bi-grid" aria-hidden="true"></i> Ir al catálogo
+        <a class="btn btn-primary" href="{{ url_for('programacion_nueva') }}">
+            <i class="bi bi-plus-lg" aria-hidden="true"></i> Nueva programación
         </a>
     </div>
 </div>
@@ -141,7 +140,7 @@
                             <div class="mb-2"><i class="bi bi-calendar2-x" aria-hidden="true"></i></div>
                             <small class="text-secondary">
                                 No hay programaciones por ejecutar. Abre una tarea
-                                del <a href="{{ url_for('index') }}">catálogo</a> y usa
+                                del <a href="{{ url_for('tareas') }}">catálogo</a> y usa
                                 <strong>Programar</strong>.
                             </small>
                         </td>

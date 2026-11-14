@@ -95,7 +95,7 @@ def _finish_session_login(user: User, client_ip: str, event: str, detail: str):
     login_user(user, remember=bool(request.form.get("remember")))
     next_url = request.args.get("next") or request.form.get("next")
     return redirect(
-        next_url if next_url and _is_safe_redirect(next_url) else url_for("index")
+        next_url if next_url and _is_safe_redirect(next_url) else url_for("panel")
     )
 
 
@@ -246,7 +246,7 @@ def _try_ldap_login(
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for("index"))
+        return redirect(url_for("panel"))
 
     if request.method == "POST":
         client_ip = _client_ip()
@@ -314,6 +314,24 @@ def logout():
     logout_user()
     flash("Sesión cerrada.", "info")
     return redirect(url_for("login"))
+
+@app.route("/cuenta")
+@login_required
+def cuenta():
+    """Cuenta del usuario y preferencias locales (tema)."""
+    role_labels = {
+        "admin": "Administrador",
+        "operator": "Operador",
+        "viewer": "Consulta",
+    }
+    return render_template(
+        "cuenta.html",
+        role_label=role_labels.get(current_user.role, current_user.role),
+        auth_source_label=(
+            "LDAPS" if current_user.auth_source == "ldaps" else "Cuenta local"
+        ),
+    )
+
 
 def register(flask_app) -> None:
     app.apply(flask_app)

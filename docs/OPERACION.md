@@ -72,7 +72,7 @@ porque no modifican el equipo.
 Un lote encolado muestra `En cola` con su posición y una espera estimada
 (mediana de los últimos lotes de la misma acción, repartida entre los puestos
 de trabajo). La portada del formulario avisa de los hosts reservados en ese
-momento. El panel `/metricas` y `/api/metricas` exponen profundidad de cola,
+momento. El panel `/sistema?tab=rendimiento` y `/api/metricas` exponen profundidad de cola,
 tareas pendientes/en ejecución, espera p50/p95 y hosts reservados.
 
 ### 1.3. Cierre
@@ -158,7 +158,7 @@ sobrescribir la criticidad del grupo; si el campo queda vacío, heredan.
 - **Vista previa y DRY RUN**: nunca se bloquean; permiten comprobar el estado
   sin modificar nada.
 - **Excepción**: solo un administrador puede autorizarla, con un motivo de al
-  menos 10 caracteres. Queda registrada en `/audit` como `safety_override` con
+  menos 10 caracteres. Queda registrada en `/sistema?tab=auditoria` como `safety_override` con
   el usuario, el objetivo y el motivo. El bloqueo se registra como
   `safety_blocked`.
 - **Programaciones**: no admiten excepción. Si al vencer caen fuera de la
@@ -212,7 +212,7 @@ nombre aunque sus filas sean privadas.
 
 El **vault de contraseñas sigue siendo compartido**: cualquier usuario
 autenticado puede usarlo al ejecutar, pero solo un administrador puede añadir,
-importar o eliminar contraseñas desde `/passwords`.
+importar o eliminar contraseñas desde `/credenciales`.
 
 ### 2.5. Durante la ejecución
 
@@ -303,7 +303,7 @@ espacio libre de `/` y de `/var/cache/apt/archives`. Si no alcanza, la
 estación queda en **Requiere atención**, motivo `space`, y aparece con IP,
 nombre y motivo en el **informe general** del lote.
 
-Los resultados se ven en `/batches/<batch_id>` y `/history`; el botón
+Los resultados se ven en `/batches/<batch_id>` y `/ejecuciones?tab=historial`; el botón
 **Informe de migración** del detalle (y de la tarjeta) genera el PDF aparte.
 Un lote con estaciones correctas y estaciones con atención queda en estado
 `partial`.
@@ -598,7 +598,7 @@ sudo chmod 600 /etc/ansible-control-center/secrets/passwords_vault.yml
 sudo systemctl start ansible-control-center
 ```
 
-Después, verifica login, `/history` y que el vault se descifra con la
+Después, verifica login, `/ejecuciones?tab=historial` y que el vault se descifra con la
 contraseña maestra esperada.
 
 ---
@@ -685,7 +685,7 @@ contraseña y rol, además de las cuentas corporativas LDAPS:
   «Desactivar». El sistema nunca permite quedarse sin un administrador local
   activo.
 
-Los cambios quedan en `/audit` como `local_user_created`,
+Los cambios quedan en `/sistema?tab=auditoria` como `local_user_created`,
 `password_changed` y `local_user_deleted`.
 
 ### 8.3. Rotar la contraseña del administrador
@@ -834,7 +834,7 @@ sqlite3 /var/lib/ansible-control-center/acc.db \
 - No compartas la contraseña maestra por chat/correo; usa un gestor de secretos.
 - Los campos de contraseña maestra del vault no se autocompletan ni se guardan
   en el navegador; escríbela cada vez que se solicite.
-- Revisa `/history` tras cada operación sensible.
+- Revisa `/ejecuciones?tab=historial` tras cada operación sensible.
 - El rate limiting es en memoria y por proceso; con varios workers no es
   global.
 - Hay roles `viewer`/`operator`/`admin` y auditoría de acceso, pero no MFA.
@@ -847,7 +847,7 @@ sqlite3 /var/lib/ansible-control-center/acc.db \
 
 ## 10. Checklist de incidente
 
-1. **Identifica el lote** en `/history` o por `batch_id`.
+1. **Identifica el lote** en `/ejecuciones?tab=historial` o por `batch_id`.
 2. **Comprueba el estado global** y los contadores.
 3. **Abre el detalle** y localiza hosts `failure`/`error`.
 4. **Lee `error`, `before_state` y `after_state`.**

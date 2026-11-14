@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}Mi cuenta{% endblock %}
+
+{% block breadcrumb %}Mi cuenta{% endblock %}
+
+{% block content %}
+<div class="page-head fade-in">
+    <div>
+        <div class="eyebrow">Cuenta</div>
+        <h1>Mi cuenta</h1>
+        <p class="sub">Identidad con la que accedes a la consola y preferencias de este navegador.</p>
+    </div>
+    <div class="head-actions">
+        <form method="post" action="{{ url_for('logout') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-secondary">
+                <i class="bi bi-box-arrow-right" aria-hidden="true"></i> Cerrar sesión
+            </button>
+        </form>
+    </div>
+</div>
+
+<section class="card account-card fade-in" aria-labelledby="account-identity">
+    <div class="account-identity">
+        <span class="user-avatar is-static" aria-hidden="true">
+            {{ current_user.username[:2] | upper }}
+        </span>
+        <div>
+            <h2 id="account-identity">{{ current_user.username }}</h2>
+            <p>{{ role_label }} · {{ auth_source_label }}</p>
+        </div>
+    </div>
+    <dl class="account-facts">
+        <div class="account-fact">
+            <dt>Usuario</dt>
+            <dd>{{ current_user.username }}</dd>
+        </div>
+        <div class="account-fact">
+            <dt>Rol</dt>
+            <dd>{{ role_label }}</dd>
+        </div>
+        <div class="account-fact">
+            <dt>Origen de la cuenta</dt>
+            <dd>{{ auth_source_label }}</dd>
+        </div>
+        <div class="account-fact">
+            <dt>Estado</dt>
+            <dd>
+                {% if current_user.is_active %}
+                <span class="badge bg-success">Activa</span>
+                {% else %}
+                <span class="badge bg-secondary">Desactivada</span>
+                {% endif %}
+            </dd>
+        </div>
+    </dl>
+</section>
+
+<section class="card account-card fade-in mt-3" id="preferencias" aria-labelledby="account-prefs">
+    <div class="card-head">
+        <h2 class="card-title" id="account-prefs">
+            <i class="bi bi-sliders" aria-hidden="true"></i> Preferencias
+        </h2>
+    </div>
+    <div class="pref-row">
+        <div class="pref-copy">
+            <strong>Tema de la consola</strong>
+            <small>Se guarda en este navegador y no afecta a otros usuarios.</small>
+        </div>
+        <div class="pref-control">
+            <div class="segmented" role="group" aria-label="Tema de la consola">
+                <button type="button" data-theme-choice="light">Claro</button>
+                <button type="button" data-theme-choice="dark">Oscuro</button>
+            </div>
+        </div>
+    </div>
+    <div class="pref-row">
+        <div class="pref-copy">
+            <strong>Idioma</strong>
+            <small>La consola está disponible en español.</small>
+        </div>
+        <div class="pref-control">
+            <span class="badge bg-secondary">Español</span>
+        </div>
+    </div>
+    <div class="pref-row">
+        <div class="pref-copy">
+            <strong>Acceso</strong>
+            <small>Los permisos dependen del rol asignado por un administrador.</small>
+        </div>
+        <div class="pref-control">
+            <span class="badge bg-secondary">{{ role_label }}</span>
+        </div>
+    </div>
+</section>
+
+<script nonce="{{ csp_nonce }}">
+(function () {
+    const key = 'ansible-control-center-theme';
+    const root = document.documentElement;
+    const buttons = Array.prototype.slice.call(
+        document.querySelectorAll('[data-theme-choice]')
+    );
+
+    function paint() {
+        const theme = root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+        buttons.forEach(function (button) {
+            button.classList.toggle(
+                'is-active', button.getAttribute('data-theme-choice') === theme
+            );
+        });
+    }
+
+    buttons.forEach(function (button) {
+        button.addEventListener('click', function () {
+            const theme = button.getAttribute('data-theme-choice');
+            root.setAttribute('data-theme', theme);
+            root.setAttribute('data-bs-theme', theme);
+            try { localStorage.setItem(key, theme); } catch (_error) { /* sin almacenamiento */ }
+            const icon = document.getElementById('themeIcon');
+            if (icon) {
+                icon.className = theme === 'dark' ? 'bi bi-sun' : 'bi bi-moon-stars';
+            }
+            paint();
+        });
+    });
+
+    paint();
+})();
+</script>
+{% endblock %}

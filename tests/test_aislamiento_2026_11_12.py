@@ -225,7 +225,7 @@ def test_legacy_schedule_is_shared(client):
 
 def test_only_admin_can_modify_shared_vault(client):
     _login(client, "operador")
-    assert client.get("/passwords").status_code == 200
+    assert client.get("/credenciales").status_code == 200
     response = _post(
         client,
         "/passwords",

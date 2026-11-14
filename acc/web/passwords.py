@@ -28,7 +28,6 @@ from config import (
     VAULT_RATE_LIMIT,
     VAULT_RATE_WINDOW,
 )
-from models.batch import ExecutionBatch
 from models.password import PasswordRecord
 from services.secure_temp import secure_temp_file
 from services.vault_manager import VaultManager
@@ -45,12 +44,12 @@ def _password_response(success: bool, message: str, status: int = 200):
     if _wants_json():
         return jsonify({"success": success, "message": message}), status
     flash(message, "success" if success else "danger")
-    return redirect(url_for("passwords"))
+    return redirect(url_for("credenciales"))
 
 
-@app.route("/passwords", methods=["GET", "POST"])
+@app.route("/credenciales", methods=["GET", "POST"])
 @login_required
-def passwords():
+def credenciales():
     if request.method == "POST":
         # El vault es compartido: todos pueden usarlo al ejecutar tareas,
         # pero solo un administrador puede añadir, importar o eliminar.
@@ -228,19 +227,27 @@ def passwords():
     except RuntimeError:
         vault_exists = False
     return render_template(
-        "passwords.html",
+        "credenciales.html",
         passwords=stored,
         vault_exists=vault_exists,
         password_origin_labels=dict(PASSWORD_ORIGINS),
     )
 
 
+@app.route("/passwords", methods=["GET", "POST"])
+@login_required
+def passwords():
+    """Alias permanente de Credenciales; conserva los POST antiguos."""
+    if request.method == "POST":
+        return credenciales()
+    return redirect(url_for("credenciales"), code=301)
+
+
 @app.route("/history")
 @login_required
 def history():
-    batches = ExecutionBatch.get_batches(limit=50, db_path=runtime.get_db_path())
-    stats = ExecutionBatch.get_stats(db_path=runtime.get_db_path())
-    return render_template("history.html", batches=batches, stats=stats)
+    """Compatibilidad: el historial vive ahora en Ejecuciones → Historial."""
+    return redirect(url_for("ejecuciones", tab="historial"), code=301)
 
 def register(flask_app) -> None:
     app.apply(flask_app)

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Sistema{% endblock %}
+
+{% block breadcrumb %}Administración / Sistema{% endblock %}
+
+{% block content %}
+{% set tab_meta = [
+    ('auditoria', 'Auditoría', 'bi-shield-check'),
+    ('rendimiento', 'Rendimiento', 'bi-speedometer2'),
+    ('ajustes', 'Ajustes', 'bi-sliders2'),
+    ('acerca-de', 'Acerca de', 'bi-info-circle'),
+] %}
+<div class="page-head fade-in">
+    <div>
+        <div class="eyebrow">Administración</div>
+        <h1>Sistema</h1>
+        <p class="sub">
+            Auditoría de accesos, rendimiento de la consola, ajustes de operación
+            y datos técnicos del servicio, en un solo lugar.
+        </p>
+    </div>
+    <div class="head-actions">
+        {% if tab == 'rendimiento' %}
+        <a href="{{ url_for('api_metricas') }}" class="btn btn-secondary">
+            <i class="bi bi-braces" aria-hidden="true"></i> Ver JSON
+        </a>
+        {% endif %}
+        <a href="{{ url_for('usuarios') }}" class="btn btn-secondary">
+            <i class="bi bi-people" aria-hidden="true"></i> Usuarios
+        </a>
+    </div>
+</div>
+
+<nav class="seg-tabs section-tabs" aria-label="Secciones de Sistema">
+    {% for key, label, icon in tab_meta %}
+    <a class="seg-tab{% if tab == key %} is-active{% endif %}"
+       href="{{ url_for('sistema', tab=key) }}"
+       {% if tab == key %}aria-current="page"{% endif %}>
+        <i class="bi {{ icon }}" aria-hidden="true"></i> {{ label }}
+    </a>
+    {% endfor %}
+</nav>
+
+{% if tab == 'auditoria' %}
+    {% include "_sistema_auditoria.html" %}
+{% elif tab == 'rendimiento' %}
+    {% include "_sistema_rendimiento.html" %}
+{% elif tab == 'ajustes' %}
+    {% include "_sistema_ajustes.html" %}
+{% else %}
+    {% include "_sistema_acerca.html" %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,174 @@
+{% set environment_label = ('Producción' if is_production else 'Desarrollo') ~ (' · DRY RUN activo' if dry_run else '') %}
+
+<section class="card fade-in" aria-labelledby="settings-run">
+    <div class="card-head">
+        <h2 class="card-title" id="settings-run">
+            <i class="bi bi-play-circle" aria-hidden="true"></i> Ejecución
+        </h2>
+    </div>
+    <form method="post" action="{{ url_for('update_dry_run') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <input type="hidden" name="dry_run_form" value="1">
+        <div class="pref-row">
+            <div class="pref-copy">
+                <strong>Modo simulación</strong>
+                <small>
+                    Cuando está activo, Ansible no aplica cambios en los hosts.
+                    Solo un administrador puede cambiarlo.
+                </small>
+            </div>
+            <div class="pref-control">
+                <div class="form-check form-switch m-0">
+                    <input class="form-check-input" type="checkbox" role="switch"
+                           id="settingsDryRun" name="enabled" value="1"
+                           {% if dry_run %}checked{% endif %}>
+                    <label class="form-check-label" for="settingsDryRun">
+                        {{ 'Activada' if dry_run else 'Desactivada' }}
+                    </label>
+                </div>
+            </div>
+        </div>
+        <div class="pref-row">
+            <div class="pref-copy">
+                <strong>Entorno actual</strong>
+                <small>{{ environment_label }}. El cambio se aplica a la próxima operación.</small>
+            </div>
+            <div class="pref-control">
+                <button type="submit" class="btn btn-sm btn-acento">
+                    <i class="bi bi-check2" aria-hidden="true"></i> Guardar
+                </button>
+            </div>
+        </div>
+    </form>
+</section>
+
+<section class="card fade-in mt-3" aria-labelledby="settings-access">
+    <div class="card-head">
+        <h2 class="card-title" id="settings-access">
+            <i class="bi bi-shield-lock" aria-hidden="true"></i> Acceso y seguridad
+        </h2>
+    </div>
+    <div class="pref-row">
+        <div class="pref-copy">
+            <strong>Doble aprobación para tareas destructivas</strong>
+            <small>
+                Un administrador distinto del ejecutor debe autorizar cada
+                lanzamiento. Se gestiona en Solicitudes → Aprobaciones.
+            </small>
+        </div>
+        <div class="pref-control">
+            <span class="badge bg-success">Activa</span>
+        </div>
+    </div>
+    <div class="pref-row">
+        <div class="pref-copy">
+            <strong>Directorio LDAPS</strong>
+            <small>
+                {% if ldap_configured %}
+                    {{ 'Las cuentas corporativas pueden autenticarse.' if ldap_supported else 'Configurado, pero desactivado: solo cuentas locales.' }}
+                {% else %}
+                    Sin configurar: solo se autentican cuentas locales.
+                {% endif %}
+                Se activa o desactiva desde Usuarios.
+            </small>
+        </div>
+        <div class="pref-control">
+            {% if ldap_supported %}
+            <span class="badge bg-success">Activo</span>
+            {% elif ldap_configured %}
+            <span class="badge bg-warning text-dark">Desactivado</span>
+            {% else %}
+            <span class="badge bg-secondary">No configurado</span>
+            {% endif %}
+        </div>
+    </div>
+    <div class="pref-row">
+        <div class="pref-copy">
+            <strong>Retención de auditoría</strong>
+            <small>Días que se conservan los eventos de autenticación.</small>
+        </div>
+        <div class="pref-control">
+            <span class="badge bg-secondary">{{ retention_days }} días</span>
+        </div>
+    </div>
+    <div class="pref-row">
+        <div class="pref-copy">
+            <strong>Credenciales del vault</strong>
+            <small>Las contraseñas se cifran con Ansible Vault y nunca se muestran en claro.</small>
+        </div>
+        <div class="pref-control">
+            <a class="btn btn-sm btn-secondary" href="{{ url_for('credenciales') }}">
+                <i class="bi bi-key" aria-hidden="true"></i> Abrir Credenciales
+            </a>
+        </div>
+    </div>
+</section>
+
+<section class="card fade-in mt-3" aria-labelledby="settings-look">
+    <div class="card-head">
+        <h2 class="card-title" id="settings-look">
+            <i class="bi bi-palette" aria-hidden="true"></i> Apariencia
+        </h2>
+    </div>
+    <div class="pref-row">
+        <div class="pref-copy">
+            <strong>Tema</strong>
+            <small>Se guarda en este navegador, no en la cuenta.</small>
+        </div>
+        <div class="pref-control">
+            <div class="segmented" role="group" aria-label="Tema de la consola">
+                <button type="button" data-theme-choice="light">Claro</button>
+                <button type="button" data-theme-choice="dark">Oscuro</button>
+            </div>
+        </div>
+    </div>
+    <div class="pref-row">
+        <div class="pref-copy">
+            <strong>Idioma</strong>
+            <small>La consola está disponible en español.</small>
+        </div>
+        <div class="pref-control">
+            <span class="badge bg-secondary">Español</span>
+        </div>
+    </div>
+</section>
+
+<script nonce="{{ csp_nonce }}">
+(function () {
+    const key = 'ansible-control-center-theme';
+    const root = document.documentElement;
+    const buttons = Array.prototype.slice.call(
+        document.querySelectorAll('[data-theme-choice]')
+    );
+
+    function current() {
+        return root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    }
+
+    function paint() {
+        const theme = current();
+        buttons.forEach(function (button) {
+            button.classList.toggle(
+                'is-active', button.getAttribute('data-theme-choice') === theme
+            );
+        });
+    }
+
+    buttons.forEach(function (button) {
+        button.addEventListener('click', function () {
+            const theme = button.getAttribute('data-theme-choice');
+            root.setAttribute('data-theme', theme);
+            root.setAttribute('data-bs-theme', theme);
+            try { localStorage.setItem(key, theme); } catch (_error) { /* sin almacenamiento */ }
+            const icon = document.getElementById('themeIcon');
+            if (icon) {
+                icon.className = theme === 'dark' ? 'bi bi-sun' : 'bi bi-moon-stars';
+            }
+            paint();
+        });
+    });
+
+    paint();
+})();
+</script>

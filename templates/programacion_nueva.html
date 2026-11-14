@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Nueva programación{% endblock %}
+
+{% block breadcrumb %}
+<a href="{{ url_for('programaciones') }}">Programaciones</a> / Nueva
+{% endblock %}
+
+{% block content %}
+<div class="page-head fade-in">
+    <div>
+        <div class="eyebrow">Operación</div>
+        <h1>Nueva programación</h1>
+        <p class="sub">
+            Elige la tarea que quieres programar. Se abrirá su formulario con la
+            opción <strong>Programar</strong> ya seleccionada para que indiques
+            fecha, repetición y objetivo.
+        </p>
+    </div>
+    <a class="btn btn-secondary" href="{{ url_for('programaciones') }}">
+        <i class="bi bi-arrow-left" aria-hidden="true"></i> Volver
+    </a>
+</div>
+
+<section class="task-catalog schedule-picker" aria-label="Tareas programables">
+    <div class="task-grid">
+        {% for task in tasks %}
+        <article class="task-card tone-{{ task.tone | default('neutral') }}">
+            <a class="task-card-link"
+               href="{{ url_for('task_view', task_id=task.id, mode='schedule') }}">
+                <span class="task-top">
+                    <span class="task-icon" aria-hidden="true">
+                        <i class="bi {{ task.icon }}"></i>
+                    </span>
+                </span>
+                <span class="task-name">{{ task.name }}</span>
+                <span class="task-desc">{{ task.summary }}</span>
+                <span class="task-chips">
+                    {% for chip in task.chips %}<span class="task-chip">{{ chip }}</span>{% endfor %}
+                </span>
+                <span class="task-foot">
+                    <span>{{ task.id }}</span>
+                    <span class="task-open">
+                        Elegir y programar <i class="bi bi-arrow-right" aria-hidden="true"></i>
+                    </span>
+                </span>
+            </a>
+        </article>
+        {% else %}
+        <div class="card p-4">
+            <h2 class="card-title"><i class="bi bi-calendar-x" aria-hidden="true"></i> No hay tareas programables</h2>
+            <p class="text-muted mb-3">Ninguna tarea del catálogo admite programación.</p>
+            <a class="btn btn-secondary" href="{{ url_for('programaciones') }}">
+                <i class="bi bi-arrow-left" aria-hidden="true"></i> Volver a Programaciones
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

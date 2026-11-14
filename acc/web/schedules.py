@@ -33,6 +33,7 @@ from models.ops import (
     HostGroup,
     Schedule,
 )
+from services import task_catalog
 from services.wallpaper import remove_wallpaper
 
 app = RouteRegistry()
@@ -139,6 +140,35 @@ def programaciones():
             "weekly": "Semanal",
         },
     )
+
+
+@app.route("/programaciones/nueva")
+@login_required
+def programacion_nueva():
+    """Selector de tarea para crear una programación real.
+
+    Antes «Nueva programación» llevaba a la lista; ahora abre este paso
+    previo y cada tarjeta continúa en la tarea con la opción «Programar»
+    ya seleccionada.
+    """
+    if not current_user.has_role("admin"):
+        abort(403)
+    schedulable = _schedulable_tasks()
+    catalog = {task["id"]: task for task in task_catalog.TASK_CATALOG}
+    tasks = []
+    for task_id, task in schedulable.items():
+        meta = catalog.get(task_id, {})
+        tasks.append(
+            {
+                "id": task_id,
+                "name": task["name"],
+                "summary": meta.get("summary", ""),
+                "icon": meta.get("icon", "bi-lightning-charge"),
+                "chips": meta.get("chips", []),
+                "actions": task.get("actions") or [],
+            }
+        )
+    return render_template("programacion_nueva.html", tasks=tasks)
 
 
 @app.route("/programaciones/<int:schedule_id>/editar", methods=["GET", "POST"])
