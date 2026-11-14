@@ -23,9 +23,15 @@ from models.batch import ExecutionBatch
 from models.db import get_connection
 from models.ops import ApprovalRequest, HostGroup, Schedule
 
-DEMO_PREFIX = "Demo · "
-DEMO_OPERATOR_PREFIX = "demo."
+# Los nombres y operadores ficticios se declaran completos más abajo; el
+# prefijo del lote sí es un marcador inequívoco (los lotes reales usan
+# ``AAAAMMDD-HHMMSS-xxxx``).
 DEMO_BATCH_PREFIX = "demo-"
+
+# Identidades ficticias creadas por el sembrado. La purga las usa como lista
+# explícita: un operador real llamado ``demo.fulano`` ya no se borra por
+# parecerse al prefijo.
+DEMO_OPERATORS = ("demo.maria", "demo.luis", "demo.carla")
 
 # (nombre, descripción, plataforma, criticidad, días, inicio, fin, nota)
 _DEMO_GROUPS = (
@@ -101,6 +107,16 @@ _DEMO_HOSTS = {
         ("10.99.40.34", "pc-secretaria"),
     ),
 }
+
+# Nombres exactos creados por el sembrado. La purga los enumera en lugar de
+# usar ``LIKE 'Demo · %'``: un grupo real con ese prefijo no se ve afectado.
+DEMO_GROUP_NAMES = tuple(name for name, *_ in _DEMO_GROUPS)
+DEMO_SCHEDULE_NAMES = (
+    "Demo · Zona horaria sucursales",
+    "Demo · Tapiz institucional aulas",
+    "Demo · Actualización APT centro",
+    "Demo · Firewall oficina Windows",
+)
 
 # (días atrás, operador, task_id, acción, valor, objetivo, estado, resultados)
 _DEMO_BATCHES = (
@@ -300,45 +316,61 @@ def _default_db_path() -> str:
     return str(runtime.get_db_path())
 
 
+def _in(values: tuple[str, ...]) -> str:
+    """Devuelve ``?, ?, …`` para una cláusula ``IN`` con parámetros."""
+    return ", ".join("?" for _ in values)
+
+
 def demo_data_present(db_path: str | None = None) -> bool:
     """Indica si la base ya contiene datos de demostración."""
     db_path = db_path or _default_db_path()
     with get_connection(db_path) as conn:
         row = conn.execute(
-            """
+            f"""
             SELECT
-                (SELECT COUNT(*) FROM inventory_groups WHERE name LIKE ?) +
-                (SELECT COUNT(*) FROM execution_batches WHERE operator LIKE ?) +
-                (SELECT COUNT(*) FROM schedules WHERE name LIKE ?) AS total
+                (SELECT COUNT(*) FROM inventory_groups
+                  WHERE name IN ({_in(DEMO_GROUP_NAMES)})) +
+                (SELECT COUNT(*) FROM execution_batches
+                  WHERE batch_id LIKE ?) +
+                (SELECT COUNT(*) FROM schedules
+                  WHERE name IN ({_in(DEMO_SCHEDULE_NAMES)})) AS total
             """,
-            (f"{DEMO_PREFIX}%", f"{DEMO_OPERATOR_PREFIX}%", f"{DEMO_PREFIX}%"),
+            (*DEMO_GROUP_NAMES, f"{DEMO_BATCH_PREFIX}%", *DEMO_SCHEDULE_NAMES),
         ).fetchone()
     return bool(row["total"])
 
 
 def purge_demo_data(db_path: str | None = None) -> dict[str, int]:
-    """Elimina solo las filas creadas por ``seed_demo_data``."""
+    """Elimina solo las filas creadas por ``seed_demo_data``.
+
+    La selección usa identificadores exactos (nombres de grupo y programación,
+    prefijo de ``batch_id``, operadores ficticios y marca ``[demo]`` en el
+    evento). No se borra por parecido: un operador real cuyo nombre empiece
+    por ``demo.`` o un grupo llamado «Demo · …» creado a mano se conservan.
+    """
     db_path = db_path or _default_db_path()
-    batch_like = f"{DEMO_BATCH_PREFIX}%"
     with get_connection(db_path) as conn:
         batches = conn.execute(
-            "DELETE FROM execution_batches WHERE batch_id LIKE ? OR operator LIKE ?",
-            (batch_like, f"{DEMO_OPERATOR_PREFIX}%"),
+            "DELETE FROM execution_batches WHERE batch_id LIKE ?",
+            (f"{DEMO_BATCH_PREFIX}%",),
         ).rowcount
         approvals = conn.execute(
-            "DELETE FROM approvals WHERE requested_by LIKE ?",
-            (f"{DEMO_OPERATOR_PREFIX}%",),
+            f"DELETE FROM approvals WHERE requested_by IN ({_in(DEMO_OPERATORS)})",
+            DEMO_OPERATORS,
         ).rowcount
         schedules = conn.execute(
-            "DELETE FROM schedules WHERE name LIKE ?", (f"{DEMO_PREFIX}%",)
+            f"DELETE FROM schedules WHERE name IN ({_in(DEMO_SCHEDULE_NAMES)})",
+            DEMO_SCHEDULE_NAMES,
         ).rowcount
         # ``inventory_hosts`` cae por la clave foránea ON DELETE CASCADE.
         groups = conn.execute(
-            "DELETE FROM inventory_groups WHERE name LIKE ?", (f"{DEMO_PREFIX}%",)
+            f"DELETE FROM inventory_groups WHERE name IN ({_in(DEMO_GROUP_NAMES)})",
+            DEMO_GROUP_NAMES,
         ).rowcount
         events = conn.execute(
-            "DELETE FROM auth_events WHERE username LIKE ? OR detail LIKE ?",
-            (f"{DEMO_OPERATOR_PREFIX}%", "%[demo]%"),
+            f"DELETE FROM auth_events WHERE username IN ({_in(DEMO_OPERATORS)}) "
+            "AND detail LIKE '[demo] %'",
+            DEMO_OPERATORS,
         ).rowcount
     return {
         "batches": int(batches or 0),
@@ -683,13 +715,27 @@ def seed_demo_data(
     db_path: str | None = None,
     with_running: bool = True,
     reset: bool = False,
+    allow_production: bool = False,
 ) -> dict[str, Any]:
     """Inserta el conjunto de datos ficticios y devuelve el resumen.
 
     Si ya existen datos de demostración y ``reset`` es falso, lanza
     ``ValueError`` para no duplicarlos. ``with_running`` permite omitir el
     lote en curso (por ejemplo, en una base recién creada para capturas).
+
+    En producción se niega a sembrar salvo que se pase ``allow_production``
+    de forma explícita (``flask seed-demo --force``): mezclar estaciones
+    ficticias 10.99.0.0/16 con el inventario real solo genera confusión y
+    ejecuciones fallidas. La purga sigue permitida porque solo elimina datos
+    de demostración.
     """
+    from config import IS_PRODUCTION
+
+    if IS_PRODUCTION and not allow_production:
+        raise RuntimeError(
+            "seed-demo está deshabilitado con ACC_ENV=production. "
+            "Usa --force solo si la base no contiene datos reales."
+        )
     db_path = db_path or _default_db_path()
     if demo_data_present(db_path):
         if not reset:

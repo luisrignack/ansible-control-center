@@ -154,7 +154,7 @@ activa, porque el acceso LDAPS depende de que el directorio esté disponible.
 flask --app app init-db
 flask --app app init-admin [--username USUARIO]
 flask --app app reconcile-batches
-flask --app app seed-demo --yes [--reset | --purge] [--no-running]
+flask --app app seed-demo --yes [--reset | --purge] [--no-running] [--force]
 flask --app app scheduler [--once]
 ```
 
@@ -167,6 +167,8 @@ flask --app app scheduler [--once]
   eventos ficticios para revisar la interfaz con volumen realista. Exige
   `--yes`; `--reset` recrea el conjunto, `--purge` borra solo esos datos y
   `--no-running` omite el lote en curso. Las programaciones quedan inactivas.
+  Con `ACC_ENV=production` se niega a sembrar salvo que se añada `--force`
+  (la purga sí se permite siempre).
 - `scheduler`: ejecuta el programador en primer plano; `--once` hace una sola
   revisión. Recomendado con `ACC_ROLE=worker` y el servicio web en
   `ACC_ROLE=web`.

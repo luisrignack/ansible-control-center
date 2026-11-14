@@ -439,7 +439,8 @@ Con HTTPS activa `ACC_COOKIE_SECURE=1` en `.env`.
 2. *(Opcional)* **Previsualizar con datos ficticios**:
    `flask --app app seed-demo --yes` crea grupos, hosts, lotes,
    programaciones inactivas, solicitudes y eventos con la marca `Demo`.
-   `--purge` los elimina sin tocar datos reales.
+   `--purge` los elimina sin tocar datos reales. Con `ACC_ENV=production`
+   el sembrado exige `--force`; la purga no.
 3. **Contraseñas** → introducir candidatas y la contraseña maestra del vault.
    También puedes importar un `.txt` o un vault `.yml/.yaml` ya cifrado.
 4. **Panel** → IP o CIDR, usuario admin, origen de contraseñas, acción

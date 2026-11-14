@@ -725,7 +725,7 @@ CLI:
 flask --app app init-db
 flask --app app init-admin [--username USUARIO] [--role viewer|operator|admin]
 flask --app app reconcile-batches
-flask --app app seed-demo --yes [--reset | --purge] [--no-running]
+flask --app app seed-demo --yes [--reset | --purge] [--no-running] [--force]
 ```
 
 ---

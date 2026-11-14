@@ -679,14 +679,18 @@ sudo -u ansible-control-center .venv/bin/flask --app app seed-demo --yes
 docker compose --env-file .env.docker exec app flask --app app seed-demo --yes
 ```
 
-Todo lo creado lleva una marca reconocible para poder retirarlo:
+Todo lo creado lleva un identificador que la purga enumera de forma exacta:
 
 | Elemento | Marca |
 |---|---|
-| Grupos y programaciones | prefijo `Demo · ` |
-| Lotes | `batch_id` con prefijo `demo-` y operador `demo.*` |
-| Solicitudes | solicitante `demo.*` |
-| Eventos de auditoría | detalle con `[demo]` |
+| Grupos y programaciones | nombres concretos (`Demo · Sucursal Vedado`, …) |
+| Lotes | `batch_id` con prefijo `demo-` |
+| Solicitudes | solicitante en la lista `demo.maria`, `demo.luis`, `demo.carla` |
+| Eventos de auditoría | usuario de la lista anterior **y** detalle `[demo] …` |
+
+La purga no usa patrones amplios: un operador real llamado `demo.fulano`, un
+grupo real llamado `Demo · Producción` o un evento real que mencione «[demo]»
+se conservan.
 
 Las **programaciones demo quedan inactivas**: el planificador nunca las
 ejecutará contra las direcciones ficticias `10.99.0.0/16`. Si las activas a
@@ -699,15 +703,18 @@ Opciones:
   lotes ni eventos reales.
 - `--no-running`: no crea el lote de demostración en curso (útil si no
   quieres que aparezca actividad ficticia en el panel).
+- `--force`: permite sembrar aunque `ACC_ENV=production`. Sin esta opción el
+  comando se niega a ejecutarse en producción; la purga no la necesita.
 
 El lote demo `running` puede pasar a `error` tras un reinicio si supera el
 umbral de reconciliación (`ACC_RECOVERY_STALE_MINUTES`, 15 min). Usa
 `--no-running` para evitarlo en instalaciones de larga duración.
 
-> No ejecutes `seed-demo` sobre una instalación con datos reales si no vas a
-> poder distinguirlos después: aunque la purga es selectiva, los datos demo
-> comparten base con los reales. En producción, siémbralos solo en una
-> instancia de revisión o tras una copia de seguridad.
+> Con `ACC_ENV=production` el sembrado exige `--force`. Aun así, no ejecutes
+> `seed-demo` sobre una instalación con datos reales si no vas a poder
+> distinguirlos después: aunque la purga es selectiva, los datos demo
+> comparten base con los reales. Siémbralos solo en una instancia de revisión
+> o tras una copia de seguridad.
 
 ---
 

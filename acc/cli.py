@@ -126,7 +126,14 @@ def register_cli(flask_app: Flask) -> None:
         is_flag=True,
         help="No crea el lote de demostración en curso.",
     )
-    def seed_demo_command(yes: bool, reset: bool, purge: bool, no_running: bool):
+    @click.option(
+        "--force",
+        is_flag=True,
+        help="Permite sembrar aunque ACC_ENV=production.",
+    )
+    def seed_demo_command(
+        yes: bool, reset: bool, purge: bool, no_running: bool, force: bool
+    ):
         """Puebla la base con grupos, hosts, lotes y eventos ficticios.
 
         Todo lleva la marca «Demo» y las programaciones quedan inactivas para
@@ -151,8 +158,13 @@ def register_cli(flask_app: Flask) -> None:
             )
             return
         try:
-            summary = seed_demo_data(db_path, with_running=not no_running, reset=reset)
-        except ValueError as exc:
+            summary = seed_demo_data(
+                db_path,
+                with_running=not no_running,
+                reset=reset,
+                allow_production=force,
+            )
+        except (ValueError, RuntimeError) as exc:
             raise click.ClickException(str(exc)) from exc
         click.echo(
             "Datos de demostración insertados: "
