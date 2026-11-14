@@ -316,28 +316,31 @@ def _default_db_path() -> str:
     return str(runtime.get_db_path())
 
 
-def _in(values: tuple[str, ...]) -> str:
-    """Devuelve ``?, ?, …`` para una cláusula ``IN`` con parámetros."""
-    return ", ".join("?" for _ in values)
-
-
 def demo_data_present(db_path: str | None = None) -> bool:
     """Indica si la base ya contiene datos de demostración."""
     db_path = db_path or _default_db_path()
     with get_connection(db_path) as conn:
-        row = conn.execute(
-            f"""
-            SELECT
-                (SELECT COUNT(*) FROM inventory_groups
-                  WHERE name IN ({_in(DEMO_GROUP_NAMES)})) +
-                (SELECT COUNT(*) FROM execution_batches
-                  WHERE batch_id LIKE ?) +
-                (SELECT COUNT(*) FROM schedules
-                  WHERE name IN ({_in(DEMO_SCHEDULE_NAMES)})) AS total
-            """,
-            (*DEMO_GROUP_NAMES, f"{DEMO_BATCH_PREFIX}%", *DEMO_SCHEDULE_NAMES),
-        ).fetchone()
-    return bool(row["total"])
+        total = 0
+        for name in DEMO_GROUP_NAMES:
+            total += int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM inventory_groups WHERE name = ?",
+                    (name,),
+                ).fetchone()[0]
+            )
+        total += int(
+            conn.execute(
+                "SELECT COUNT(*) FROM execution_batches WHERE batch_id LIKE ?",
+                (f"{DEMO_BATCH_PREFIX}%",),
+            ).fetchone()[0]
+        )
+        for name in DEMO_SCHEDULE_NAMES:
+            total += int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM schedules WHERE name = ?", (name,)
+                ).fetchone()[0]
+            )
+    return bool(total)
 
 
 def purge_demo_data(db_path: str | None = None) -> dict[str, int]:
@@ -347,38 +350,56 @@ def purge_demo_data(db_path: str | None = None) -> dict[str, int]:
     prefijo de ``batch_id``, operadores ficticios y marca ``[demo]`` en el
     evento). No se borra por parecido: un operador real cuyo nombre empiece
     por ``demo.`` o un grupo llamado «Demo · …» creado a mano se conservan.
+
+    Cada borrado es una sentencia con un único parámetro: no se construye SQL
+    con el número de elementos de una lista.
     """
     db_path = db_path or _default_db_path()
-    with get_connection(db_path) as conn:
-        batches = conn.execute(
-            "DELETE FROM execution_batches WHERE batch_id LIKE ?",
-            (f"{DEMO_BATCH_PREFIX}%",),
-        ).rowcount
-        approvals = conn.execute(
-            f"DELETE FROM approvals WHERE requested_by IN ({_in(DEMO_OPERATORS)})",
-            DEMO_OPERATORS,
-        ).rowcount
-        schedules = conn.execute(
-            f"DELETE FROM schedules WHERE name IN ({_in(DEMO_SCHEDULE_NAMES)})",
-            DEMO_SCHEDULE_NAMES,
-        ).rowcount
-        # ``inventory_hosts`` cae por la clave foránea ON DELETE CASCADE.
-        groups = conn.execute(
-            f"DELETE FROM inventory_groups WHERE name IN ({_in(DEMO_GROUP_NAMES)})",
-            DEMO_GROUP_NAMES,
-        ).rowcount
-        events = conn.execute(
-            f"DELETE FROM auth_events WHERE username IN ({_in(DEMO_OPERATORS)}) "
-            "AND detail LIKE '[demo] %'",
-            DEMO_OPERATORS,
-        ).rowcount
-    return {
-        "batches": int(batches or 0),
-        "approvals": int(approvals or 0),
-        "schedules": int(schedules or 0),
-        "groups": int(groups or 0),
-        "events": int(events or 0),
+    counts = {
+        "batches": 0,
+        "approvals": 0,
+        "schedules": 0,
+        "groups": 0,
+        "events": 0,
     }
+    with get_connection(db_path) as conn:
+        counts["batches"] = int(
+            conn.execute(
+                "DELETE FROM execution_batches WHERE batch_id LIKE ?",
+                (f"{DEMO_BATCH_PREFIX}%",),
+            ).rowcount
+            or 0
+        )
+        for operator in DEMO_OPERATORS:
+            counts["approvals"] += int(
+                conn.execute(
+                    "DELETE FROM approvals WHERE requested_by = ?", (operator,)
+                ).rowcount
+                or 0
+            )
+        for name in DEMO_SCHEDULE_NAMES:
+            counts["schedules"] += int(
+                conn.execute("DELETE FROM schedules WHERE name = ?", (name,)).rowcount
+                or 0
+            )
+        # ``inventory_hosts`` cae por la clave foránea ON DELETE CASCADE.
+        for name in DEMO_GROUP_NAMES:
+            counts["groups"] += int(
+                conn.execute(
+                    "DELETE FROM inventory_groups WHERE name = ?", (name,)
+                ).rowcount
+                or 0
+            )
+        for operator in DEMO_OPERATORS:
+            counts["events"] += int(
+                conn.execute(
+                    "DELETE FROM auth_events WHERE username = ? "
+                    "AND detail LIKE '[demo] %'",
+                    (operator,),
+                ).rowcount
+                or 0
+            )
+    return counts
 
 
 def _iso(moment: datetime) -> str:

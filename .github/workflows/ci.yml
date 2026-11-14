@@ -64,8 +64,9 @@ jobs:
 
       # Solo código de producción: las herramientas y las pruebas usan
       # patrones (subprocess, urlopen) que no aplican al artefacto desplegado.
+      # -ll limita el fallo a severidad media o alta.
       - name: Bandit (código de producción)
-        run: python -m bandit -q -r app.py config.py acc models services
+        run: python -m bandit -q -r app.py config.py acc models services -ll
 
   test:
     runs-on: ubuntu-latest

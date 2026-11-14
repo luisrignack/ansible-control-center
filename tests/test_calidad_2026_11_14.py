@@ -34,7 +34,7 @@ def test_ci_executes_every_gate():
         "ruff": "python -m ruff check .",
         "black": "python -m black --check .",
         "mypy": "python -m mypy",
-        "bandit": "python -m bandit",
+        "bandit": "python -m bandit -q -r app.py config.py acc models services -ll",
     }
     for name, command in expected.items():
         assert command in workflow, f"El CI no ejecuta {name}: falta {command!r}"

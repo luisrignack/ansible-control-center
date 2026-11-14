@@ -50,14 +50,55 @@ HOST_RESULT_LABELS = {
     "attention": "Requiere atención",
 }
 
-_RESULT_COUNTERS = {
-    "success": "success_count",
-    "failure": "failure_count",
-    "skipped": "skipped_count",
-    "error": "error_count",
-    "preview": "preview_count",
-    "attention": "attention_count",
+# Sentencias completas por resultado: el nombre de la columna sale de este
+# mapa de constantes, nunca de una interpolación con datos de entrada.
+_RESULT_UPDATE_SQL = {
+    "success": (
+        "UPDATE execution_batches SET success_count = success_count + 1 "
+        "WHERE batch_id = ?"
+    ),
+    "failure": (
+        "UPDATE execution_batches SET failure_count = failure_count + 1 "
+        "WHERE batch_id = ?"
+    ),
+    "skipped": (
+        "UPDATE execution_batches SET skipped_count = skipped_count + 1 "
+        "WHERE batch_id = ?"
+    ),
+    "error": (
+        "UPDATE execution_batches SET error_count = error_count + 1 "
+        "WHERE batch_id = ?"
+    ),
+    "preview": (
+        "UPDATE execution_batches SET preview_count = preview_count + 1 "
+        "WHERE batch_id = ?"
+    ),
+    "attention": (
+        "UPDATE execution_batches SET attention_count = attention_count + 1 "
+        "WHERE batch_id = ?"
+    ),
 }
+
+# Reconciliación de lotes huérfanos. Las variantes son SQL completo: el filtro
+# por antigüedad no se concatena en tiempo de ejecución.
+_RECONCILE_ALL_SQL = (
+    "UPDATE execution_batches "
+    "SET status = 'error', "
+    "finished_at = COALESCE(finished_at, ?) "
+    "WHERE status = 'running'"
+)
+_RECONCILE_STALE_SQL = (
+    "UPDATE execution_batches "
+    "SET status = 'error', "
+    "finished_at = COALESCE(finished_at, ?) "
+    "WHERE status = 'running' "
+    "AND created_at < ? "
+    "AND NOT EXISTS ("
+    "  SELECT 1 FROM execution_hosts h "
+    "  WHERE h.batch_id = execution_batches.batch_id "
+    "  AND h.created_at >= ?"
+    ")"
+)
 
 
 def _default_db_path() -> str:
@@ -582,7 +623,7 @@ class ExecutionBatch:
             raise ValueError(f"Resultado de host no válido: {result}")
 
         created_at = _now()
-        counter = _RESULT_COUNTERS.get(result, "error_count")
+        update_counter_sql = _RESULT_UPDATE_SQL[result]
 
         with get_connection(db_path) as conn:
             if int(position or 0) <= 0:
@@ -615,15 +656,7 @@ class ExecutionBatch:
                 ),
             )
             host_result_id = int(cursor.lastrowid or 0)
-            # ``counter`` sale de _RESULT_COUNTERS tras validar ``result``;
-            # no se interpola ningún dato de usuario.
-            conn.execute(
-                # ``counter`` es una constante validada; el valor del lote
-                # viaja como parámetro.
-                f"UPDATE execution_batches SET {counter} = {counter} + 1 "
-                "WHERE batch_id = ?",
-                (batch_id,),
-            )
+            conn.execute(update_counter_sql, (batch_id,))
 
         return HostResult(
             id=host_result_id,
@@ -744,29 +777,14 @@ class ExecutionBatch:
             db_path = _default_db_path()
 
         params: list[Any] = [_now()]
-        stale_filter = ""
         if stale_minutes is not None:
             cutoff = (
                 datetime.now(UTC) - timedelta(minutes=max(1, int(stale_minutes)))
             ).isoformat()
-            stale_filter = (
-                " AND created_at < ?"
-                " AND NOT EXISTS ("
-                "   SELECT 1 FROM execution_hosts h"
-                "   WHERE h.batch_id = execution_batches.batch_id"
-                "   AND h.created_at >= ?"
-                " )"
-            )
             params.extend([cutoff, cutoff])
-
-        # ``stale_filter`` solo añade SQL fijo cuando hay ventana; los valores
-        # de fecha viajan como parámetros. No se interpola entrada de usuario.
-        update_sql = (
-            "UPDATE execution_batches "
-            "SET status = 'error', "
-            "finished_at = COALESCE(finished_at, ?) "
-            "WHERE status = 'running'" + stale_filter
-        )
+            update_sql = _RECONCILE_STALE_SQL
+        else:
+            update_sql = _RECONCILE_ALL_SQL
 
         with get_connection(db_path) as conn:
             cursor = conn.execute(update_sql, tuple(params))

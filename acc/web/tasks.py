@@ -161,52 +161,49 @@ def _schedule_next_moment(schedule: Schedule) -> datetime | None:
     return moment
 
 
+_PANEL_HOSTS_SQL = (
+    "SELECT h.address, h.label, g.name AS group_name, "
+    "(SELECT eh.result FROM execution_hosts eh "
+    "WHERE eh.host = h.address "
+    "ORDER BY eh.created_at DESC, eh.id DESC LIMIT 1) AS last_result, "
+    "(SELECT eh.created_at FROM execution_hosts eh "
+    "WHERE eh.host = h.address "
+    "ORDER BY eh.created_at DESC, eh.id DESC LIMIT 1) AS last_run "
+    "FROM inventory_hosts h "
+    "JOIN inventory_groups g ON g.id = h.group_id "
+    "WHERE (? IS NULL OR (g.owner_user_id = ? OR g.owner_user_id = 0)) "
+    "ORDER BY g.name COLLATE NOCASE, h.address "
+    "LIMIT ?"
+)
+_PANEL_TOTAL_SQL = (
+    "SELECT COUNT(*) FROM inventory_hosts h "
+    "JOIN inventory_groups g ON g.id = h.group_id "
+    "WHERE (? IS NULL OR (g.owner_user_id = ? OR g.owner_user_id = 0))"
+)
+_PANEL_UNEXECUTED_SQL = (
+    "SELECT COUNT(*) FROM inventory_hosts h "
+    "JOIN inventory_groups g ON g.id = h.group_id "
+    "WHERE (? IS NULL OR (g.owner_user_id = ? OR g.owner_user_id = 0)) "
+    "AND NOT EXISTS ("
+    "SELECT 1 FROM execution_hosts eh WHERE eh.host = h.address"
+    ")"
+)
+
+
 def _panel_host_rows(
     db_path: str, owner_scope: int | None, limit: int = 8
 ) -> tuple[list[dict], int, int]:
-    """Hosts del inventario con su último resultado conocido."""
-    owner_filter = ""
-    params: list = []
-    if owner_scope is not None:
-        owner_filter = "WHERE (g.owner_user_id = ? OR g.owner_user_id = 0)"
-        params.append(int(owner_scope))
+    """Hosts del inventario con su último resultado conocido.
+
+    El filtro por propietario es una condición SQL fija con dos parámetros:
+    ``(? IS NULL OR ...)``. Así la consulta es una constante y no se construye
+    con datos en tiempo de ejecución.
+    """
+    scope_params = [owner_scope, owner_scope]
     with get_connection(db_path) as conn:
-        rows = conn.execute(
-            f"""
-            SELECT h.address, h.label, g.name AS group_name,
-                   (SELECT eh.result FROM execution_hosts eh
-                     WHERE eh.host = h.address
-                     ORDER BY eh.created_at DESC, eh.id DESC LIMIT 1) AS last_result,
-                   (SELECT eh.created_at FROM execution_hosts eh
-                     WHERE eh.host = h.address
-                     ORDER BY eh.created_at DESC, eh.id DESC LIMIT 1) AS last_run
-            FROM inventory_hosts h
-            JOIN inventory_groups g ON g.id = h.group_id
-            {owner_filter}
-            ORDER BY g.name COLLATE NOCASE, h.address
-            LIMIT ?
-            """,
-            [*params, int(limit)],
-        ).fetchall()
-        total = conn.execute(
-            f"""
-            SELECT COUNT(*) FROM inventory_hosts h
-            JOIN inventory_groups g ON g.id = h.group_id
-            {owner_filter}
-            """,
-            params,
-        ).fetchone()[0]
-        unexecuted = conn.execute(
-            f"""
-            SELECT COUNT(*) FROM inventory_hosts h
-            JOIN inventory_groups g ON g.id = h.group_id
-            {owner_filter}
-            {"AND" if owner_filter else "WHERE"} NOT EXISTS (
-                SELECT 1 FROM execution_hosts eh WHERE eh.host = h.address
-            )
-            """,
-            params,
-        ).fetchone()[0]
+        rows = conn.execute(_PANEL_HOSTS_SQL, [*scope_params, int(limit)]).fetchall()
+        total = conn.execute(_PANEL_TOTAL_SQL, scope_params).fetchone()[0]
+        unexecuted = conn.execute(_PANEL_UNEXECUTED_SQL, scope_params).fetchone()[0]
     return (
         [
             {

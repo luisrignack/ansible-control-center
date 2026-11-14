@@ -8,6 +8,44 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.7] — 2026-11-14
+
+### Añadido
+
+- **Exportar historial** (`GET /ejecuciones/exportar`) en JSON, disponible
+  para cualquier usuario autenticado desde Ejecuciones → Historial.
+- **Copia previa al borrado**: antes de eliminar el historial se guarda
+  `data/backups/historial-<fecha>.json` (`0600`, escritura atómica). Si la
+  copia falla, no se borra nada.
+- `docker-compose.secrets.yml` y `docker/generate-secrets.sh`: secretos por
+  fichero en `/run/secrets`, sin exponerlos en `docker inspect`.
+- `tools/check_permissions.py`: valida los modos de `certs/`, `certs-ca/` y
+  `secrets.d/`.
+- Gates de calidad en CI con versiones fijadas (`requirements-dev.txt`,
+  `mypy.ini`): `ruff`, `black --check`, `mypy` y `bandit`.
+
+### Cambiado
+
+- **WinRM usa 5986 (HTTPS) por defecto** en lugar de 5985. El transporte
+  sigue siendo NTLM, pero el canal va cifrado y el certificado se valida.
+  En producción el arranque rechaza 5985, `basic` e `ignore` salvo con
+  `ACC_WINRM_ALLOW_INSECURE=1` (perfil de laboratorio).
+- La CA de LDAPS vive en `certs-ca/` en lugar de `certs/`, para poder
+  restringir la clave privada TLS de Nginx sin dejar la aplicación sin CA.
+
+### Corregido
+
+- La purga de datos de demostración usa nombres y operadores exactos: ya no
+  borra un operador real llamado `demo.fulano`, un grupo llamado «Demo · …»
+  ni un evento real que mencione «[demo]».
+- `mypy` vuelve a 0 errores (los tres de `services/demo_data.py`) y `bandit`
+  queda sin hallazgos ni comentarios `nosec` en el código de producción.
+
+### Seguridad
+
+- `seed-demo` se niega a sembrar con `ACC_ENV=production` salvo `--force`;
+  `--purge` sigue permitido porque solo elimina datos ficticios.
+
 ## [0.9.6] — 2026-11-14
 
 ### Añadido

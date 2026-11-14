@@ -26,6 +26,7 @@ URL_MAP_ESPERADO = [
     ("cuenta", "/cuenta", ["GET"]),
     ("ejecuciones", "/ejecuciones", ["GET"]),
     ("ejecuciones_borrar", "/ejecuciones/borrar", ["POST"]),
+    ("ejecuciones_exportar", "/ejecuciones/exportar", ["GET"]),
     (
         "ejecutar_aprobacion",
         "/solicitudes/<int:request_id>/ejecutar",
