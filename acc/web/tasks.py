@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from urllib.parse import quote
 
 from flask import (
@@ -413,20 +414,61 @@ def ejecuciones_borrar():
         flash("Escribe BORRAR para confirmar la eliminación del historial.", "danger")
         return redirect(url_for("ejecuciones", tab="historial"))
 
+    try:
+        backup = ExecutionBatch.backup_history(
+            Path(runtime.get_db_path()).parent / "backups",
+            db_path=runtime.get_db_path(),
+        )
+    except OSError as exc:
+        # Fail-closed: sin copia no se borra. El historial es la única prueba
+        # de qué se ejecutó y contra qué equipos.
+        logger.exception("No se pudo respaldar el historial antes de borrarlo")
+        flash(
+            "No se pudo crear la copia de seguridad del historial "
+            f"({exc}). No se ha borrado nada.",
+            "danger",
+        )
+        return redirect(url_for("ejecuciones", tab="historial"))
+
     deleted = ExecutionBatch.delete_history(db_path=runtime.get_db_path())
+    backup_note = (
+        f" Copia de seguridad: {backup[0].name}." if backup is not None else ""
+    )
     AuthEvent.record(
         getattr(current_user, "username", current_user.get_id()),
         _client_ip(),
         "history_cleared",
-        f"Historial de ejecuciones borrado: {deleted} lote(s).",
+        f"Historial de ejecuciones borrado: {deleted} lote(s).{backup_note}",
         db_path=runtime.get_db_path(),
     )
     flash(
         f"Historial borrado: {deleted} lote(s) eliminado(s). "
-        "Las ejecuciones en curso se han conservado.",
+        f"Las ejecuciones en curso se han conservado.{backup_note}",
         "success",
     )
     return redirect(url_for("ejecuciones", tab="historial"))
+
+
+@app.route("/ejecuciones/exportar")
+@login_required
+def ejecuciones_exportar():
+    """Descarga el historial completo en JSON (lotes y resultados por host).
+
+    Se ofrece antes de cualquier limpieza y como informe portable. No expone
+    nada que el usuario no pueda ver ya en la pestaña Historial.
+    """
+    history = ExecutionBatch.export_history(db_path=runtime.get_db_path())
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    payload = {
+        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "batches": history,
+    }
+    response = jsonify(payload)
+    response.headers["Content-Disposition"] = (
+        f'attachment; filename="historial-{stamp}.json"'
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route("/configuracion")

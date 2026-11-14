@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from config import resolve_db_path
@@ -781,6 +783,71 @@ class ExecutionBatch:
                 "DELETE FROM execution_batches WHERE created_at < ?", (cutoff,)
             )
             return int(cursor.rowcount or 0)
+
+    @staticmethod
+    def export_history(db_path: str | None = None) -> list[dict[str, Any]]:
+        """Serializa todo el historial (lotes y resultados por host).
+
+        Se usa para exportar antes de un borrado y para la descarga desde la
+        interfaz. No incluye el ``id`` interno de SQLite: el identificador
+        estable es ``batch_id``. Las fechas ya son cadenas ISO en la base, así
+        que el resultado es serializable con ``json`` sin conversiones.
+        """
+        if db_path is None:
+            db_path = _default_db_path()
+        with get_connection(db_path) as conn:
+            batch_rows = conn.execute(
+                "SELECT * FROM execution_batches ORDER BY created_at ASC, id ASC"
+            ).fetchall()
+            host_rows = conn.execute(
+                "SELECT * FROM execution_hosts ORDER BY batch_id, position ASC, id ASC"
+            ).fetchall()
+
+        hosts_by_batch: dict[str, list[dict[str, Any]]] = {}
+        for row in host_rows:
+            data = dict(row)
+            data.pop("id", None)
+            batch_ref = data.pop("batch_id", "")
+            hosts_by_batch.setdefault(batch_ref, []).append(data)
+
+        history: list[dict[str, Any]] = []
+        for row in batch_rows:
+            data = dict(row)
+            data.pop("id", None)
+            data["hosts"] = hosts_by_batch.get(data.get("batch_id", ""), [])
+            history.append(data)
+        return history
+
+    @staticmethod
+    def backup_history(
+        backup_dir: str | Path, db_path: str | None = None
+    ) -> tuple[Path, int] | None:
+        """Escribe una copia JSON del historial antes de un borrado.
+
+        Devuelve ``(ruta, lotes)`` o ``None`` si no hay nada que guardar. La
+        escritura es atómica (temporal + ``os.replace``) y el fichero queda en
+        ``0600``: el historial contiene IPs, usuarios y estados de los equipos.
+        """
+        history = ExecutionBatch.export_history(db_path=db_path)
+        if not history:
+            return None
+
+        directory = Path(backup_dir)
+        directory.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S-%f")
+        target = directory / f"historial-{stamp}.json"
+        payload = {
+            "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "source_db": str(db_path or _default_db_path()),
+            "batches": history,
+        }
+        temporary = target.with_name(target.name + ".tmp")
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, target)
+        return target, len(history)
 
     @staticmethod
     def delete_history(db_path: str | None = None) -> int:

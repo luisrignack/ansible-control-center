@@ -245,9 +245,10 @@ conserva una copia de `VERSION`.
 - **Resultado por host** (`execution_hosts`): resultado, error, duración,
   estado previo, estado posterior, hash corto de la contraseña usada y origen.
 - **Ejecuciones** (`/ejecuciones`) con lotes en curso, historial y detalle por host
-  (`/batches/<batch_id>`). Un administrador puede **borrar el historial**
-  terminado desde la propia sección; la acción queda registrada en Auditoría y
-  nunca elimina lotes en curso.
+  (`/batches/<batch_id>`). El historial se puede **exportar en JSON** y un
+  administrador puede **borrarlo**; antes de borrar se guarda una copia en
+  `data/backups/`, la acción queda registrada en Auditoría y nunca elimina
+  lotes en curso.
 - Se conserva el registro heredado `executions` por compatibilidad.
 
 ### Interfaz
@@ -687,7 +688,8 @@ administrador desactiva el interruptor **Simulación** de la barra superior
 | GET/POST | `/programaciones` | Sí | Programaciones (admin para cambios) |
 | GET | `/programaciones/nueva` | Admin | Selector de tarea para crear una programación |
 | GET | `/ejecuciones` | Sí | Ejecuciones: `tab=curso` (por defecto) e historial |
-| POST | `/ejecuciones/borrar` | Admin | Borra el historial terminado (confirmación `BORRAR`) |
+| POST | `/ejecuciones/borrar` | Admin | Borra el historial terminado (confirmación `BORRAR`) tras copiarlo a `data/backups/` |
+| GET | `/ejecuciones/exportar` | Sí | Descarga el historial completo en JSON |
 | GET | `/solicitudes` | Operador | `tab=mias` y, para admin, `tab=aprobaciones` |
 | GET/POST | `/solicitudes/<id>/ejecutar` | Operador | Ejecuta una solicitud propia aprobada y vigente |
 | GET | `/credenciales` | Sí | Gestión del vault de credenciales |

@@ -15,6 +15,11 @@
         </p>
     </div>
     <div class="head-actions">
+        {% if tab == 'historial' %}
+        <a class="btn btn-outline-secondary" href="{{ url_for('ejecuciones_exportar') }}">
+            <i class="bi bi-download" aria-hidden="true"></i> Exportar historial
+        </a>
+        {% endif %}
         {% if tab == 'historial' and current_user.has_role('admin') %}
         <button type="button" class="btn btn-outline-danger"
                 data-bs-toggle="modal" data-bs-target="#clearHistoryModal">
@@ -247,7 +252,9 @@
                                 Se eliminarán todos los lotes terminados y su
                                 detalle por host, incluidos los que no se ven en
                                 esta página. Las ejecuciones en curso se
-                                conservan.
+                                conservan. Antes de borrar se guarda una copia
+                                JSON en <code>data/backups/</code>; si la copia
+                                falla, no se borra nada.
                             </div>
                         </div>
                     </div>

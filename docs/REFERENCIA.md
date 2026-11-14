@@ -61,7 +61,8 @@ offline fija `ACC_IMAGE_TAG` a la versión exacta.
 | GET, POST | `/tareas` | Sí | Catálogo de tareas; `?tab=ocultas` |
 | GET | `/tarea/<task_id>` | Sí | Detalle de la tarea; `?mode=schedule` preselecciona Programar |
 | GET | `/ejecuciones` | Sí | En curso (`tab=curso`) e historial (`tab=historial`) |
-| POST | `/ejecuciones/borrar` | Admin | Borra el historial terminado; exige escribir `BORRAR` y conserva los lotes en curso |
+| POST | `/ejecuciones/borrar` | Admin | Borra el historial terminado; exige escribir `BORRAR`, guarda una copia JSON previa y conserva los lotes en curso |
+| GET | `/ejecuciones/exportar` | Sí | Descarga el historial completo en JSON |
 | GET | `/solicitudes` | Operador | Mis solicitudes y, para admin, bandeja de aprobaciones |
 | GET, POST | `/solicitudes/<id>/ejecutar` | Operador | Ejecuta una solicitud propia aprobada |
 | GET, POST | `/credenciales` | Sí | Vault compartido: lectura para todos; alta/borrado solo `admin` |

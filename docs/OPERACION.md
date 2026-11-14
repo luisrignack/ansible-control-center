@@ -658,12 +658,16 @@ En **Ejecuciones → Historial**, un usuario con rol `admin` dispone del botón
   marcha sin registro;
 - exige escribir `BORRAR` en el cuadro de confirmación (se acepta cualquier
   combinación de mayúsculas y minúsculas);
+- **guarda antes una copia JSON** en `data/backups/historial-<fecha>.json`
+  (permisos `0600`); si la copia falla, no se borra nada;
 - registra un evento `history_cleared` en **Sistema → Auditoría** con el
-  nombre del administrador y el número de lotes eliminados.
+  nombre del administrador, el número de lotes eliminados y el nombre del
+  fichero de copia.
 
-Es irreversible: haz copia de la base antes (§6) si necesitas conservar el
-histórico para un informe. Para borrados selectivos por antigüedad usa la
-purga automática o el SQL de §7.1.
+Además, cualquier usuario autenticado puede descargar el historial completo
+en JSON con **Ejecuciones → Historial → Exportar historial**
+(`GET /ejecuciones/exportar`), sin borrar nada. Para borrados selectivos por
+antigüedad usa la purga automática o el SQL de §7.1.
 
 ### 7.4. Datos ficticios para previsualizar producción
 
