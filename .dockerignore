@@ -41,3 +41,4 @@ dist/
 *.tar
 *.tgz
 *.tar.gz
+certs-ca

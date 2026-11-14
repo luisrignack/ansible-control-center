@@ -294,7 +294,8 @@ gunicorn.conf.py           Configuración de Gunicorn
 Dockerfile                 Imagen de la aplicación (Gunicorn + Tini)
 docker-compose.yml         App + Nginx con TLS
 docker/                    Entrypoint, Nginx y empaquetado para otra PC
-certs/                     Certificado TLS (autofirmado o real)
+certs/                     Certificado TLS de Nginx (autofirmado o real)
+certs-ca/                  CA del directorio para LDAPS (solo lectura)
 models/
   db.py                    Conexiones SQLite, WAL, busy_timeout y migraciones
   user.py                  Usuarios, roles, bloqueo y auditoría de acceso

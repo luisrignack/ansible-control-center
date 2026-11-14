@@ -191,6 +191,26 @@ ofrecen a los gestores de contraseñas del navegador.
 | `hora-admin_acc_logs` | `/logs` | Logs rotados |
 | `hora-admin_acc_ssh` | `/home/acc/.ssh` | `known_hosts` |
 | `./certs` (bind) | `/etc/nginx/certs` | Certificado TLS |
+| `./certs-ca` (bind, solo lectura) | `/certs` | CA del directorio para LDAPS |
+
+`./certs` y `./certs-ca` son **dos directorios distintos a propósito**:
+
+- `./certs` lo escribe Nginx (que corre como `root`) y contiene la clave
+  privada TLS. Debe ser `0750` como máximo.
+- `./certs-ca` solo lo lee la aplicación (uid 10001) y contiene la CA pública
+  de LDAPS. Puede ser `0750 root:<grupo de acc>` con el `.pem` en `0640`.
+
+Si ambos se mezclan en `./certs`, cualquier endurecimiento de permisos que
+proteja la clave privada deja a la aplicación sin poder leer la CA y LDAPS
+falla en producción. Para prepararlos:
+
+```bash
+sudo install -d -m 0750 -o root -g root certs
+sudo install -d -m 0750 -o root -g root certs-ca
+sudo install -m 0640 -o root -g root certs-ca/ca-etecsa.pem
+python tools/check_permissions.py    # verifica modos y avisa si no coinciden
+```
+
 
 Copia de seguridad de SQLite y del vault:
 

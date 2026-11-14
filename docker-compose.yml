@@ -92,8 +92,10 @@ services:
       - acc_secrets:/secrets
       - acc_logs:/logs
       - acc_ssh:/home/acc/.ssh
-      # CA del directorio para LDAPS (ACC_LDAP_TLS_CA_FILE=/certs/ca-etecsa.pem).
-      - ./certs:/certs:ro
+      # CA del directorio para LDAPS. Va en su propio directorio (no en
+      # ./certs) para poder restringir la clave privada TLS sin dejar a la
+      # aplicación sin acceso a la CA.
+      - ./certs-ca:/certs:ro
     networks:
       - backend
     healthcheck:
