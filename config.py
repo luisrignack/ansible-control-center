@@ -258,10 +258,16 @@ TIMEZONE_BACKUP_DIR = DATA_DIR / "timezone_backups"
 # ---------------------------------------------------------------------------
 # Windows vía WinRM
 # ---------------------------------------------------------------------------
-# El transporte por defecto es ``ntlm`` (estaciones en dominio o con usuario
-# local; sin TLS explícito). ``basic`` requiere el mismo usuario local pero
-# suele necesitar LocalAccountTokenFilterPolicy en workgroup.
-WINRM_PORT = _env_int("ACC_WINRM_PORT", 5985, minimum=1, maximum=65535)
+# Por defecto se usa WinRM sobre HTTPS (5986) con NTLM: el transporte sigue
+# siendo NTLM, pero viaja cifrado y el certificado del servidor se valida.
+# ``basic`` requiere el mismo usuario local pero suele necesitar
+# LocalAccountTokenFilterPolicy en workgroup, así que no es el valor por
+# defecto.
+#
+# Para un laboratorio con estaciones que solo aceptan HTTP/5985 existe
+# ``ACC_WINRM_ALLOW_INSECURE=1``; en producción el arranque falla si se usa
+# 5985, ``basic`` o se desactiva la validación del certificado.
+WINRM_PORT = _env_int("ACC_WINRM_PORT", 5986, minimum=1, maximum=65535)
 WINRM_TRANSPORT = (
     os.environ.get("ACC_WINRM_TRANSPORT", "ntlm").strip().lower() or "ntlm"
 )
@@ -278,6 +284,10 @@ WINRM_SERVER_CERT_VALIDATION = (
 )
 if WINRM_SERVER_CERT_VALIDATION not in {"validate", "ignore"}:
     WINRM_SERVER_CERT_VALIDATION = "validate"
+
+# Escape explícito para laboratorios con estaciones que solo hablan WinRM
+# sobre HTTP/5985. En producción no se permite salvo que se active.
+WINRM_ALLOW_INSECURE = _env_bool("ACC_WINRM_ALLOW_INSECURE", False)
 
 BIN_ANSIBLE = _find_binary("ansible", "ACC_ANSIBLE_BIN")
 BIN_ANSIBLE_PLAYBOOK = _find_binary("ansible-playbook", "ACC_ANSIBLE_PLAYBOOK_BIN")
@@ -744,6 +754,26 @@ def validate_security_config() -> None:
             "contraseña del usuario viaja sin cifrar. Si es imprescindible, "
             "define ACC_LDAP_ALLOW_INSECURE=1 de forma consciente."
         )
+    if not WINRM_ALLOW_INSECURE:
+        if WINRM_PORT == 5985:
+            problems.append(
+                "ACC_WINRM_PORT=5985 usa WinRM sobre HTTP: usuario y contraseña "
+                "de las estaciones Windows viajan sin cifrar. Usa 5986 (HTTPS) "
+                "o define ACC_WINRM_ALLOW_INSECURE=1 en una red de laboratorio."
+            )
+        if WINRM_TRANSPORT == "basic":
+            problems.append(
+                "ACC_WINRM_TRANSPORT=basic envía credenciales en claro. Usa "
+                "ntlm o credssp, o define ACC_WINRM_ALLOW_INSECURE=1 en un "
+                "laboratorio aislado."
+            )
+        if WINRM_SERVER_CERT_VALIDATION != "validate":
+            problems.append(
+                "ACC_WINRM_SERVER_CERT_VALIDATION=ignore acepta cualquier "
+                "certificado y permite un ataque de intermediario. Usa "
+                "validate con la CA interna, o ACC_WINRM_ALLOW_INSECURE=1 en "
+                "un laboratorio aislado."
+            )
     if problems:
         raise RuntimeError("Configuración insegura:\n- " + "\n- ".join(problems))
 

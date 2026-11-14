@@ -57,7 +57,9 @@ services:
       ACC_TIME_REQUIRE_NTP_OFF: "${ACC_TIME_REQUIRE_NTP_OFF:-1}"
       ACC_NTP_SETTLE_SECONDS: "${ACC_NTP_SETTLE_SECONDS:-3}"
       # Estaciones Windows (WinRM).
-      ACC_WINRM_PORT: "${ACC_WINRM_PORT:-5985}"
+      # HTTPS (5986) por defecto: NTLM sigue siendo el transporte, pero el
+      # canal va cifrado y el certificado se valida.
+      ACC_WINRM_PORT: "${ACC_WINRM_PORT:-5986}"
       ACC_WINRM_TRANSPORT: "${ACC_WINRM_TRANSPORT:-ntlm}"
       ACC_WINRM_SERVER_CERT_VALIDATION: "${ACC_WINRM_SERVER_CERT_VALIDATION:-validate}"
       # Métricas de rendimiento en /metricas.

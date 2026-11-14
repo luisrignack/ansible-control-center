@@ -108,12 +108,12 @@ hallazgos críticos ni altos.
 | ID | Hallazgo | Severidad | Estado |
 |---|---|---|---|
 | S1 | TOFU SSH activado por defecto en Docker | Media | **Corregido 2026-11-08** |
-| S2 | WinRM sin TLS por defecto (5985 + NTLM) | Media | Abierto (diferido) |
+| S2 | WinRM sin TLS por defecto (5985 + NTLM) | Media | **Corregido 2026-11-14** (5986 por defecto + validación en producción) |
 | S3 | `/api/task-status` permite leer consolas ajenas | Media-baja | **Corregido 2026-11-08** |
 | S4 | SMTP sin cifrar si se usan credenciales fuera del puerto 587 | Baja | **Corregido 2026-11-08** |
 | S5 | Rate limiter en memoria por proceso | Baja | Limitación aceptada con 1 worker |
-| S6 | `certs/` e `instance/` con permisos 0775 | Baja | Abierto |
-| S7 | Secretos por variable de entorno en `docker inspect` | Baja-media | Abierto |
+| S6 | `certs/` e `instance/` con permisos 0775 | Baja | **Corregido 2026-11-14** (`certs/` y `certs-ca/` separados, `tools/check_permissions.py`) |
+| S7 | Secretos por variable de entorno en `docker inspect` | Baja-media | **Corregido 2026-11-14** (`docker-compose.secrets.yml` + `docker/generate-secrets.sh`) |
 
 #### S1. TOFU SSH por defecto en Docker
 

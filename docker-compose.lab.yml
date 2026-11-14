@@ -17,3 +17,5 @@ services:
   app:
     environment:
       ACC_SSH_HOST_KEYS_AUTO: "1"
+      # Estaciones de laboratorio que solo aceptan WinRM HTTP/5985.
+      ACC_WINRM_ALLOW_INSECURE: "1"

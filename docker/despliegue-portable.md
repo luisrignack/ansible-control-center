@@ -43,9 +43,9 @@ Navegador ──HTTPS(443)──> nginx ──HTTP(8000)──> app (Gunicorn)
   (`imagenes/03-INFORMACION-IMAGENES.txt`).
 - Conectividad del contenedor `app` hacia los equipos objetivo (misma red o
   VPN) y salida SSH (22/tcp) para Linux.
-- Para estaciones Windows: WinRM accesible (5985/tcp con NTLM o 5986/tcp con
-  TLS) y una cuenta con permisos de administrador local. `pywinrm` ya está
-  incluido en la imagen.
+- Para estaciones Windows: WinRM accesible (**5986/tcp con HTTPS**, el valor
+  por defecto; 5985/tcp con HTTP solo en laboratorio) y una cuenta con
+  permisos de administrador local. `pywinrm` ya está incluido en la imagen.
 - Las conexiones son **salientes**: en la PC de destino solo hay que publicar
   80/443 para la interfaz; no se abren puertos hacia los equipos objetivo.
 
@@ -145,7 +145,8 @@ hay que aceptar una vez. `curl` necesita `-k` (o `--cacert certs/fullchain.pem`)
 | `ACC_APPROVAL_TTL_MINUTES` | `30` | Vigencia de una aprobación de tarea destructiva |
 | `ACC_PLAYBOOK_TIMEOUT` | `300` | Timeout por playbook (segundos) |
 | `ACC_MAX_HOSTS` | `256` | Máximo de hosts por operación |
-| `ACC_WINRM_PORT` | `5985` | Puerto WinRM de las estaciones Windows |
+| `ACC_WINRM_PORT` | `5986` | Puerto WinRM (HTTPS); 5985 queda para laboratorio |
+| `ACC_WINRM_ALLOW_INSECURE` | `0` | Permite 5985/`basic`/`ignore` en producción (solo laboratorio) |
 | `ACC_WINRM_TRANSPORT` | `ntlm` | `ntlm`, `basic` o `credssp` |
 | `ACC_WINRM_SERVER_CERT_VALIDATION` | `validate` | Validación del certificado WinRM; no lo desactives en producción |
 | `ACC_REQUEST_METRICS` | `1` | Métricas de rendimiento en `/metricas` (solo admin) |
@@ -294,8 +295,8 @@ Las estaciones Windows se administran por WinRM con las credenciales que se
 introducen en la ejecución. En cada estación:
 
 1. Habilita WinRM (`winrm quickconfig` o la política corporativa equivalente).
-2. Permite el puerto en el firewall: **5985/tcp** con NTLM o **5986/tcp** con
-   TLS.
+2. Permite el puerto en el firewall: **5986/tcp** con HTTPS (recomendado);
+   **5985/tcp** con HTTP solo en una red de laboratorio aislada.
 3. Usa una cuenta con permisos de administrador local. Con `ntlm` suele
    bastar; `basic` puede requerir `LocalAccountTokenFilterPolicy` en equipos
    fuera de dominio.
@@ -303,10 +304,13 @@ introducen en la ejecución. En cada estación:
 Valores por defecto en el contenedor:
 
 ```env
-ACC_WINRM_PORT=5985
+ACC_WINRM_PORT=5986
 ACC_WINRM_TRANSPORT=ntlm
 ACC_WINRM_SERVER_CERT_VALIDATION=validate
 ```
+
+Con `ACC_ENV=production`, el arranque falla si se usa 5985, el transporte
+`basic` o `ignore` sin definir `ACC_WINRM_ALLOW_INSECURE=1`.
 
 No desactives la validación del certificado WinRM en producción. Si usas
 5986 con certificado autofirmado, instala la CA correspondiente en el
