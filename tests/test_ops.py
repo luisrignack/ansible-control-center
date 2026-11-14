@@ -136,9 +136,7 @@ def test_group_creation_and_host_roundtrip(client):
     assert host.address == "10.42.0.7"
 
     # IP inválida rechazada.
-    _, invalid = InventoryHost.add(
-        group.id, "10.42.0", db_path=runtime.get_db_path()
-    )
+    _, invalid = InventoryHost.add(group.id, "10.42.0", db_path=runtime.get_db_path())
     assert invalid
 
     hosts = HostGroup.hosts_of(group.id, db_path=runtime.get_db_path())
@@ -1166,9 +1164,7 @@ def test_launch_scheduled_password_passes_decrypted_secret(client, monkeypatch):
 
     monkeypatch.setattr(runtime, "get_job_queue", lambda: FakeQueue())
 
-    launched = app_module.launch_scheduled(
-        schedule.to_dict(), dict(schedule.params)
-    )
+    launched = app_module.launch_scheduled(schedule.to_dict(), dict(schedule.params))
 
     assert launched is True
     assert calls[0]["new_password"] == "Clave-Nueva-123"
@@ -1207,9 +1203,7 @@ def test_launch_scheduled_wallpaper_clones_image(client, monkeypatch, tmp_path):
 
     monkeypatch.setattr(runtime, "get_job_queue", lambda: FakeQueue())
 
-    launched = app_module.launch_scheduled(
-        schedule.to_dict(), dict(schedule.params)
-    )
+    launched = app_module.launch_scheduled(schedule.to_dict(), dict(schedule.params))
 
     assert launched is True
     run_path = calls[0]["wallpaper_path"]

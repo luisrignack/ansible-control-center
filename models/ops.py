@@ -39,6 +39,37 @@ class OSFlavor:
 # Mantener el orden estable para listas en UI/mensajes.
 OS_FLAVORS = (OSFlavor.LINUX, OSFlavor.WINDOWS)
 
+# Consultas de listado con filtro de propiedad.
+#
+# El filtro se elige de un mapa de constantes en lugar de interpolarse con
+# f-strings: así el SQL nunca se construye a partir de datos y se evita el
+# patrón que detecta bandit (B608) sin necesidad de silenciarlo.
+_GROUPS_SELECT = (
+    "SELECT g.*, (SELECT COUNT(*) FROM inventory_hosts h "
+    "WHERE h.group_id = g.id) AS host_count, "
+    "u.username AS owner_name "
+    "FROM inventory_groups g "
+    "LEFT JOIN users u ON u.id = g.owner_user_id "
+)
+_GROUPS_WHERE = {
+    "all": "",
+    "owner": "WHERE g.owner_user_id = ? ",
+    "owner_shared": "WHERE g.owner_user_id = ? OR g.owner_user_id = 0 ",
+}
+_GROUPS_ORDER = "ORDER BY g.name"
+
+_SCHEDULES_SELECT = (
+    "SELECT s.*, u.username AS owner_name "
+    "FROM schedules s "
+    "LEFT JOIN users u ON u.id = s.owner_user_id "
+)
+_SCHEDULES_WHERE = {
+    "all": "",
+    "owner": "WHERE s.owner_user_id = ? ",
+    "owner_shared": "WHERE s.owner_user_id = ? OR s.owner_user_id = 0 ",
+}
+_SCHEDULES_ORDER = "ORDER BY s.run_at DESC"
+
 
 class OSConnection:
     """Tipos de conexión de Ansible por plataforma."""
@@ -191,27 +222,14 @@ class HostGroup:
         """
         if db_path is None:
             db_path = _default_db_path()
-        where = ""
+        filter_key = "all"
         params: list[Any] = []
         if owner_user_id is not None:
-            if include_shared:
-                where = "WHERE g.owner_user_id = ? OR g.owner_user_id = 0"
-            else:
-                where = "WHERE g.owner_user_id = ?"
+            filter_key = "owner_shared" if include_shared else "owner"
             params.append(int(owner_user_id))
+        query = _GROUPS_SELECT + _GROUPS_WHERE[filter_key] + _GROUPS_ORDER
         with get_connection(db_path) as conn:
-            rows = conn.execute(
-                f"""
-                SELECT g.*, (SELECT COUNT(*) FROM inventory_hosts h
-                             WHERE h.group_id = g.id) AS host_count,
-                       u.username AS owner_name
-                FROM inventory_groups g
-                LEFT JOIN users u ON u.id = g.owner_user_id
-                {where}
-                ORDER BY g.name
-                """,
-                params,
-            ).fetchall()
+            rows = conn.execute(query, params).fetchall()
         return [cls._row_to_group(row) for row in rows]
 
     @classmethod
@@ -691,25 +709,14 @@ class Schedule:
         """
         if db_path is None:
             db_path = _default_db_path()
-        where = ""
+        filter_key = "all"
         params: list[Any] = []
         if owner_user_id is not None:
-            if include_shared:
-                where = "WHERE s.owner_user_id = ? OR s.owner_user_id = 0"
-            else:
-                where = "WHERE s.owner_user_id = ?"
+            filter_key = "owner_shared" if include_shared else "owner"
             params.append(int(owner_user_id))
+        query = _SCHEDULES_SELECT + _SCHEDULES_WHERE[filter_key] + _SCHEDULES_ORDER
         with get_connection(db_path) as conn:
-            rows = conn.execute(
-                f"""
-                SELECT s.*, u.username AS owner_name
-                FROM schedules s
-                LEFT JOIN users u ON u.id = s.owner_user_id
-                {where}
-                ORDER BY s.run_at DESC
-                """,
-                params,
-            ).fetchall()
+            rows = conn.execute(query, params).fetchall()
         return [cls(row) for row in rows]
 
     @classmethod

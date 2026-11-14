@@ -1,5 +1,4 @@
-"""Hooks de peticion: metricas, CSP, cabeceras de seguridad y contexto.
-"""
+"""Hooks de peticion: metricas, CSP, cabeceras de seguridad y contexto."""
 
 from __future__ import annotations
 
@@ -167,6 +166,6 @@ def _security_headers(response):
 
     return response
 
+
 def register(flask_app) -> None:
     app.apply(flask_app)
-

@@ -1,5 +1,4 @@
-"""Analisis y validacion de formularios de operacion.
-"""
+"""Analisis y validacion de formularios de operacion."""
 
 from __future__ import annotations
 
@@ -588,7 +587,9 @@ def _parse_operation_form(
             group_target_hosts = sorted(
                 {
                     host.address
-                    for host in HostGroup.hosts_of(group.id, db_path=runtime.get_db_path())
+                    for host in HostGroup.hosts_of(
+                        group.id, db_path=runtime.get_db_path()
+                    )
                 }
             )
             if not group.host_count:

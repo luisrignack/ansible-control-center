@@ -616,7 +616,9 @@ class ExecutionBatch:
             # ``counter`` sale de _RESULT_COUNTERS tras validar ``result``;
             # no se interpola ningún dato de usuario.
             conn.execute(
-                f"UPDATE execution_batches SET {counter} = {counter} + 1 "  # nosec B608
+                # ``counter`` es una constante validada; el valor del lote
+                # viaja como parámetro.
+                f"UPDATE execution_batches SET {counter} = {counter} + 1 "
                 "WHERE batch_id = ?",
                 (batch_id,),
             )
@@ -761,7 +763,7 @@ class ExecutionBatch:
             "UPDATE execution_batches "
             "SET status = 'error', "
             "finished_at = COALESCE(finished_at, ?) "
-            "WHERE status = 'running'" + stale_filter  # nosec B608
+            "WHERE status = 'running'" + stale_filter
         )
 
         with get_connection(db_path) as conn:

@@ -1,5 +1,4 @@
-"""Inventario de grupos y hosts.
-"""
+"""Inventario de grupos y hosts."""
 
 from __future__ import annotations
 
@@ -39,11 +38,14 @@ INVENTORY_KEYS_DIR = SECRETS_DIR / "inventory_keys"
 def _inventario_group_and_hosts(owner_user_id: int | None = None):
     groups = [
         g.to_dict()
-        for g in HostGroup.all(db_path=runtime.get_db_path(), owner_user_id=owner_user_id)
+        for g in HostGroup.all(
+            db_path=runtime.get_db_path(), owner_user_id=owner_user_id
+        )
     ]
     for group in groups:
         group["hosts"] = [
-            h.to_dict() for h in HostGroup.hosts_of(group["id"], db_path=runtime.get_db_path())
+            h.to_dict()
+            for h in HostGroup.hosts_of(group["id"], db_path=runtime.get_db_path())
         ]
     return groups
 
@@ -224,9 +226,7 @@ def inventario():
     owner_scope = _owner_scope()
     groups = _inventario_group_and_hosts(owner_scope)
     for group_data in groups:
-        group_data["can_manage"] = _can_manage_owner(
-            group_data.get("owner_user_id", 0)
-        )
+        group_data["can_manage"] = _can_manage_owner(group_data.get("owner_user_id", 0))
     schedule_counts: dict[int, int] = {}
     for schedule in Schedule.all(db_path=db_path, owner_user_id=owner_scope):
         raw_group_id = (schedule.params or {}).get("target_group_id")
@@ -245,6 +245,6 @@ def inventario():
         can_create_group=current_user.has_role("admin", "operator"),
     )
 
+
 def register(flask_app) -> None:
     app.apply(flask_app)
-

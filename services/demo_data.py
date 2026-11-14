@@ -104,44 +104,192 @@ _DEMO_HOSTS = {
 
 # (días atrás, operador, task_id, acción, valor, objetivo, estado, resultados)
 _DEMO_BATCHES = (
-    (0.001, "demo.maria", "zona-todas", "TZ", "America/Caracas", "10.99.10.0/24",
-     "running", ["success", "success", "success"]),
-    (1, "demo.maria", "zona-todas", "TZ", "America/Caracas", "inventory:vedado",
-     "success", ["success"] * 6),
-    (2, "demo.luis", "apt-upgrade", "APT", "seguridad", "10.99.20.0/24",
-     "partial", ["success", "success", "success", "failure", "attention"]),
-    (3, "demo.maria", "tapiz", "WALLPAPER", "institucional", "10.99.30.0/24",
-     "success", ["success"] * 6),
-    (5, "demo.carla", "firewall", "FIREWALL", "activar", "10.99.40.0/24",
-     "failure", ["failure"] * 4),
-    (7, "demo.luis", "zona-todas", "TIME", "2026-11-07 09:00", "10.99.10.11-10.99.10.16",
-     "success", ["success"] * 6),
-    (9, "demo.maria", "contrasena", "PASSWORD", "soporte", "10.99.20.0/24",
-     "error", ["error", "error", "failure"]),
-    (11, "demo.carla", "apt-upgrade", "APT", "mantenimiento", "10.99.30.0/24",
-     "preview", ["preview"] * 6),
-    (13, "demo.luis", "zona-todas", "TZ", "America/Caracas", "10.99.10.0/24",
-     "success", ["success"] * 6),
-    (15, "demo.maria", "tapiz", "WALLPAPER", "institucional", "10.99.20.0/24",
-     "cancelled", ["success", "skipped", "skipped", "skipped"]),
-    (17, "demo.carla", "zona-todas", "TIME", "2026-10-28 08:30", "10.99.40.0/24",
-     "incomplete", ["skipped", "skipped", "skipped"]),
-    (19, "demo.luis", "zona-todas", "TZ", "America/Caracas", "10.99.30.0/24",
-     "success", ["success"] * 5),
-    (21, "demo.maria", "firewall", "FIREWALL", "desactivar", "10.99.10.0/24",
-     "partial", ["success", "success", "success", "failure"]),
-    (24, "demo.carla", "apt-upgrade", "APT", "seguridad", "10.99.40.0/24",
-     "success", ["success"] * 4),
+    (
+        0.001,
+        "demo.maria",
+        "zona-todas",
+        "TZ",
+        "America/Caracas",
+        "10.99.10.0/24",
+        "running",
+        ["success", "success", "success"],
+    ),
+    (
+        1,
+        "demo.maria",
+        "zona-todas",
+        "TZ",
+        "America/Caracas",
+        "inventory:vedado",
+        "success",
+        ["success"] * 6,
+    ),
+    (
+        2,
+        "demo.luis",
+        "apt-upgrade",
+        "APT",
+        "seguridad",
+        "10.99.20.0/24",
+        "partial",
+        ["success", "success", "success", "failure", "attention"],
+    ),
+    (
+        3,
+        "demo.maria",
+        "tapiz",
+        "WALLPAPER",
+        "institucional",
+        "10.99.30.0/24",
+        "success",
+        ["success"] * 6,
+    ),
+    (
+        5,
+        "demo.carla",
+        "firewall",
+        "FIREWALL",
+        "activar",
+        "10.99.40.0/24",
+        "failure",
+        ["failure"] * 4,
+    ),
+    (
+        7,
+        "demo.luis",
+        "zona-todas",
+        "TIME",
+        "2026-11-07 09:00",
+        "10.99.10.11-10.99.10.16",
+        "success",
+        ["success"] * 6,
+    ),
+    (
+        9,
+        "demo.maria",
+        "contrasena",
+        "PASSWORD",
+        "soporte",
+        "10.99.20.0/24",
+        "error",
+        ["error", "error", "failure"],
+    ),
+    (
+        11,
+        "demo.carla",
+        "apt-upgrade",
+        "APT",
+        "mantenimiento",
+        "10.99.30.0/24",
+        "preview",
+        ["preview"] * 6,
+    ),
+    (
+        13,
+        "demo.luis",
+        "zona-todas",
+        "TZ",
+        "America/Caracas",
+        "10.99.10.0/24",
+        "success",
+        ["success"] * 6,
+    ),
+    (
+        15,
+        "demo.maria",
+        "tapiz",
+        "WALLPAPER",
+        "institucional",
+        "10.99.20.0/24",
+        "cancelled",
+        ["success", "skipped", "skipped", "skipped"],
+    ),
+    (
+        17,
+        "demo.carla",
+        "zona-todas",
+        "TIME",
+        "2026-10-28 08:30",
+        "10.99.40.0/24",
+        "incomplete",
+        ["skipped", "skipped", "skipped"],
+    ),
+    (
+        19,
+        "demo.luis",
+        "zona-todas",
+        "TZ",
+        "America/Caracas",
+        "10.99.30.0/24",
+        "success",
+        ["success"] * 5,
+    ),
+    (
+        21,
+        "demo.maria",
+        "firewall",
+        "FIREWALL",
+        "desactivar",
+        "10.99.10.0/24",
+        "partial",
+        ["success", "success", "success", "failure"],
+    ),
+    (
+        24,
+        "demo.carla",
+        "apt-upgrade",
+        "APT",
+        "seguridad",
+        "10.99.40.0/24",
+        "success",
+        ["success"] * 4,
+    ),
 )
 
 _DEMO_EVENTS = (
-    (0.04, "demo.maria", "10.99.20.11", "login_success", "[demo] Acceso desde la red corporativa"),
-    (0.20, "demo.luis", "10.99.20.12", "login_success", "[demo] Acceso desde la red corporativa"),
-    (0.30, "demo.carla", "10.99.20.13", "login_failure", "[demo] Contraseña incorrecta (1/5)"),
-    (1.10, "demo.maria", "10.99.20.11", "dry_run_on", "[demo] Simulación activada para revisar el lote"),
+    (
+        0.04,
+        "demo.maria",
+        "10.99.20.11",
+        "login_success",
+        "[demo] Acceso desde la red corporativa",
+    ),
+    (
+        0.20,
+        "demo.luis",
+        "10.99.20.12",
+        "login_success",
+        "[demo] Acceso desde la red corporativa",
+    ),
+    (
+        0.30,
+        "demo.carla",
+        "10.99.20.13",
+        "login_failure",
+        "[demo] Contraseña incorrecta (1/5)",
+    ),
+    (
+        1.10,
+        "demo.maria",
+        "10.99.20.11",
+        "dry_run_on",
+        "[demo] Simulación activada para revisar el lote",
+    ),
     (1.12, "demo.maria", "10.99.20.11", "dry_run_off", "[demo] Simulación desactivada"),
-    (2.40, "demo.luis", "10.99.20.12", "login_success", "[demo] Acceso tras cambiar la contraseña"),
-    (4.00, "demo.carla", "10.99.20.13", "account_locked", "[demo] Cuenta bloqueada temporalmente"),
+    (
+        2.40,
+        "demo.luis",
+        "10.99.20.12",
+        "login_success",
+        "[demo] Acceso tras cambiar la contraseña",
+    ),
+    (
+        4.00,
+        "demo.carla",
+        "10.99.20.13",
+        "account_locked",
+        "[demo] Cuenta bloqueada temporalmente",
+    ),
     (6.25, "demo.maria", "10.99.20.11", "login_success", "[demo] Acceso desde VPN"),
 )
 
@@ -221,9 +369,11 @@ def _insert_group_hosts(db_path: str, group: HostGroup, hosts) -> int:
     return len(hosts)
 
 
-def _result_payload(result: str, action: str, value: str) -> tuple[dict, dict]:
-    before = {"status": "pendiente"}
-    after = {"status": "aplicado"}
+def _result_payload(
+    result: str, action: str, value: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    before: dict[str, Any] = {"status": "pendiente"}
+    after: dict[str, Any] = {"status": "aplicado"}
     if action == "TZ":
         before = {"timezone": "UTC", "ntp": "sin sincronizar"}
         after = {"timezone": value, "ntp": "sincronizado"}
@@ -235,7 +385,10 @@ def _result_payload(result: str, action: str, value: str) -> tuple[dict, dict]:
         after = {"tapiz": value}
     elif action == "APT":
         before = {"paquetes_actualizables": 37, "reinicio": "no"}
-        after = {"paquetes_actualizables": 0, "reinicio": "sí" if result == "success" else "pendiente"}
+        after = {
+            "paquetes_actualizables": 0,
+            "reinicio": "sí" if result == "success" else "pendiente",
+        }
     elif action == "PASSWORD":
         before = {"usuario": value, "hash": "sha512"}
         after = {"usuario": value, "hash": "sha512", "rotada": True}
@@ -259,9 +412,7 @@ def _result_payload(result: str, action: str, value: str) -> tuple[dict, dict]:
 def _hosts_for_batch(index: int, count: int) -> list[str]:
     """Direcciones ficticias estables por lote, dentro de 10.99.0.0/16."""
     subnet = 10 + (index % 4) * 10
-    return [
-        f"10.99.{subnet}.{50 + index * 3 + offset}" for offset in range(count)
-    ]
+    return [f"10.99.{subnet}.{50 + index * 3 + offset}" for offset in range(count)]
 
 
 def _create_demo_batches(
@@ -272,9 +423,16 @@ def _create_demo_batches(
     )
     host_total = 0
     now = datetime.now(UTC)
-    for index, (days_ago, operator, task_id, action, value, target, status, results) in enumerate(
-        specs
-    ):
+    for index, (
+        days_ago,
+        operator,
+        task_id,
+        action,
+        value,
+        target,
+        status,
+        results,
+    ) in enumerate(specs):
         if target == "inventory:vedado":
             target = f"inventory:{group_ids[0]}"
         batch_id = f"{DEMO_BATCH_PREFIX}{uuid.uuid4().hex[:10]}"
@@ -294,14 +452,18 @@ def _create_demo_batches(
             dry_run=(index == 8),
             admin_user="demo.admin",
             password_origin="vault" if action == "PASSWORD" else "",
-            ntp_servers=["ntp.etecsa.cu", "pool.ntp.org"] if action in {"TZ", "TIME"} else [],
+            ntp_servers=(
+                ["ntp.etecsa.cu", "pool.ntp.org"] if action in {"TZ", "TIME"} else []
+            ),
             sync_rtc=action == "TIME",
             time_zone=value if action == "TZ" else "",
             task_id=task_id,
             db_path=db_path,
         )
         hosts = _hosts_for_batch(index, total)
-        for position, (host, result) in enumerate(zip(hosts, results, strict=False), start=1):
+        for position, (host, result) in enumerate(
+            zip(hosts, results, strict=False), start=1
+        ):
             before, after = _result_payload(result, action, value)
             error = ""
             if result == "failure":
@@ -316,7 +478,9 @@ def _create_demo_batches(
                 duration_ms=850 + position * 137,
                 before_state=before,
                 after_state=after,
-                password_hash="demo" if action == "PASSWORD" and result == "success" else "",
+                password_hash=(
+                    "demo" if action == "PASSWORD" and result == "success" else ""
+                ),
                 password_origin="vault" if action == "PASSWORD" else "",
                 position=position,
                 db_path=db_path,
@@ -537,7 +701,16 @@ def seed_demo_data(
 
     groups: dict[str, HostGroup] = {}
     host_total = 0
-    for name, description, os_flavor, criticality, days, start, end, note in _DEMO_GROUPS:
+    for (
+        name,
+        description,
+        os_flavor,
+        criticality,
+        days,
+        start,
+        end,
+        note,
+    ) in _DEMO_GROUPS:
         group = HostGroup.create(
             name,
             description,

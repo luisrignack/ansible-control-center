@@ -1,5 +1,4 @@
-"""Ejecucion de lotes: vista previa, aplicacion y progreso.
-"""
+"""Ejecucion de lotes: vista previa, aplicacion y progreso."""
 
 from __future__ import annotations
 
@@ -303,7 +302,9 @@ def handle_execution(default_mode: str = "execute", form_data=None, files=None):
         _release_operation_id(operation_id)
         discard_wallpaper()
         if approval_request_id is not None:
-            ApprovalRequest.release_reserved(approval_request_id, db_path=runtime.get_db_path())
+            ApprovalRequest.release_reserved(
+                approval_request_id, db_path=runtime.get_db_path()
+            )
         message = (
             "El servicio está ocupado con demasiadas operaciones. "
             "Espera a que termine alguna e inténtalo de nuevo."
@@ -319,11 +320,15 @@ def handle_execution(default_mode: str = "execute", form_data=None, files=None):
         _release_operation_id(operation_id)
         discard_wallpaper()
         if approval_request_id is not None:
-            ApprovalRequest.release_reserved(approval_request_id, db_path=runtime.get_db_path())
+            ApprovalRequest.release_reserved(
+                approval_request_id, db_path=runtime.get_db_path()
+            )
         raise
     else:
         if approval_request_id is not None:
-            ApprovalRequest.confirm_reserved(approval_request_id, db_path=runtime.get_db_path())
+            ApprovalRequest.confirm_reserved(
+                approval_request_id, db_path=runtime.get_db_path()
+            )
 
     if _wants_json():
         return jsonify(

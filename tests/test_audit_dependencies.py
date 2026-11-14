@@ -8,10 +8,7 @@ from tools import audit_dependencies as audit
 
 
 def test_parse_index_list_reads_quoted_global_index():
-    output = (
-        "global.index-url='https://nexus.example/simple'\n"
-        "global.timeout='30'\n"
-    )
+    output = "global.index-url='https://nexus.example/simple'\n" "global.timeout='30'\n"
     assert audit.parse_index_list(output) == "https://nexus.example/simple"
 
 
@@ -49,7 +46,9 @@ def test_choose_index_prefers_configured_when_available(monkeypatch):
 
 def test_choose_index_returns_none_when_nothing_responds(monkeypatch):
     monkeypatch.setattr(audit, "index_reachable", lambda url, timeout=5.0: False)
-    assert audit.choose_index(["https://nexus.example/simple", audit.DIRECT_INDEX]) is None
+    assert (
+        audit.choose_index(["https://nexus.example/simple", audit.DIRECT_INDEX]) is None
+    )
 
 
 def test_audit_command_includes_selected_index():

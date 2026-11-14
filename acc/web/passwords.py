@@ -1,5 +1,4 @@
-"""Rutas de contrasenas e historial.
-"""
+"""Rutas de contrasenas e historial."""
 
 from __future__ import annotations
 
@@ -105,7 +104,9 @@ def credenciales():
             except (TypeError, ValueError):
                 return _password_response(False, "ID de contraseña no válido.", 400)
 
-            hash_full = PasswordRecord.get_hash_full(password_id, db_path=runtime.get_db_path())
+            hash_full = PasswordRecord.get_hash_full(
+                password_id, db_path=runtime.get_db_path()
+            )
             if hash_full is None:
                 return _password_response(False, "La contraseña no existe.", 400)
 
@@ -127,7 +128,9 @@ def credenciales():
                 if not removed:
                     return _password_response(False, message, 400)
 
-            deleted = PasswordRecord.delete_password(password_id, db_path=runtime.get_db_path())
+            deleted = PasswordRecord.delete_password(
+                password_id, db_path=runtime.get_db_path()
+            )
             return _password_response(
                 deleted,
                 (
@@ -249,6 +252,6 @@ def history():
     """Compatibilidad: el historial vive ahora en Ejecuciones → Historial."""
     return redirect(url_for("ejecuciones", tab="historial"), code=301)
 
+
 def register(flask_app) -> None:
     app.apply(flask_app)
-

@@ -1,5 +1,4 @@
-"""Comandos del CLI de Flask.
-"""
+"""Comandos del CLI de Flask."""
 
 from __future__ import annotations
 
@@ -152,9 +151,7 @@ def register_cli(flask_app: Flask) -> None:
             )
             return
         try:
-            summary = seed_demo_data(
-                db_path, with_running=not no_running, reset=reset
-            )
+            summary = seed_demo_data(db_path, with_running=not no_running, reset=reset)
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc
         click.echo(

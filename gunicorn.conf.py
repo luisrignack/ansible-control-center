@@ -8,6 +8,7 @@ Para varios workers de ejecución hace falta la cola compartida (fase
 posterior). El worker es ``gthread`` para que una conexión SSE abierta no
 bloquee el resto de peticiones.
 """
+
 import os
 
 bind = os.environ.get("ACC_BIND", "127.0.0.1:5000")
@@ -20,9 +21,7 @@ threads = int(os.environ.get("ACC_GUNICORN_THREADS", "8"))
 # El SSE espera como máximo 300 s; el timeout debe superarlo para no matar al
 # worker en mitad de un stream o de un lote largo.
 timeout = int(os.environ.get("ACC_GUNICORN_TIMEOUT", "330"))
-graceful_timeout = int(
-    os.environ.get("ACC_GUNICORN_GRACEFUL_TIMEOUT", "30")
-)
+graceful_timeout = int(os.environ.get("ACC_GUNICORN_GRACEFUL_TIMEOUT", "30"))
 keepalive = 5
 accesslog = "-"
 errorlog = "-"

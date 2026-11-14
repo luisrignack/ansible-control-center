@@ -1,5 +1,4 @@
-"""Consola de ejecucion: lineas saneadas, progreso y omision de hosts.
-"""
+"""Consola de ejecucion: lineas saneadas, progreso y omision de hosts."""
 
 from __future__ import annotations
 

@@ -1,5 +1,4 @@
-"""Rutas de programaciones.
-"""
+"""Rutas de programaciones."""
 
 from __future__ import annotations
 
@@ -88,8 +87,7 @@ def programaciones():
 
     show_all = _view_all_requested()
     schedules = [
-        s.to_dict()
-        for s in Schedule.all(db_path=db_path, owner_user_id=_owner_scope())
+        s.to_dict() for s in Schedule.all(db_path=db_path, owner_user_id=_owner_scope())
     ]
     groups = [
         g.to_dict()
@@ -284,6 +282,6 @@ def schedule_edit(schedule_id: int):
         os_password_max_length=OS_PASSWORD_MAX_LENGTH,
     )
 
+
 def register(flask_app) -> None:
     app.apply(flask_app)
-

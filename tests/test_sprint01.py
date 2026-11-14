@@ -414,7 +414,9 @@ def test_viewer_is_read_only(client, tmp_path):
     assert _login(client, "viewer", "viewer-password-123").status_code == 302
 
     assert client.get("/tareas").status_code == 200
-    assert client.get("/ejecuciones", query_string={"tab": "historial"}).status_code == 200
+    assert (
+        client.get("/ejecuciones", query_string={"tab": "historial"}).status_code == 200
+    )
     assert client.get("/audit").status_code == 403
     assert _post(client, "/execute", _execution_form()).status_code == 403
 

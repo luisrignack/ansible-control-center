@@ -1,5 +1,4 @@
-"""Metricas, auditoria, usuarios y ajustes (solo admin).
-"""
+"""Metricas, auditoria, usuarios y ajustes (solo admin)."""
 
 from __future__ import annotations
 
@@ -189,7 +188,9 @@ def usuarios_rol():
         and target.is_active
         and target.auth_source == "local"
         and new_role != "admin"
-        and User.count_active_local_admins_excluding(username, db_path=runtime.get_db_path())
+        and User.count_active_local_admins_excluding(
+            username, db_path=runtime.get_db_path()
+        )
         == 0
     ):
         flash(
@@ -359,7 +360,9 @@ def usuarios_eliminar():
     if (
         target.is_admin
         and target.is_active
-        and User.count_active_local_admins_excluding(username, db_path=runtime.get_db_path())
+        and User.count_active_local_admins_excluding(
+            username, db_path=runtime.get_db_path()
+        )
         == 0
     ):
         flash(
@@ -373,7 +376,9 @@ def usuarios_eliminar():
     moved_schedules = Schedule.reassign_owner(
         target.id, owner_id, db_path=runtime.get_db_path()
     )
-    moved_groups = HostGroup.reassign_owner(target.id, owner_id, db_path=runtime.get_db_path())
+    moved_groups = HostGroup.reassign_owner(
+        target.id, owner_id, db_path=runtime.get_db_path()
+    )
     try:
         deleted = User.delete_local(username, db_path=runtime.get_db_path())
     except ValueError as exc:
@@ -434,7 +439,9 @@ def usuarios_estado():
         and target.is_admin
         and target.is_active
         and target.auth_source == "local"
-        and User.count_active_local_admins_excluding(username, db_path=runtime.get_db_path())
+        and User.count_active_local_admins_excluding(
+            username, db_path=runtime.get_db_path()
+        )
         == 0
     ):
         flash(
@@ -543,6 +550,6 @@ def update_dry_run():
     target = request.form.get("next", "")
     return redirect(target if _is_safe_redirect(target) else url_for("panel"))
 
+
 def register(flask_app) -> None:
     app.apply(flask_app)
-

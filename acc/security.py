@@ -1,5 +1,4 @@
-"""Autenticacion, propiedad de filas, roles y limites de peticiones.
-"""
+"""Autenticacion, propiedad de filas, roles y limites de peticiones."""
 
 from __future__ import annotations
 

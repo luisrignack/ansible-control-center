@@ -187,9 +187,7 @@ def test_admin_changes_local_password_and_clears_lock(client):
         10,
         db_path=runtime.get_db_path(),
     )
-    assert User.get_by_username(
-        "carlos.local", db_path=runtime.get_db_path()
-    ).is_locked
+    assert User.get_by_username("carlos.local", db_path=runtime.get_db_path()).is_locked
 
     new_password = "otra-clave-456"
     response = _post(

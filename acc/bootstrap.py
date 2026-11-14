@@ -1,5 +1,4 @@
-"""Fabrica de la aplicacion Flask y configuracion de arranque.
-"""
+"""Fabrica de la aplicacion Flask y configuracion de arranque."""
 
 from __future__ import annotations
 

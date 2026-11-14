@@ -1,5 +1,4 @@
-"""Rutas de solicitudes y aprobaciones.
-"""
+"""Rutas de solicitudes y aprobaciones."""
 
 from __future__ import annotations
 
@@ -50,21 +49,13 @@ def solicitudes():
     if current_user.has_role("admin"):
         pending = [
             _approval_row(req)
-            for req in ApprovalRequest.list_status(
-                APPROVAL_PENDING, db_path=db_path
-            )
+            for req in ApprovalRequest.list_status(APPROVAL_PENDING, db_path=db_path)
         ]
         decided = [
             _approval_row(req)
-            for req in ApprovalRequest.list_status(
-                APPROVAL_APPROVED, db_path=db_path
-            )
-            + ApprovalRequest.list_status(
-                APPROVAL_REJECTED, db_path=db_path
-            )
-            + ApprovalRequest.list_status(
-                APPROVAL_EXPIRED, db_path=db_path
-            )
+            for req in ApprovalRequest.list_status(APPROVAL_APPROVED, db_path=db_path)
+            + ApprovalRequest.list_status(APPROVAL_REJECTED, db_path=db_path)
+            + ApprovalRequest.list_status(APPROVAL_EXPIRED, db_path=db_path)
         ]
     requested_tab = request.args.get("tab", "mias")
     tab = "aprobaciones" if requested_tab == "aprobaciones" else "mias"
@@ -196,6 +187,6 @@ def aprobaciones():
 
     return redirect(url_for("solicitudes", tab="aprobaciones"), code=301)
 
+
 def register(flask_app) -> None:
     app.apply(flask_app)
-

@@ -1,5 +1,4 @@
-"""Rutas y utilidades de autenticacion.
-"""
+"""Rutas y utilidades de autenticacion."""
 
 from __future__ import annotations
 
@@ -315,6 +314,7 @@ def logout():
     flash("Sesión cerrada.", "info")
     return redirect(url_for("login"))
 
+
 @app.route("/cuenta")
 @login_required
 def cuenta():
@@ -335,4 +335,3 @@ def cuenta():
 
 def register(flask_app) -> None:
     app.apply(flask_app)
-

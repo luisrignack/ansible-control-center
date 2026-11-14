@@ -156,7 +156,9 @@ def test_queue_full_releases_approval(monkeypatch, db_path):
         "force": False,
         "temporal_passwords": [],
     }
-    monkeypatch.setattr(acc_execution, "_parse_operation_form", lambda **_kw: (form, []))
+    monkeypatch.setattr(
+        acc_execution, "_parse_operation_form", lambda **_kw: (form, [])
+    )
     monkeypatch.setattr(
         task_catalog,
         "get_task",

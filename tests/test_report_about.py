@@ -366,7 +366,9 @@ def test_brand_logos_in_login_sidebar_and_about(client):
     assert "img/logo-azul.png" in sidebar_body
     assert "img/logo-negro.png" in sidebar_body
 
-    about_body = client.get("/sistema", query_string={"tab": "acerca-de"}).get_data(as_text=True)
+    about_body = client.get("/sistema", query_string={"tab": "acerca-de"}).get_data(
+        as_text=True
+    )
     assert "img/logo-azul.png" in about_body
     assert "img/logo-negro.png" in about_body
 

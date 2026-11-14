@@ -1,5 +1,4 @@
-"""Criticidad y ventana de mantenimiento antes de ejecutar.
-"""
+"""Criticidad y ventana de mantenimiento antes de ejecutar."""
 
 from __future__ import annotations
 

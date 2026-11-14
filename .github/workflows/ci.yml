@@ -30,6 +30,43 @@ jobs:
             }
           fi
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      # Las versiones de las herramientas están fijadas en requirements-dev.txt:
+      # una versión distinta de black reformatea el repositorio entero y una de
+      # mypy cambia el contrato de tipos. El objetivo es que local y CI fallen
+      # exactamente por lo mismo.
+      - name: Instalar dependencias y herramientas
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Ruff
+        run: python -m ruff check .
+
+      - name: Black (solo comprobación)
+        run: python -m black --check .
+
+      - name: Mypy
+        run: python -m mypy
+
+      # Solo código de producción: las herramientas y las pruebas usan
+      # patrones (subprocess, urlopen) que no aplican al artefacto desplegado.
+      - name: Bandit (código de producción)
+        run: python -m bandit -q -r app.py config.py acc models services
+
   test:
     runs-on: ubuntu-latest
     strategy:

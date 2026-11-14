@@ -133,9 +133,7 @@ BRAND = "Ansible Control Center"
 ORG = "Grupo de Migración a Código Abierto / DCTI - ETECSA"
 
 # Icono azul institucional que acompaña a todos los informes.
-LOGO_PATH = (
-    Path(__file__).resolve().parent.parent / "static" / "img" / "logo-azul.png"
-)
+LOGO_PATH = Path(__file__).resolve().parent.parent / "static" / "img" / "logo-azul.png"
 LOGO_SIZE = 26.0
 
 # Estimación de ancho medio de Helvetica ≈ 0.52 × tamaño de fuente.
@@ -290,9 +288,7 @@ def _decode_logo(data: bytes) -> _ReportImage:
         raise ValueError("PNG sin cabecera válida o tipo de color no soportado")
     if bit_depth != 8 or interlace != 0:
         raise ValueError("Solo se admiten PNG de 8 bits sin entrelazado")
-    pixels = _png_unfilter(
-        zlib.decompress(bytes(compressed)), width, height, channels
-    )
+    pixels = _png_unfilter(zlib.decompress(bytes(compressed)), width, height, channels)
 
     if color_type == 6:
         rgb = bytearray(width * height * 3)

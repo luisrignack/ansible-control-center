@@ -396,9 +396,7 @@ def test_preview_failure_is_not_counted_as_real_error(client, monkeypatch):
     status = _wait_for_task(client, task_id)
 
     assert status["overall_result"] == "preview"
-    batch = ExecutionBatch.get_batch(
-        status["batch_id"], db_path=runtime.get_db_path()
-    )
+    batch = ExecutionBatch.get_batch(status["batch_id"], db_path=runtime.get_db_path())
     assert batch is not None
     assert batch.status == "preview"
     assert batch.error_count == 1
@@ -430,9 +428,7 @@ def test_dry_run_visible_and_persisted(client, monkeypatch):
     status = _wait_for_task(client, task_id)
     assert status["dry_run"] is True
 
-    batch = ExecutionBatch.get_batch(
-        status["batch_id"], db_path=runtime.get_db_path()
-    )
+    batch = ExecutionBatch.get_batch(status["batch_id"], db_path=runtime.get_db_path())
     assert batch is not None
     assert batch.dry_run is True
 
@@ -459,9 +455,7 @@ def test_real_execution_is_not_marked_as_dry_run(client, monkeypatch):
     status = _wait_for_task(client, task_id)
 
     assert status["dry_run"] is False
-    batch = ExecutionBatch.get_batch(
-        status["batch_id"], db_path=runtime.get_db_path()
-    )
+    batch = ExecutionBatch.get_batch(status["batch_id"], db_path=runtime.get_db_path())
     assert batch is not None
     assert batch.dry_run is False
     assert b"DRY RUN" not in client.get(f"/batches/{status['batch_id']}").data
@@ -510,9 +504,7 @@ def test_preview_inspects_for_real_even_in_dry_run(client, monkeypatch):
     # La simulación no debe ocultar que el host no existe o no autentica.
     assert seen["force_real"] is True
     assert status["overall_result"] == "preview"
-    batch = ExecutionBatch.get_batch(
-        status["batch_id"], db_path=runtime.get_db_path()
-    )
+    batch = ExecutionBatch.get_batch(status["batch_id"], db_path=runtime.get_db_path())
     assert batch is not None
     assert batch.status == "preview"
     # Una vista previa es una inspección real, no una ejecución simulada.
@@ -546,9 +538,7 @@ def test_password_attempts_per_host_are_capped(client, monkeypatch):
     status = _wait_for_task(client, task_id)
 
     assert calls == ["clave-uno"]
-    batch = ExecutionBatch.get_batch(
-        status["batch_id"], db_path=runtime.get_db_path()
-    )
+    batch = ExecutionBatch.get_batch(status["batch_id"], db_path=runtime.get_db_path())
     assert batch is not None
     assert batch.failure_count == 1
 
@@ -572,9 +562,7 @@ def test_batch_time_budget_skips_remaining_hosts(client, monkeypatch):
     status = _wait_for_task(client, task_id)
 
     assert status["overall_result"] == "incomplete", status
-    batch = ExecutionBatch.get_batch(
-        status["batch_id"], db_path=runtime.get_db_path()
-    )
+    batch = ExecutionBatch.get_batch(status["batch_id"], db_path=runtime.get_db_path())
     assert batch is not None
     assert batch.status == "incomplete"
     assert batch.total_hosts == 2

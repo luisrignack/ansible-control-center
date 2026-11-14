@@ -1,5 +1,4 @@
-"""Parametros estables y payload de las solicitudes de aprobacion.
-"""
+"""Parametros estables y payload de las solicitudes de aprobacion."""
 
 from __future__ import annotations
 

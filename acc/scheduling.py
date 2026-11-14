@@ -1,5 +1,4 @@
-"""Programaciones: validacion de formularios y lanzamiento.
-"""
+"""Programaciones: validacion de formularios y lanzamiento."""
 
 from __future__ import annotations
 
@@ -118,9 +117,8 @@ def _validate_schedule_form(
             schedule_group = HostGroup.get(gid, db_path=db_path)
         if schedule_group is None:
             return None, ["Selecciona un grupo del inventario válido."], warnings
-        if (
-            schedule_group.owner_user_id not in {0, int(owner_user_id or 0)}
-            and not (_authenticated() and current_user.has_role("admin"))
+        if schedule_group.owner_user_id not in {0, int(owner_user_id or 0)} and not (
+            _authenticated() and current_user.has_role("admin")
         ):
             return (
                 None,
@@ -246,9 +244,7 @@ def _validate_schedule_form(
     schedule_params = _approval_params(
         {
             "target": (
-                f"inventory:{target_group_id}"
-                if target_mode == "group"
-                else pinned_ip
+                f"inventory:{target_group_id}" if target_mode == "group" else pinned_ip
             ),
             "target_mode": target_mode,
             "target_group_id": target_group_id,
@@ -275,17 +271,19 @@ def _validate_schedule_form(
             "wallpaper_ext": wallpaper_ext,
         }
     )
-    return {
-        "name": name,
-        "task_id": task_id,
-        "run_at": run_at,
-        "recurrence": recurrence,
-        "params": schedule_params,
-        "master_password": master_password,
-        "new_password": (
-            new_password if validated["action"] == "PASSWORD" else ""
-        ),
-    }, errors, warnings
+    return (
+        {
+            "name": name,
+            "task_id": task_id,
+            "run_at": run_at,
+            "recurrence": recurrence,
+            "params": schedule_params,
+            "master_password": master_password,
+            "new_password": (new_password if validated["action"] == "PASSWORD" else ""),
+        },
+        errors,
+        warnings,
+    )
 
 
 def _create_schedule_from_form(
@@ -368,9 +366,7 @@ def _update_schedule_from_form(
     action = data["params"].get("action", "")
     if action == "PASSWORD":
         if data["new_password"]:
-            params["new_password_enc"] = scheduler.encrypt_secret(
-                data["new_password"]
-            )
+            params["new_password_enc"] = scheduler.encrypt_secret(data["new_password"])
         else:
             existing_secret = old_params.get("new_password_enc")
             if not existing_secret:
@@ -580,9 +576,7 @@ def launch_scheduled(schedule, params: dict[str, Any]) -> bool:
     wallpaper_name = str(params.get("wallpaper_name") or "")
     if validated["action"] == "WALLPAPER":
         try:
-            wallpaper_run_path = clone_wallpaper_for_run(
-                params.get("wallpaper_path")
-            )
+            wallpaper_run_path = clone_wallpaper_for_run(params.get("wallpaper_path"))
         except (OSError, ValueError) as exc:
             Schedule.mark_run(
                 schedule["id"],

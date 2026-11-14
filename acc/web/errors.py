@@ -1,5 +1,4 @@
-"""Manipuladores de error HTML/JSON.
-"""
+"""Manipuladores de error HTML/JSON."""
 
 from __future__ import annotations
 
@@ -55,6 +54,6 @@ def internal_error(error):
     logger.error("Error interno: %s", error)
     return render_template("500.html"), 500
 
+
 def register(flask_app) -> None:
     app.apply(flask_app)
-

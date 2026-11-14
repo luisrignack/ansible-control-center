@@ -91,7 +91,9 @@ def test_hidden_cards_are_per_user(client):
 
     _login(client, "viewer", "viewer-password-123")
     assert b'action="/modulos/tapiz/ocultar"' in client.get("/tareas").data
-    assert b'action="/modulos/tapiz/mostrar"' not in client.get("/tareas?tab=ocultas").data
+    assert (
+        b'action="/modulos/tapiz/mostrar"' not in client.get("/tareas?tab=ocultas").data
+    )
 
 
 def test_hidden_card_still_opens_by_url(client):

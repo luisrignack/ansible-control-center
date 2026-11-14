@@ -65,9 +65,7 @@ def _make_batch(db_path: str, batch_id: str, status: str) -> None:
         status="running",
         db_path=db_path,
     )
-    ExecutionBatch.add_host_result(
-        batch_id, "10.0.0.10", "success", db_path=db_path
-    )
+    ExecutionBatch.add_host_result(batch_id, "10.0.0.10", "success", db_path=db_path)
     if status != "running":
         ExecutionBatch.finish_batch(batch_id, status=status, db_path=db_path)
 
@@ -140,9 +138,7 @@ def test_seed_demo_crea_un_conjunto_completo(tmp_path):
     assert all(group.name.startswith("Demo · ") for group in groups)
 
     with get_connection(db_path) as conn:
-        host_count = conn.execute(
-            "SELECT COUNT(*) FROM inventory_hosts"
-        ).fetchone()[0]
+        host_count = conn.execute("SELECT COUNT(*) FROM inventory_hosts").fetchone()[0]
         running = conn.execute(
             "SELECT COUNT(*) FROM execution_batches WHERE status = 'running'"
         ).fetchone()[0]

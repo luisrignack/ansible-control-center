@@ -3,6 +3,7 @@
 Fija rutas temporales ANTES de importar ``config`` para que las pruebas no
 toquen ``/etc``, ``/var/lib`` ni ``/var/log``.
 """
+
 import os
 import sys
 import tempfile

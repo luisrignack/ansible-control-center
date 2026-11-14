@@ -1,5 +1,4 @@
-"""Panel principal, tareas, progreso e informes.
-"""
+"""Panel principal, tareas, progreso e informes."""
 
 from __future__ import annotations
 
@@ -101,7 +100,9 @@ def tareas():
         quote(TASK_REQUEST_SUBJECT, safe=""),
     )
     hidden_ids = (
-        modules_panel.hidden_task_ids(current_user.get_id(), db_path=runtime.get_db_path())
+        modules_panel.hidden_task_ids(
+            current_user.get_id(), db_path=runtime.get_db_path()
+        )
         if runtime.UI_CONFIG_PANEL
         else set()
     )
@@ -183,7 +184,7 @@ def _panel_host_rows(
             {owner_filter}
             ORDER BY g.name COLLATE NOCASE, h.address
             LIMIT ?
-            """,  # nosec B608 - el filtro es una constante, nunca entrada del usuario
+            """,
             [*params, int(limit)],
         ).fetchall()
         total = conn.execute(
@@ -191,7 +192,7 @@ def _panel_host_rows(
             SELECT COUNT(*) FROM inventory_hosts h
             JOIN inventory_groups g ON g.id = h.group_id
             {owner_filter}
-            """,  # nosec B608
+            """,
             params,
         ).fetchone()[0]
         unexecuted = conn.execute(
@@ -202,7 +203,7 @@ def _panel_host_rows(
             {"AND" if owner_filter else "WHERE"} NOT EXISTS (
                 SELECT 1 FROM execution_hosts eh WHERE eh.host = h.address
             )
-            """,  # nosec B608
+            """,
             params,
         ).fetchone()[0]
     return (
@@ -212,9 +213,7 @@ def _panel_host_rows(
                 "label": row["label"],
                 "group_name": row["group_name"],
                 "result": row["last_result"],
-                "result_label": HOST_RESULT_LABELS.get(
-                    row["last_result"], "Sin datos"
-                ),
+                "result_label": HOST_RESULT_LABELS.get(row["last_result"], "Sin datos"),
                 "last_run": _short_moment(row["last_run"]),
             }
             for row in rows
@@ -231,9 +230,7 @@ def panel():
     db_path = runtime.get_db_path()
     owner_scope = _owner_scope()
 
-    host_rows, total_hosts, unexecuted_hosts = _panel_host_rows(
-        db_path, owner_scope
-    )
+    host_rows, total_hosts, unexecuted_hosts = _panel_host_rows(db_path, owner_scope)
     groups = HostGroup.all(db_path=db_path, owner_user_id=owner_scope)
 
     schedules = Schedule.all(db_path=db_path, owner_user_id=owner_scope)
@@ -261,16 +258,12 @@ def panel():
     running_batch = next(
         (batch for batch in batches if batch.status == "running"), None
     )
-    latest_batch = next(
-        (batch for batch in batches if batch.status != "running"), None
-    )
+    latest_batch = next((batch for batch in batches if batch.status != "running"), None)
 
     success_pct = None
     success_foot = "Todavía no hay lotes finalizados"
     if latest_batch is not None and latest_batch.total_hosts:
-        success_pct = round(
-            100 * latest_batch.success_count / latest_batch.total_hosts
-        )
+        success_pct = round(100 * latest_batch.success_count / latest_batch.total_hosts)
         success_foot = (
             f"{latest_batch.success_count} de {latest_batch.total_hosts} hosts"
         )
@@ -299,9 +292,9 @@ def panel():
                     "text": f"{len(pending)} solicitud(es) esperan revisión.",
                     "href": url_for(
                         "solicitudes",
-                        tab="aprobaciones"
-                        if current_user.has_role("admin")
-                        else "mias",
+                        tab=(
+                            "aprobaciones" if current_user.has_role("admin") else "mias"
+                        ),
                     ),
                 }
             )
@@ -316,9 +309,7 @@ def panel():
                     "title": "Fallos en el último lote",
                     "text": f"{failed} host(s) con fallo o error en "
                     f"«{latest_batch.target}».",
-                    "href": url_for(
-                        "batch_detail", batch_id=latest_batch.batch_id
-                    ),
+                    "href": url_for("batch_detail", batch_id=latest_batch.batch_id),
                 }
             )
         if attention:
@@ -327,9 +318,7 @@ def panel():
                     "level": "warn",
                     "title": "Hosts que requieren atención",
                     "text": f"{attention} host(s) necesitan revisión manual.",
-                    "href": url_for(
-                        "batch_detail", batch_id=latest_batch.batch_id
-                    ),
+                    "href": url_for("batch_detail", batch_id=latest_batch.batch_id),
                 }
             )
 
@@ -468,7 +457,7 @@ def modulo_ocultar(task_id: str):
         current_user.get_id(), task_id, True, db_path=runtime.get_db_path()
     )
     flash(f"«{task['name']}» se movió a Tareas → Ocultas.", "info")
-    return redirect(url_for('tareas'))
+    return redirect(url_for("tareas"))
 
 
 @app.route("/modulos/<task_id>/mostrar", methods=["POST"])
@@ -502,7 +491,7 @@ def task_view(task_id):
     task = task_catalog.get_task(task_id)
     if task is None:
         flash("La tarea pedida no existe en el catálogo.", "warning")
-        return redirect(url_for('tareas'))
+        return redirect(url_for("tareas"))
 
     prefill = {
         key: request.args.get(key, "")
@@ -543,7 +532,8 @@ def task_view(task_id):
         data["safety"] = _safety_for_group(group)
         inventory_groups.append(data)
     locked_hosts = [
-        lock["host"] for lock in list_active_locks(limit=20, db_path=runtime.get_db_path())
+        lock["host"]
+        for lock in list_active_locks(limit=20, db_path=runtime.get_db_path())
     ]
     return render_template(
         "index.html",
@@ -652,7 +642,9 @@ def batch_migration_pdf(batch_id: str):
     batch = ExecutionBatch.get_batch(batch_id, db_path=runtime.get_db_path())
     if batch is None:
         abort(404)
-    host_results = ExecutionBatch.get_host_results(batch_id, db_path=runtime.get_db_path())
+    host_results = ExecutionBatch.get_host_results(
+        batch_id, db_path=runtime.get_db_path()
+    )
     pdf_bytes = build_migration_report(
         batch,
         host_results,
@@ -806,8 +798,12 @@ def batch_detail(batch_id: str):
     batch = ExecutionBatch.get_batch(batch_id, db_path=runtime.get_db_path())
     if batch is None:
         abort(404)
-    host_results = ExecutionBatch.get_host_results(batch_id, db_path=runtime.get_db_path())
-    duration_stats = ExecutionBatch.get_duration_stats(batch_id, db_path=runtime.get_db_path())
+    host_results = ExecutionBatch.get_host_results(
+        batch_id, db_path=runtime.get_db_path()
+    )
+    duration_stats = ExecutionBatch.get_duration_stats(
+        batch_id, db_path=runtime.get_db_path()
+    )
     return render_template(
         "batch.html",
         batch=batch,
@@ -832,4 +828,3 @@ def acerca_de():
 
 def register(flask_app) -> None:
     app.apply(flask_app)
-
