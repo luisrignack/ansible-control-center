@@ -26,6 +26,9 @@ def bad_request(error):
 
 @app.errorhandler(404)
 def not_found(_error):
+    message = "Recurso no encontrado."
+    if _wants_json():
+        return jsonify({"success": False, "message": message}), 404
     return render_template("404.html"), 404
 
 

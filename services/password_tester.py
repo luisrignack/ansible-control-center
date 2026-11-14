@@ -236,7 +236,8 @@ def test_ansible_ping(
             "Comando ansible no encontrado. Verifique que Ansible esté instalado."
         )
         return result
-    except Exception as exc:  # noqa: BLE001  # pragma: no cover - salvaguarda
+    except (OSError, ValueError, TypeError) as exc:
+        # Fichero temporal, serialización o arranque del proceso.
         result["error"] = str(exc)
         return result
 

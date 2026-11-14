@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+import sqlite3
 import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -235,7 +236,7 @@ class VaultManager:
                         password, origin=origin, db_path=db_path
                     )
                     stored += 1
-        except Exception:  # noqa: BLE001  # no impedir el vault por la BD
+        except sqlite3.Error:
             # El vault ya está guardado; la UI puede reintentar el registro.
             return True, (
                 f"Vault guardado con {len(combined)} contraseña(s), pero no se "

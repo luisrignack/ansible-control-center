@@ -257,7 +257,10 @@ def test_progress_solo_visible_para_dueno_o_admin(client):
     assert _login(client, "alice", "alice-password-123").status_code == 302
     page = client.get(f"/progress/{task_id}")
     assert page.status_code == 200
-    assert b"const canCancel = true;" in page.data
+    # La lógica vive en static/js/progress.js; la plantilla solo publica la
+    # configuración como JSON de datos, sin JS inline.
+    assert b'"can_cancel": true' in page.data
+    assert b"js/progress.js" in page.data
     assert client.get(f"/api/task-status/{task_id}").get_json()["exists"] is True
 
 

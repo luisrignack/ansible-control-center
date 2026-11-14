@@ -26,3 +26,20 @@ keepalive = 5
 accesslog = "-"
 errorlog = "-"
 loglevel = os.environ.get("ACC_LOG_LEVEL", "info").lower()
+
+
+def when_ready(server) -> None:
+    """Avisa si se configuran varios workers (límite conocido, A4).
+
+    El registro de tareas, las consolas y la cancelación viven en la memoria
+    de cada proceso. Con más de un worker, una petición de cancelación puede
+    llegar a un proceso distinto del que ejecuta el lote y no detenerlo. Hasta
+    que exista un TaskStore compartido, el despliegue debe usar un worker.
+    """
+    if workers > 1:
+        server.log.warning(
+            "ACC_WORKERS=%s: la cancelación y el estado de las tareas viven en "
+            "memoria de cada proceso; con más de un worker una cancelación "
+            "puede no alcanzar al lote en ejecución. Usa ACC_WORKERS=1.",
+            workers,
+        )

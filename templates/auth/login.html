@@ -65,12 +65,6 @@
     </p>
 </div>
 
-<script nonce="{{ csp_nonce }}">
-document.addEventListener('DOMContentLoaded', () => {
-    const usernameInput = document.getElementById('username');
-    if (usernameInput) {
-        usernameInput.focus();
-    }
-});
-</script>
+<script src="{{ url_for('static', filename='js/login.js') }}"
+    nonce="{{ csp_nonce }}"></script>
 {% endblock %}

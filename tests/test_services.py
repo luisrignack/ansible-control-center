@@ -227,3 +227,34 @@ def test_gunicorn_config_uses_threads_and_outlives_sse():
     assert module.threads >= 2
     # El SSE puede esperar hasta 300 s; el worker debe durar más.
     assert module.timeout > 300
+
+
+def test_gunicorn_warns_when_more_than_one_worker_is_configured(monkeypatch):
+    """A4: el estado en memoria obliga a un worker; el arranque lo advierte."""
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parent.parent / "gunicorn.conf.py"
+    spec = importlib.util.spec_from_file_location("gunicorn_conf_warn", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    class _Log:
+        def __init__(self):
+            self.calls = []
+
+        def warning(self, message, *args):
+            self.calls.append(message % args)
+
+    class _Server:
+        log = _Log()
+
+    monkeypatch.setattr(module, "workers", 2)
+    server = _Server()
+    module.when_ready(server)
+    assert any("ACC_WORKERS=2" in call for call in server.log.calls)
+
+    monkeypatch.setattr(module, "workers", 1)
+    module.when_ready(server)
+    assert len(server.log.calls) == 1

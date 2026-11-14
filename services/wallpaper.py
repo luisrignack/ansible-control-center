@@ -153,7 +153,7 @@ def save_wallpaper(
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(raw)
-    except Exception:
+    except OSError:
         try:
             destination.unlink()
         except OSError:
@@ -196,7 +196,7 @@ def clone_wallpaper_for_run(path: str | None, data_dir: Path | None = None) -> s
     try:
         with os.fdopen(fd, "wb") as target, source.open("rb") as origin:
             shutil.copyfileobj(origin, target)
-    except Exception:
+    except OSError:
         try:
             destination.unlink()
         except OSError:

@@ -55,8 +55,13 @@ def test_templates_do_not_use_inline_event_handlers():
             offenders.append(template.name)
     assert offenders == []
 
+    # La delegación de confirmaciones vive ahora en el JS estático del shell.
+    shell = (templates.parent / "static" / "js" / "app-shell.js").read_text(
+        encoding="utf-8"
+    )
+    assert "dataset.confirm" in shell
     base = (templates / "base.html").read_text(encoding="utf-8")
-    assert "dataset.confirm" in base
+    assert "js/app-shell.js" in base
 
 
 def test_vault_master_password_fields_disable_autofill():
@@ -91,8 +96,10 @@ def test_vault_master_password_fields_disable_autofill():
         ):
             assert marker in tag, (name, tag)
 
-    base = (templates / "base.html").read_text(encoding="utf-8")
-    assert "hardenVaultMasterFields" in base
+    shell = (templates.parent / "static" / "js" / "app-shell.js").read_text(
+        encoding="utf-8"
+    )
+    assert "hardenVaultMasterFields" in shell
 
 
 def test_rate_limiter_blocks_and_recovers(monkeypatch):

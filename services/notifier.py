@@ -85,7 +85,8 @@ def _send(subject: str, body: str) -> str | None:
             if SMTP_USER:
                 smtp.login(SMTP_USER, SMTP_PASSWORD or "")
             smtp.send_message(message)
-    except Exception as exc:  # noqa: BLE001
+    except (smtplib.SMTPException, OSError, ValueError) as exc:
+        # SMTPException cubre login/entrega; OSError, DNS/TLS y timeouts.
         logger.warning("No se pudo enviar la notificación por correo: %s", exc)
         return str(exc)
     return None

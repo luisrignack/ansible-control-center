@@ -101,6 +101,45 @@ def test_pytest_has_a_timeout():
     assert "timeout_method" in config
 
 
+def test_frontend_logic_lives_in_static_js():
+    """A6: la UI no debe volver a acumular cientos de líneas inline.
+
+    La CSP ya permite Ficheros de ``static/js`` con ``script-src 'self'`` y así
+    el navegador puede cachearlos. Solo se admiten bloques inline de datos
+    (``application/json``), que no se ejecutan.
+    """
+    js_dir = ROOT / "static" / "js"
+    expected = {
+        "app-shell.js",
+        "panel.js",
+        "progress.js",
+        "credentials.js",
+        "schedule-edit.js",
+        "tasks.js",
+        "theme-preference.js",
+        "login.js",
+    }
+    assert expected <= {path.name for path in js_dir.glob("*.js")}
+
+    script = re.compile(r"<script([^>]*)>(.*?)</script>", re.DOTALL)
+    offenders = []
+    for template in (ROOT / "templates").rglob("*.html"):
+        content = template.read_text(encoding="utf-8")
+        for attrs, body in script.findall(content):
+            if "src=" in attrs or 'type="application/json"' in attrs:
+                continue
+            if body.strip():
+                offenders.append(template.name)
+    assert offenders == [], f"JS inline en plantillas: {sorted(set(offenders))}"
+
+
+def test_static_scripts_do_not_interpolate_jinja():
+    """El JS estático no se renderiza: la configuración llega por JSON/data-*."""
+    for path in (ROOT / "static" / "js").glob("*.js"):
+        source = path.read_text(encoding="utf-8")
+        assert "{{" not in source and "{%" not in source, path.name
+
+
 def test_production_code_has_no_bandit_findings():
     """Bandit no debe necesitar silencios: si aparece un hallazgo, se arregla."""
     from tools.quality_check import check_file  # noqa: F401  (import de humo)

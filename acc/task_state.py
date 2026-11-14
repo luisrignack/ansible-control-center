@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 import statistics
 import threading
 import time
@@ -124,7 +125,7 @@ def _persist_task(tid: str, task: dict[str, Any]) -> None:
                 """,
                 (tid, payload, _utc_now_iso()),
             )
-    except Exception:
+    except (sqlite3.Error, OSError):
         if not _task_persist_warned:
             _task_persist_warned = True
             logger.exception("No se pudo persistir el estado de la tarea")
@@ -137,7 +138,7 @@ def _load_persisted_task(tid: str) -> dict[str, Any] | None:
             row = conn.execute(
                 "SELECT payload FROM task_state WHERE task_id = ?", (tid,)
             ).fetchone()
-    except Exception:  # noqa: BLE001
+    except (sqlite3.Error, OSError):
         return None
     if row is None:
         return None
@@ -166,7 +167,7 @@ def _refresh_task_from_db(tid: str, current: dict[str, Any]) -> dict[str, Any]:
             row = conn.execute(
                 "SELECT payload FROM task_state WHERE task_id = ?", (tid,)
             ).fetchone()
-    except Exception:  # noqa: BLE001
+    except (sqlite3.Error, OSError):
         return current
     if row is None:
         return current
@@ -206,7 +207,7 @@ def _queue_eta_seconds(action: str | None) -> float | None:
         durations = ExecutionBatch.recent_completed_durations(
             action=key or None, limit=20, db_path=runtime.get_db_path()
         )
-    except Exception:
+    except (sqlite3.Error, OSError):
         logger.debug("No se pudo estimar la espera de cola", exc_info=True)
         durations = []
     estimate = statistics.median(durations) if durations else None
@@ -261,7 +262,7 @@ def _queue_snapshot() -> dict[str, Any]:
     )
     try:
         locks = count_active_locks(db_path=runtime.get_db_path())
-    except Exception:
+    except (sqlite3.Error, OSError):
         logger.debug("No se pudieron contar las reservas de host", exc_info=True)
         locks = 0
     return {
@@ -333,7 +334,7 @@ def _delete_persisted_task(tid: str) -> None:
     try:
         with get_connection(runtime.get_db_path()) as conn:
             conn.execute("DELETE FROM task_state WHERE task_id = ?", (tid,))
-    except Exception:  # noqa: BLE001
+    except (sqlite3.Error, OSError):
         logger.debug("No se pudo borrar la tarea persistida %s", tid)
 
 
@@ -356,7 +357,7 @@ def _trim_task_state_rows() -> None:
                 """,
                 (MAX_TASK_STATE_ROWS,),
             )
-    except Exception:
+    except (sqlite3.Error, OSError):
         logger.debug("No se pudo recortar task_state", exc_info=True)
 
 
@@ -369,17 +370,17 @@ def _purge_retention() -> None:
     db_path = runtime.get_db_path()
     try:
         tasks = ExecutionBatch.purge_old(HISTORY_RETENTION_DAYS, db_path=db_path)
-    except Exception:
+    except (sqlite3.Error, OSError):
         tasks = 0
         logger.exception("No se pudieron purgar lotes antiguos")
     try:
         records = ExecutionRecord.purge_old(HISTORY_RETENTION_DAYS, db_path=db_path)
-    except Exception:
+    except (sqlite3.Error, OSError):
         records = 0
         logger.exception("No se pudo purgar el historial heredado")
     try:
         events = AuthEvent.purge_old(AUTH_EVENT_RETENTION_DAYS, db_path=db_path)
-    except Exception:
+    except (sqlite3.Error, OSError):
         events = 0
         logger.exception("No se pudieron purgar eventos de autenticación")
     _trim_task_state_rows()

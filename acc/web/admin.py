@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 
 from flask import abort, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user
@@ -510,7 +511,7 @@ def update_dry_run():
     try:
         persist_dry_run(enabled)
         apply_dry_run(enabled)
-    except Exception:
+    except sqlite3.Error:
         logger.exception("No se pudo actualizar el modo simulación")
         message = "No se pudo guardar el cambio de modo."
         if _wants_json():

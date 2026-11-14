@@ -522,7 +522,9 @@ class InventoryHost:
                         criticality,
                     ),
                 )
-            except Exception as exc:  # noqa: BLE001  # duplicado u otro error
+            except sqlite3.Error as exc:
+                # Integridad (duplicado) u otro fallo de SQLite; el llamador
+                # muestra el mensaje y conserva el grupo.
                 return None, f"No se pudo añadir el host: {exc}"
         return (
             InventoryHost(

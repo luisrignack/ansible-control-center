@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 
 from flask import flash, jsonify, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required, login_user, logout_user
@@ -65,7 +66,7 @@ def healthz():
     try:
         with get_connection(runtime.get_db_path()) as conn:
             conn.execute("SELECT 1").fetchone()
-    except Exception:
+    except (sqlite3.Error, OSError):
         logger.exception("Healthcheck: base de datos no disponible")
         response = jsonify({"status": "error", "database": "unavailable"})
         response.status_code = 503

@@ -1,0 +1,16 @@
+Ansible Control Center — condiciones de uso
+
+Copyright (c) 2026. Todos los derechos reservados.
+
+Este software es de uso interno. No se concede permiso para copiarlo,
+modificarlo, distribuirlo ni publicarlo fuera de la organización titular sin
+una autorización escrita previa.
+
+El software se proporciona «tal cual», sin garantías de ningún tipo. La
+organización titular no responde de daños derivados de su uso, incluidos los
+cambios de hora, zona horaria o configuración aplicados sobre equipos de
+terceros sin autorización expresa.
+
+Las dependencias de terceros conservan sus propias licencias. Consulta
+`requirements.txt`, `requirements.lock` y `static/vendor/` para identificar
+cada componente.

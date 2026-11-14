@@ -106,8 +106,12 @@ def test_tapiz_form_renders_local_preview(client):
     assert 'id="wallpaperPreviewName"' in body
     assert "Vista previa del tapiz" in body
     # La miniatura se genera en el navegador y no requiere subir el archivo.
-    assert "FileReader" in body
-    assert "readAsDataURL" in body
+    # El código vive en static/js/panel.js, no inline en la plantilla.
+    assert "js/panel.js" in body
+    panel_js = Path(__file__).resolve().parent.parent / "static" / "js" / "panel.js"
+    source = panel_js.read_text(encoding="utf-8")
+    assert "FileReader" in source
+    assert "readAsDataURL" in source
 
 
 # ---------------------------------------------------------------------------

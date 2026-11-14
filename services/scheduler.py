@@ -93,9 +93,13 @@ def decrypt_secret(token: str) -> str:
     """Descifra lo generado por ``encrypt_secret``; cadena vacía si falla."""
     if not token:
         return ""
+    from cryptography.fernet import InvalidToken
+
     try:
         return _fernet().decrypt(token.encode("utf-8")).decode("utf-8")
-    except Exception:
+    except (InvalidToken, ValueError, TypeError):
+        # Token corrupto, clave rotada o base64 inválido: el llamador decide
+        # desactivar el disparo sin propagar el fallo.
         logger.exception("No se pudo descifrar la credencial programada")
         return ""
 
@@ -131,7 +135,7 @@ def scan_once(
             continue
         try:
             params = dict(json.loads(schedule["params"] or "{}"))
-        except Exception:  # noqa: BLE001
+        except (ValueError, TypeError):  # JSON corrupto o params no es un objeto
             params = {}
 
         task = get_task(schedule["task_id"])

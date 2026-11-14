@@ -36,8 +36,8 @@ El procedimiento completo está en [AGENTS.md](AGENTS.md).
 Fases **P0–P4, P4.1, P4.2 y bloque de operación continua** completadas,
 junto con las correcciones de alta prioridad del
 [análisis profundo 2026-11-06](docs/ANALISIS_PROFUNDO_2026-11-06.md).
-Suite de pruebas: **485 tests en verde y 1 integración SSH opcional omitida
-por defecto** (486 recopilados). Incluye empaquetado Docker con Nginx y TLS.
+Suite de pruebas: **569 tests en verde y 1 integración SSH opcional omitida
+por defecto** (570 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 | Fase | Contenido |
 |---|---|
@@ -56,11 +56,11 @@ por defecto** (486 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 La versión vigente está en [`VERSION`](VERSION) y se aplica con versionado
 semántico (`MAJOR.MINOR.PATCH`). La misma cifra alimenta la aplicación, el tag
-de Git (`v0.9.6`) y los tags de Docker:
+de Git (`v0.9.8`) y los tags de Docker:
 
 | Tag | Uso |
 |---|---|
-| `ansible-control-center:0.9.6` | Versión exacta; es la que usa el paquete offline |
+| `ansible-control-center:0.9.8` | Versión exacta; es la que usa el paquete offline |
 | `ansible-control-center:0.9` | Alias de la minor |
 | `ansible-control-center:latest` | Alias de consulta; no usar para desplegar |
 | `ansible-control-center:sha-<commit>` | Trazabilidad al commit exacto |
@@ -1055,6 +1055,12 @@ Módulos:
 - [Mapeo ISO/IEC 27001:2022 y análisis de brechas](docs/ANALISIS_SEGURIDAD_ISO_27001.md)
 - [Análisis funcional y roadmap](ANALISIS.md)
 - [Changelog](CHANGELOG.md)
+
+---
+
+## Licencia
+
+Uso interno, todos los derechos reservados. Consulta [LICENSE](LICENSE).
 
 ---
 

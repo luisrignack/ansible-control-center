@@ -8,6 +8,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from typing import Any
 
 from flask import abort, flash, jsonify, redirect, request, url_for
@@ -685,35 +686,68 @@ def _run_apply_batch(
         _append_log(log_lines, f"OMITIDO {host}: {reason}")
         _append_console(console_lines, tid, f"OMITIDO: {reason}", host=host)
 
-    def process_host(index: int, host: str) -> None:
-        """Procesa un host; el lote nunca se detiene por un host con error."""
-        nonlocal cancelled, incomplete
+    def _wait_for_slot() -> str:
+        """Espera cupo global atendiendo cancelación y presupuesto.
+
+        Devuelve ``acquired``, ``cancelled`` o ``deadline``. En los dos
+        últimos casos no se ha tomado el semáforo y el llamador no debe
+        liberarlo.
+        """
         if cancel_event is not None and cancel_event.is_set():
+            return "cancelled"
+        if time.monotonic() >= deadline:
+            return "deadline"
+        while not semaphore.acquire(timeout=0.2):
+            if cancel_event is not None and cancel_event.is_set():
+                return "cancelled"
+            if time.monotonic() >= deadline:
+                return "deadline"
+        return "acquired"
+
+    def _abort_without_slot(index: int, host: str, reason: str) -> None:
+        """Registra el host omitido por cancelación o fin de presupuesto."""
+        nonlocal cancelled, incomplete
+        if reason == "cancelled":
             cancelled = True
             _skip(host, "Cancelado por el usuario.", index)
-            _finish_host()
-            return
-        if time.monotonic() >= deadline:
+        else:
             incomplete = True
             _skip(host, budget_reason, index)
-            _finish_host()
-            return
+        _finish_host()
 
-        # Cupo global: espera acotada para atender cancelación y presupuesto
-        # mientras otros lotes ocupan los playbooks simultáneos.
-        while True:
-            if semaphore.acquire(timeout=0.2):
-                break
-            if cancel_event is not None and cancel_event.is_set():
-                cancelled = True
-                _skip(host, "Cancelado por el usuario.", index)
-                _finish_host()
-                return
-            if time.monotonic() >= deadline:
-                incomplete = True
-                _skip(host, budget_reason, index)
-                _finish_host()
-                return
+    def _classify_host_result(
+        success: bool,
+        attention: bool,
+        attention_reason: str,
+        last_apply_error: str,
+        last_auth_error: str,
+    ) -> tuple[str, str]:
+        """Devuelve ``(error, result_type)`` para el historial del host."""
+        if attention and success:
+            error = attention_reason or (
+                "La estación requiere migración o espacio antes de actualizar."
+            )
+        elif not success:
+            error = (
+                last_apply_error
+                or last_auth_error
+                or "No se pudo autenticar en el host."
+            )
+        else:
+            error = ""
+        result_type = (
+            "attention"
+            if (attention and success)
+            else ("success" if success else "failure")
+        )
+        return error, result_type
+
+    def process_host(index: int, host: str) -> None:
+        """Procesa un host; el lote nunca se detiene por un host con error."""
+        slot = _wait_for_slot()
+        if slot != "acquired":
+            _abort_without_slot(index, host, slot)
+            return
 
         try:
             # Reserva del host: dos lotes distintos pueden apuntar a la misma
@@ -957,21 +991,12 @@ def _run_apply_batch(
                         break
 
                 duration_ms = int((time.monotonic() - started) * 1000)
-                error = ""
-                if attention and success:
-                    error = attention_reason or (
-                        "La estación requiere migración o espacio antes de actualizar."
-                    )
-                elif not success:
-                    error = (
-                        last_apply_error
-                        or last_auth_error
-                        or "No se pudo autenticar en el host."
-                    )
-                result_type = (
-                    "attention"
-                    if (attention and success)
-                    else ("success" if success else "failure")
+                error, result_type = _classify_host_result(
+                    success,
+                    attention,
+                    attention_reason,
+                    last_apply_error,
+                    last_auth_error,
                 )
 
                 ExecutionBatch.add_host_result(
@@ -1070,6 +1095,93 @@ def _run_apply_batch(
     return outcome
 
 
+@dataclass
+class _ResolvedTargets:
+    """Hosts y metadatos resueltos de un objetivo de lote."""
+
+    hosts: list[str]
+    display: str
+    connection: str
+    private_key: str
+    notes: list[str]
+    missing_group: bool = False
+
+
+def _resolve_batch_targets(
+    target: str,
+    target_hosts: list[str] | None,
+    db_path: Any,
+) -> _ResolvedTargets:
+    """Resuelve un objetivo manual o ``inventory:<id>`` para el lote.
+
+    Los hosts de un grupo se leen del inventario en caliente (el grupo puede
+    cambiar entre el envío y el disparo). Si la ejecución viene de una
+    aprobación se usa la instantánea autorizada, de modo que un cambio de
+    membresía posterior no amplíe el alcance aprobado.
+    """
+    private_key = ""
+    display = target
+    notes: list[str] = []
+    connection = "ssh"
+    if not target.startswith("inventory:"):
+        return _ResolvedTargets(
+            hosts=resolve_target(target),
+            display=display,
+            connection=connection,
+            private_key=private_key,
+            notes=notes,
+        )
+
+    try:
+        group_id = int(target.split(":", 1)[1])
+    except ValueError:
+        group_id = None
+    group = HostGroup.get(group_id, db_path=db_path) if group_id is not None else None
+    if group is None:
+        return _ResolvedTargets(
+            hosts=[],
+            display=display,
+            connection=connection,
+            private_key=private_key,
+            notes=notes,
+            missing_group=True,
+        )
+    display = f"Inventario: {group.name}"
+    connection = group.connection or "ssh"
+    if connection == "winrm":
+        private_key = ""  # Windows: autenticación por contraseña
+    if target_hosts:
+        candidates = sorted({str(address) for address in target_hosts})
+    else:
+        candidates = [
+            inventory_host.address
+            for inventory_host in HostGroup.hosts_of(group.id, db_path=db_path)
+        ]
+    hosts: list[str] = []
+    for address in candidates:
+        pinned, error = pin_target(address)
+        if error or not pinned:
+            notes.append(f"Descartado {address}: " + (error or "dirección inválida"))
+            continue
+        hosts.append(pinned)
+    if group.ssh_key_path:
+        if os.path.exists(group.ssh_key_path):
+            private_key = group.ssh_key_path
+            notes.append(f"Autenticación SSH por clave: {group.ssh_key_path}")
+        else:
+            notes.append(
+                "Aviso: la clave SSH del grupo no existe en el "
+                "servidor; se usará solo contraseña."
+            )
+    return _ResolvedTargets(
+        hosts=hosts,
+        display=display,
+        connection=connection,
+        private_key=private_key,
+        notes=notes,
+    )
+
+
 def execute_with_progress(
     tid: str,
     ti: str,
@@ -1132,69 +1244,25 @@ def execute_with_progress(
         # hosts se leen del inventario en caliente (el grupo puede cambiar
         # entre el envío y el disparo) y la clave SSH del grupo, si está
         # configurada, autentica todas las conexiones del lote.
-        private_key = ""
-        target_display = ti
-        inv_errors: list[str] = []
-        connection = "ssh"
-        if ti.startswith("inventory:"):
-            try:
-                inv_group_id = int(ti.split(":", 1)[1])
-            except ValueError:
-                inv_group_id = None
-            inv_group = (
-                HostGroup.get(inv_group_id, db_path=db_path)
-                if inv_group_id is not None
-                else None
+        resolution = _resolve_batch_targets(ti, target_hosts, db_path)
+        hosts = resolution.hosts
+        target_display = resolution.display
+        connection = resolution.connection
+        private_key = resolution.private_key
+        inv_errors = resolution.notes
+        if resolution.missing_group:
+            update_task(
+                tid,
+                {
+                    "status": "error",
+                    "progress": 0,
+                    "message": "El grupo del inventario no existe",
+                    "log": [f"Objetivo inválido: {ti}"],
+                    "overall_result": "error",
+                    "completed": True,
+                },
             )
-            if inv_group is None:
-                update_task(
-                    tid,
-                    {
-                        "status": "error",
-                        "progress": 0,
-                        "message": "El grupo del inventario no existe",
-                        "log": [f"Objetivo inválido: {ti}"],
-                        "overall_result": "error",
-                        "completed": True,
-                    },
-                )
-                return
-            target_display = f"Inventario: {inv_group.name}"
-            connection = inv_group.connection or "ssh"
-            if connection == "winrm":
-                private_key = ""  # Windows: autenticación por contraseña
-            hosts = []
-            # Si la ejecución viene de una aprobación, se usa la instantánea
-            # de hosts autorizada, no la composición actual del grupo. Así un
-            # cambio de membresía posterior no amplía el alcance aprobado.
-            if target_hosts:
-                candidates = sorted({str(address) for address in target_hosts})
-            else:
-                candidates = [
-                    inv_host.address
-                    for inv_host in HostGroup.hosts_of(inv_group.id, db_path=db_path)
-                ]
-            for address in candidates:
-                pinned_inv, inv_error = pin_target(address)
-                if inv_error or not pinned_inv:
-                    inv_errors.append(
-                        f"Descartado {address}: " + (inv_error or "dirección inválida")
-                    )
-                    continue
-                hosts.append(pinned_inv)
-            if inv_group.ssh_key_path:
-                if os.path.exists(inv_group.ssh_key_path):
-                    private_key = inv_group.ssh_key_path
-                    inv_errors.append(
-                        f"Autenticación SSH por clave: {inv_group.ssh_key_path}"
-                    )
-                else:
-                    inv_errors.append(
-                        "Aviso: la clave SSH del grupo no existe en el "
-                        "servidor; se usará solo contraseña."
-                    )
-        else:
-            hosts = resolve_target(ti)
+            return
         if not hosts:
             update_task(
                 tid,

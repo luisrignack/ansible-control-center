@@ -454,7 +454,7 @@ class AuthEvent:
                     """,
                     (_now_iso(), username or "", ip or "", event, detail or ""),
                 )
-        except Exception:  # noqa: BLE001, S110  # auditoría best-effort
+        except sqlite3.Error:  # auditoría best-effort
             pass
 
     @staticmethod

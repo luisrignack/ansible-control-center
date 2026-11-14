@@ -171,6 +171,18 @@ def test_404_page(client):
     assert b"404" in response.data
 
 
+def test_404_returns_json_for_api_clients(client):
+    """Las llamadas fetch/API deben recibir JSON, no una página HTML."""
+    _login(client)
+    response = client.get(
+        "/ruta-que-no-existe",
+        headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
+    )
+    assert response.status_code == 404
+    payload = response.get_json()
+    assert payload == {"success": False, "message": "Recurso no encontrado."}
+
+
 def test_index_validation(client):
     _login(client)
     response = _post(

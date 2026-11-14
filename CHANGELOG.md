@@ -8,6 +8,47 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.8] — 2026-11-14
+
+### Añadido
+
+- **Cadena de build reproducible**: `requirements.lock` es la fuente de la
+  imagen y `requirements.txt` solo declara dependencias de ejecución.
+  `requirements-test.txt` (pytest, cobertura, timeout, PyYAML) y
+  `requirements-dev.txt` (ruff, black, mypy, bandit, pip-audit) quedan fuera
+  de la imagen de producción.
+- **CI completo**: matriz de Python 3.12/3.13/3.14, instalación desde el lock,
+  auditoría de dependencias, `docker build` de la aplicación y de Nginx, y
+  cobertura mínima del 78 %.
+- **Cobertura y timeout locales**: `pytest-cov` y `pytest-timeout` con
+  `timeout` por prueba y umbral de cobertura, para reproducir el CI.
+- **JavaScript estático**: los bloques inline de las plantillas se trasladan a
+  `static/js/` (`app-shell`, `panel`, `progress`, `credentials`,
+  `schedule-edit`, `tasks`, `theme-preference` y `login`). La configuración
+  llega por JSON y `data-*`, sin interpolar Jinja en el JS.
+- Aviso de arranque de Gunicorn cuando `ACC_WORKERS > 1`: la cancelación y el
+  estado de las tareas siguen viviendo en memoria de cada proceso.
+- `LICENSE` con el régimen de uso interno y todos los derechos reservados.
+
+### Cambiado
+
+- `_parse_operation_form` se apoya en `_read_operation_form` y
+  `_resolve_operation_target`; el motor de lotes extrae `_wait_for_slot`,
+  `_abort_without_slot` y `_classify_host_result`, y la resolución de
+  objetivos de `execute_with_progress` pasa a `_resolve_batch_targets`.
+- Se sustituyen `except Exception` genéricos por excepciones concretas
+  (`sqlite3.Error`, `OSError`, `SMTPException`, `ValueError`/`TypeError`) en
+  persistencia de tareas, auditoría de usuarios, notificador, programador y
+  pruebas de contraseña. Las fronteras de hilo, el arranque y los callbacks
+  conservan la salvaguarda amplia de forma deliberada.
+
+### Corregido
+
+- Las llamadas `fetch`/API que piden JSON reciben una respuesta JSON también
+  en el error 404, en lugar de la página HTML.
+- Las pruebas de frontend comprueban el JS estático y la configuración JSON
+  en lugar de buscar bloques inline que ya no existen.
+
 ## [0.9.7] — 2026-11-14
 
 ### Añadido

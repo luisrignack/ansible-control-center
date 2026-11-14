@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import os
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -460,97 +461,58 @@ def _validate_scheduled_params(
     )
 
 
-def _parse_operation_form(
-    default_mode: str = "execute",
-    form_data=None,
-    files=None,
-) -> tuple[dict[str, Any] | None, list[str]]:
-    """Valida el formulario completo de vista previa/ejecución (P4).
+@dataclass
+class _TargetSelection:
+    """Objetivo resuelto del formulario (manual o grupo del inventario)."""
 
-    Devuelve un diccionario normalizado o una lista de errores. La vista previa
-    y la ejecución comparten exactamente la misma validación para que lo que se
-    previsualiza sea lo que después se ejecuta. ``form_data``/``files``
-    permiten validar un envío reconstruido (ejecución de una aprobación ya
-    concedida) sin pasar por el formulario.
+    target: str
+    target_mode: str
+    target_group_id: int | None
+    group_name: str
+    group_os_flavor: str
+    group_connection: str
+    target_hosts: list[str]
+    errors: list[str]
+
+
+def _read_operation_form(submitted, default_mode: str) -> dict[str, Any]:
+    """Lee los campos simples del formulario sin validarlos.
+
+    Centraliza los ``.strip()`` y los valores por defecto para que la función
+    principal se ocupe solo de las reglas de negocio.
     """
-    submitted = request.form if form_data is None else form_data
-    uploads = request.files if files is None else files
-    target_mode = submitted.get("target_mode", "manual").strip().lower() or "manual"
-    target_group_raw = submitted.get("target_group", "").strip()
-    # Tarea del catálogo: determina permisos y si es destructiva. Para no
-    # romper envíos anteriores (que no enviaban el campo oculto), si falta se
-    # asume la tarea operativa por defecto del catálogo.
-    task_id = submitted.get("task", "").strip()
-    target = submitted.get("target_ip", "").strip()
-    admin_user = submitted.get("admin_user", "").strip()
-    origin = submitted.get("password_origin", "stored").strip()
-    master_password = submitted.get("master_password", "").strip()
-    action = submitted.get("action", "").strip().upper()
-    value = submitted.get("value", "").strip()
-    mode = submitted.get("mode", default_mode).strip().lower() or default_mode
-    time_mode = submitted.get("time_mode", "utc").strip().lower() or "utc"
-    time_zone = submitted.get("time_zone", "").strip()
-    time_fold_raw = submitted.get("time_fold", "auto").strip().lower()
-    ntp_policy = submitted.get("ntp_policy", "keep").strip().lower() or "keep"
-    ntp_servers_raw = submitted.get("ntp_servers", "")
-    min_free_gb_raw = submitted.get("min_free_gb", "")
-    target_user_raw = submitted.get("target_user", "")
-    new_password = submitted.get("new_password", "")
-    new_password_confirm = submitted.get("new_password_confirm", "")
-    sync_rtc = _form_bool("sync_rtc", submitted)
-    force = _form_bool("force", submitted)
+    return {
+        "target_mode": (
+            submitted.get("target_mode", "manual").strip().lower() or "manual"
+        ),
+        "target_group_raw": submitted.get("target_group", "").strip(),
+        "task_id": submitted.get("task", "").strip(),
+        "target": submitted.get("target_ip", "").strip(),
+        "admin_user": submitted.get("admin_user", "").strip(),
+        "origin": submitted.get("password_origin", "stored").strip(),
+        "master_password": submitted.get("master_password", "").strip(),
+        "action": submitted.get("action", "").strip().upper(),
+        "value": submitted.get("value", "").strip(),
+        "mode": (submitted.get("mode", default_mode).strip().lower() or default_mode),
+        "time_mode": submitted.get("time_mode", "utc").strip().lower() or "utc",
+        "time_zone": submitted.get("time_zone", "").strip(),
+        "time_fold_raw": submitted.get("time_fold", "auto").strip().lower(),
+        "ntp_policy": (submitted.get("ntp_policy", "keep").strip().lower() or "keep"),
+        "ntp_servers_raw": submitted.get("ntp_servers", ""),
+        "min_free_gb_raw": submitted.get("min_free_gb", ""),
+        "target_user_raw": submitted.get("target_user", ""),
+        "new_password": submitted.get("new_password", ""),
+        "new_password_confirm": submitted.get("new_password_confirm", ""),
+        "sync_rtc": _form_bool("sync_rtc", submitted),
+        "force": _form_bool("force", submitted),
+    }
 
+
+def _resolve_operation_target(
+    target_mode: str, target_group_raw: str, target: str
+) -> _TargetSelection:
+    """Resuelve el objetivo manual o de grupo y sus errores de validación."""
     errors: list[str] = []
-
-    # Tarea del catálogo: determina permisos y si es destructiva. Para no
-    # romper envíos anteriores (que no enviaban el campo oculto), si falta se
-    # asume la tarea operativa por defecto del catálogo.
-    if not task_id:
-        for candidate in task_catalog.TASK_CATALOG:
-            if candidate.get("status") == "active" and not candidate.get("destructive"):
-                task_id = candidate["id"]
-                break
-    task = task_catalog.get_task(task_id) if task_id else None
-
-    # Si el envío no trae ``action`` (clientes antiguos o un formulario de una
-    # sola acción), se usa la única acción de la tarea; en su defecto, TZ.
-    if task is not None and not action:
-        task_actions = task.get("actions") or ["TZ", "TIME"]
-        action = (
-            str(task_actions[0]).strip().upper() if len(task_actions) == 1 else "TZ"
-        )
-    elif not action:
-        action = "TZ"
-
-    # Firewall: el formulario separa «operación» e «IP» por claridad, pero el
-    # motor, el historial y la validación comparten un único campo ``value``
-    # (``enable``, ``disable`` o ``allow:<ip|red>``).
-    if action == "FIREWALL":
-        firewall_op = submitted.get("firewall_op", "").strip().lower()
-        firewall_ip = submitted.get("firewall_ip", "").strip()
-        value = f"allow:{firewall_ip}" if firewall_op == "allow" else firewall_op
-
-    # Imagen del tapiz: se valida por firma binaria y se guarda fuera de la
-    # raíz web. El archivo se borra al terminar el lote (o si el envío falla).
-    wallpaper_path = ""
-    wallpaper_uri = ""
-    wallpaper_name = ""
-    if action == "WALLPAPER" and task is not None and task.get("status") == "active":
-        try:
-            saved_wallpaper = save_wallpaper(uploads.get("wallpaper_file"))
-        except ValueError as exc:
-            errors.append(str(exc))
-        else:
-            wallpaper_path = saved_wallpaper["path"]
-            wallpaper_name = saved_wallpaper["name"]
-            wallpaper_uri = remote_wallpaper_uri(saved_wallpaper["ext"])
-            # El nombre del archivo es el valor visible en el lote y el PDF.
-            value = wallpaper_name
-
-    if mode not in {"preview", "execute"}:
-        errors.append("Modo de operación no válido.")
-
-    # Objetivo: manual (IP literal) o grupo del inventario persistente.
     target_group_id: int | None = None
     group_name = ""
     group_target_hosts: list[str] = []
@@ -605,13 +567,122 @@ def _parse_operation_form(
         # grupo pueden cambiar entre el envío y el disparo del lote).
         target = f"inventory:{target_group_id}" if target_group_id is not None else ""
     else:
-        target_error = None
         pinned_target, target_error = pin_target(target)
-        if target_error:
-            errors.append(target_error)
+        if target_error or not pinned_target:
+            errors.append(target_error or "Objetivo no válido.")
         else:
             # Guardar la IP literal evita que Ansible vuelva a resolver DNS.
             target = pinned_target
+    return _TargetSelection(
+        target=target,
+        target_mode=target_mode,
+        target_group_id=target_group_id,
+        group_name=group_name,
+        group_os_flavor=group_os_flavor,
+        group_connection=group_connection,
+        target_hosts=group_target_hosts,
+        errors=errors,
+    )
+
+
+def _parse_operation_form(
+    default_mode: str = "execute",
+    form_data=None,
+    files=None,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """Valida el formulario completo de vista previa/ejecución (P4).
+
+    Devuelve un diccionario normalizado o una lista de errores. La vista previa
+    y la ejecución comparten exactamente la misma validación para que lo que se
+    previsualiza sea lo que después se ejecuta. ``form_data``/``files``
+    permiten validar un envío reconstruido (ejecución de una aprobación ya
+    concedida) sin pasar por el formulario.
+    """
+    submitted = request.form if form_data is None else form_data
+    uploads = request.files if files is None else files
+    values = _read_operation_form(submitted, default_mode)
+    target_mode = values["target_mode"]
+    target_group_raw = values["target_group_raw"]
+    task_id = values["task_id"]
+    target = values["target"]
+    admin_user = values["admin_user"]
+    origin = values["origin"]
+    master_password = values["master_password"]
+    action = values["action"]
+    value = values["value"]
+    mode = values["mode"]
+    time_mode = values["time_mode"]
+    time_zone = values["time_zone"]
+    time_fold_raw = values["time_fold_raw"]
+    ntp_policy = values["ntp_policy"]
+    ntp_servers_raw = values["ntp_servers_raw"]
+    min_free_gb_raw = values["min_free_gb_raw"]
+    target_user_raw = values["target_user_raw"]
+    new_password = values["new_password"]
+    new_password_confirm = values["new_password_confirm"]
+    sync_rtc = values["sync_rtc"]
+    force = values["force"]
+
+    errors: list[str] = []
+
+    # Tarea del catálogo: determina permisos y si es destructiva. Para no
+    # romper envíos anteriores (que no enviaban el campo oculto), si falta se
+    # asume la tarea operativa por defecto del catálogo.
+    if not task_id:
+        for candidate in task_catalog.TASK_CATALOG:
+            if candidate.get("status") == "active" and not candidate.get("destructive"):
+                task_id = candidate["id"]
+                break
+    task = task_catalog.get_task(task_id) if task_id else None
+
+    # Si el envío no trae ``action`` (clientes antiguos o un formulario de una
+    # sola acción), se usa la única acción de la tarea; en su defecto, TZ.
+    if task is not None and not action:
+        task_actions = task.get("actions") or ["TZ", "TIME"]
+        action = (
+            str(task_actions[0]).strip().upper() if len(task_actions) == 1 else "TZ"
+        )
+    elif not action:
+        action = "TZ"
+
+    # Firewall: el formulario separa «operación» e «IP» por claridad, pero el
+    # motor, el historial y la validación comparten un único campo ``value``
+    # (``enable``, ``disable`` o ``allow:<ip|red>``).
+    if action == "FIREWALL":
+        firewall_op = submitted.get("firewall_op", "").strip().lower()
+        firewall_ip = submitted.get("firewall_ip", "").strip()
+        value = f"allow:{firewall_ip}" if firewall_op == "allow" else firewall_op
+
+    # Imagen del tapiz: se valida por firma binaria y se guarda fuera de la
+    # raíz web. El archivo se borra al terminar el lote (o si el envío falla).
+    wallpaper_path = ""
+    wallpaper_uri = ""
+    wallpaper_name = ""
+    if action == "WALLPAPER" and task is not None and task.get("status") == "active":
+        try:
+            saved_wallpaper = save_wallpaper(uploads.get("wallpaper_file"))
+        except ValueError as exc:
+            errors.append(str(exc))
+        else:
+            wallpaper_path = saved_wallpaper["path"]
+            wallpaper_name = saved_wallpaper["name"]
+            wallpaper_uri = remote_wallpaper_uri(saved_wallpaper["ext"])
+            # El nombre del archivo es el valor visible en el lote y el PDF.
+            value = wallpaper_name
+
+    if mode not in {"preview", "execute"}:
+        errors.append("Modo de operación no válido.")
+
+    # Objetivo: manual (IP literal) o grupo del inventario persistente.
+    selection = _resolve_operation_target(target_mode, target_group_raw, target)
+    target = selection.target
+    target_mode = selection.target_mode
+    target_group_id = selection.target_group_id
+    group_name = selection.group_name
+    group_os_flavor = selection.group_os_flavor
+    group_connection = selection.group_connection
+    group_target_hosts = selection.target_hosts
+    errors.extend(selection.errors)
     # Mismas reglas que una programación: tarea, acción, valor fijo,
     # plataforma del grupo, zona/hora, NTP y usuario.
     validated, core_errors = _validate_operation_core(
