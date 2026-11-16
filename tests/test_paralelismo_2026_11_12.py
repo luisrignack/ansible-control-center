@@ -57,13 +57,14 @@ def _run_batch(
     *,
     deadline=None,
     cancel_event=None,
+    candidates=None,
 ):
     return app_module._run_apply_batch(
         tid=task_id,
         batch_id=batch_id,
         hosts=hosts,
         admin_user="root",
-        candidates=["clave-valida"],
+        candidates=candidates or ["clave-valida"],
         action="TZ",
         value="UTC",
         password_origin="temporal",
@@ -548,3 +549,77 @@ def test_parallel_batch_skips_pending_hosts_when_budget_is_spent(tmp_path, monke
     assert called == []
     assert len(results) == len(hosts)
     assert all(item["result"] == "skipped" for item in results)
+
+
+def test_connection_error_stops_trying_other_passwords(tmp_path, monkeypatch):
+    """Un fallo de red no se reintenta con cada contraseña candidata."""
+    db_path, task_id, results, log_lines = _prepare_batch(
+        tmp_path,
+        monkeypatch,
+        ["10.0.5.1"],
+        "red-caida",
+        concurrency=1,
+        global_concurrency=1,
+    )
+    probed: list[str] = []
+
+    def ping(**kwargs):
+        probed.append(kwargs["password"])
+        return {
+            "success": False,
+            "error": "UNREACHABLE! Failed to connect to the host via ssh: "
+            "ssh: connect to host 10.0.5.1 port 22: Connection timed out",
+        }
+
+    monkeypatch.setattr(acc_execution, "test_ansible_ping", ping)
+    try:
+        outcome = _run_batch(
+            task_id,
+            "red-caida",
+            ["10.0.5.1"],
+            db_path,
+            log_lines,
+            candidates=["primera", "segunda", "tercera"],
+        )
+    finally:
+        app_module.remove_task(task_id)
+
+    assert outcome == "completed"
+    assert probed == ["primera"]
+    assert results[0]["result"] == "failure"
+    assert "Connection timed out" in results[0]["error"]
+
+
+def test_authentication_error_keeps_trying_candidates(tmp_path, monkeypatch):
+    """Si Ansible rechaza la contraseña, se prueban las siguientes."""
+    db_path, task_id, results, log_lines = _prepare_batch(
+        tmp_path,
+        monkeypatch,
+        ["10.0.5.2"],
+        "clave-mala",
+        concurrency=1,
+        global_concurrency=1,
+    )
+    probed: list[str] = []
+
+    def ping(**kwargs):
+        probed.append(kwargs["password"])
+        return {"success": False, "error": "Authentication failed."}
+
+    monkeypatch.setattr(acc_execution, "test_ansible_ping", ping)
+    try:
+        outcome = _run_batch(
+            task_id,
+            "clave-mala",
+            ["10.0.5.2"],
+            db_path,
+            log_lines,
+            candidates=["primera", "segunda", "tercera"],
+        )
+    finally:
+        app_module.remove_task(task_id)
+
+    assert outcome == "completed"
+    assert probed == ["primera", "segunda", "tercera"]
+    assert results[0]["result"] == "failure"
+    assert "Authentication failed" in results[0]["error"]

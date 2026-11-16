@@ -5,6 +5,7 @@ fuente** y **sin acceso a Docker Hub**. Solo necesitas esta carpeta.
 
 **Orden de lectura del paquete**: `01-INICIO-RAPIDO.txt` (pasos mínimos) →
 `02-GUIA-COMPLETA-DESPLIEGUE.md` (este documento, amplía cada paso) →
+`04-CHECKLIST-PRODUCCION.md` (lista de comprobación) →
 `imagenes/03-INFORMACION-IMAGENES.txt` (metadatos de las imágenes).
 Este archivo sustituye al antiguo `DESPLIEGUE.md` y ya no repite los pasos
 rápidos; para la arrancada resume mira `01`.
@@ -29,8 +30,13 @@ Navegador ──HTTPS(443)──> nginx ──HTTP(8000)──> app (Gunicorn)
 | `.env.docker.example` | Plantilla de configuración (copiar a `.env.docker`) |
 | `VERSION` | Versión exacta del paquete; también fija `ACC_IMAGE_TAG` |
 | `certs/` | Vacío; el certificado autofirmado se genera aquí al arrancar |
+| `certs-ca/` | CA pública del directorio para LDAPS (opcional) |
+| `herramientas/respaldo-datos.sh` | Exporta volúmenes y configuración para migrar |
+| `herramientas/restaurar-datos.sh` | Restaura los volúmenes en la PC destino |
+| `herramientas/verificar-despliegue.sh` | Comprueba imágenes, configuración y `/healthz` |
 | `docker/` | Entrypoint y configuración de Nginx (ya dentro de la imagen) |
 | `Dockerfile` | Referencia de la imagen; no se usa con `--no-build` (reconstruir requiere el código fuente y Docker Hub) |
+| `04-CHECKLIST-PRODUCCION.md` | Lista de comprobación de paso a producción |
 | `sha256sums.txt` | Sumas SHA-256 para comprobar la integridad del paquete |
 
 ---
@@ -38,6 +44,7 @@ Navegador ──HTTPS(443)──> nginx ──HTTP(8000)──> app (Gunicorn)
 ## 2. Requisitos en la PC de destino
 
 - Docker Engine 24+ y Docker Compose v2 (`docker compose version`).
+- Docker habilitado al arranque (`sudo systemctl enable --now docker`).
 - Puertos 80 y 443 libres (o cámbialos, ver §4).
 - Arquitectura coincidente con la imagen
   (`imagenes/03-INFORMACION-IMAGENES.txt`).
@@ -87,7 +94,14 @@ docker compose --env-file .env.docker up -d --no-build
 # 5. Comprobar
 docker compose ps
 curl -fk https://localhost/healthz
+./herramientas/verificar-despliegue.sh
 ```
+
+`verificar-despliegue.sh` comprueba la arquitectura, la versión de la imagen,
+las sumas del paquete, la configuración de producción, el estado de los
+contenedores y `/healthz`. Devuelve un código de error si algo obligatorio
+falla. Puedes ejecutarlo antes de arrancar (avisa de lo que falta) y después
+de arrancar (valida el servicio).
 
 Abre `https://localhost` (o el nombre/IP configurado) e inicia sesión con
 `ACC_ADMIN_USERNAME` / `ACC_ADMIN_PASSWORD`.
@@ -186,12 +200,17 @@ LDAPS entran con rol `viewer` en su primer login y deben ser promovidos a
    sudo chmod 600 /var/lib/docker/volumes/hora-admin_acc_secrets/_data/acc_ldap_bind_password
    ```
 
-2. Certificado del directorio (si TLS con CA propia) en
-   `..._acc_secrets/_data/lds-ca.crt`.
+2. Certificado de la CA del directorio (si TLS con CA propia) en
+   `certs-ca/` del paquete. Se monta como `/certs` (solo lectura) y no
+   necesita permisos especiales en el host:
+
+   ```bash
+   cp ca-etecsa.pem certs-ca/
+   ```
 
 3. En `.env.docker` descomenta el bloque `ACC_LDAP_*` (URL del directorio,
    bind DN, base de búsqueda, `ACC_LDAP_BIND_PASSWORD_FILE=/secrets/acc_ldap_bind_password`,
-   `ACC_LDAP_TLS_CA_FILE=/secrets/lds-ca.crt`). Todas las variables ya están
+   `ACC_LDAP_TLS_CA_FILE=/certs/ca-etecsa.pem`). Todas las variables ya están
    mapeadas en el `docker-compose.yml` del paquete.
 
 4. `docker compose --env-file .env.docker up -d` y, en la web:
@@ -265,28 +284,25 @@ ACC_HSTS=1
 
 La app ejecuta Ansible desde el contenedor. Necesita `known_hosts` con las
 claves de los hosts si `ACC_HOST_KEY_CHECKING=1`. El `docker-compose.yml`
-incluido activa `ACC_SSH_HOST_KEYS_AUTO=1`: antes de cada lote se añaden las
-huellas que falten, incluidas las IPs nuevas, y el volumen `acc_ssh` las
-conserva entre reinicios.
-
-Para precargar de una vez todos los hosts SSH del inventario:
+incluido deja `ACC_SSH_HOST_KEYS_AUTO=0`: la verificación estricta es el
+valor seguro y no acepta huellas al primer contacto. Para poblar el volumen
+`acc_ssh`, precarga las huellas verificadas fuera de banda o usa
+`ssh-keyscan` de forma consciente:
 
 ```bash
+# Opción TOFU (acepta la huella del primer contacto; red de gestión de confianza)
 docker compose exec app flask --app app sync-known-hosts
-```
 
-También puedes pasar las líneas al arrancar con `ACC_KNOWN_HOSTS`, indicar
-otro fichero con `ACC_KNOWN_HOSTS_FILE`, o añadir huellas manualmente:
-
-```bash
+# Opción verificada: añade líneas conocidas de antemano
 docker compose exec app sh -c \
-  'ssh-keyscan 10.0.0.10 10.0.0.11 >> /home/acc/.ssh/known_hosts'
+  'cat >> /home/acc/.ssh/known_hosts' < known_hosts_verificado
 docker compose exec app chmod 600 /home/acc/.ssh/known_hosts
 ```
 
-El aprovisionamiento automático acepta la huella en el primer contacto
-(TOFU): úsalo solo en redes de gestión de confianza. Para máxima seguridad,
-precarga huellas verificadas fuera de banda o usa certificados SSH de host.
+También puedes pasar las líneas al arrancar con `ACC_KNOWN_HOSTS` o indicar
+otro fichero con `ACC_KNOWN_HOSTS_FILE`. Si activas
+`ACC_SSH_HOST_KEYS_AUTO=1`, antes de cada lote se añaden las huellas que
+falten, incluidas las IPs nuevas: úsalo solo en redes de gestión de confianza.
 No desactives `ACC_HOST_KEY_CHECKING` en producción.
 
 ### Estaciones Windows (WinRM)
@@ -328,31 +344,70 @@ contenedor o usa un certificado de confianza; evita
 | `hora-admin_acc_logs` | `/logs` | Logs rotados |
 | `hora-admin_acc_ssh` | `/home/acc/.ssh` | `known_hosts` |
 | `./certs` (bind) | `/etc/nginx/certs` | Certificado TLS |
+| `./certs-ca` (bind) | `/certs` | CA pública para LDAPS (solo lectura) |
 
-Copia de seguridad (detén la app para no copiar un WAL inconsistente):
+### 7.1 Copia de seguridad
+
+El script detiene `app` para no copiar un WAL de SQLite a medias y vuelve a
+arrancarla al terminar:
 
 ```bash
-docker compose stop app
-mkdir -p backup
-docker run --rm --user 0:0 \
-  -v hora-admin_acc_data:/data:ro \
-  -v hora-admin_acc_secrets:/secrets:ro \
-  -v "$PWD/backup:/backup" \
-  --entrypoint tar "ansible-control-center:$(cat VERSION)" \
-  czf /backup/ansible-control-center-$(date +%F).tgz -C / data secrets
-docker compose start app
+./herramientas/respaldo-datos.sh
+# respaldo/<fecha>/datos.tgz          data + secrets + ssh
+# respaldo/<fecha>/configuracion.tgz  .env.docker + certs + certs-ca
+# respaldo/<fecha>/MANIFIESTO.txt     versión, imagen y commit
 ```
+
+Guarda la carpeta `respaldo/` cifrada y con permisos `0600`: contiene el
+vault, el pepper y secretos LDAPS.
+
+### 7.2 Migrar los datos a otra PC
+
+En la **PC de origen**, con el paquete antiguo:
+
+```bash
+./herramientas/respaldo-datos.sh
+```
+
+Copia el paquete nuevo **y** la carpeta `respaldo/` a la PC destino. Allí:
+
+```bash
+# 1) Configuración y certificados
+tar xzf respaldo/<fecha>/configuracion.tgz -C .
+chmod 600 .env.docker
+
+# 2) Datos (data, secrets y ssh)
+./herramientas/restaurar-datos.sh respaldo/<fecha>/datos.tgz
+
+# 3) Si el destino ya tenía datos y quieres sustituirlos por completo
+./herramientas/restaurar-datos.sh --limpiar respaldo/<fecha>/datos.tgz
+
+# 4) Verifica
+./herramientas/verificar-despliegue.sh
+```
+
+Requisitos para que la restauración sea válida:
+
+- La contraseña maestra del vault debe ser la misma que en origen.
+- El usuario administrador local se conserva en `data/acc.db`.
+- `known_hosts` se conserva en `ssh/`; si cambian las IPs, vuelve a
+  sincronizarlo (guía 02, §6).
+- El certificado TLS se restaura desde `configuracion.tgz`; si la PC destino
+  tiene otro nombre/IP, ajusta `TLS_CN`/`TLS_SAN` y regenera el certificado.
+- No ejecutes `docker compose down -v`: **borra** los volúmenes.
 
 ---
 
 ## 8. Actualizar a un paquete nuevo
 
 ```bash
-docker compose down                     # conserva los volúmenes
+./herramientas/respaldo-datos.sh        # imprescindible antes de actualizar
+docker compose --env-file .env.docker down   # conserva los volúmenes
 # copia el nuevo contenido del paquete sobre esta carpeta
 docker load -i imagenes/ansible-control-center-images.tar
 # actualiza ACC_IMAGE_TAG en .env.docker con la versión del nuevo VERSION
 docker compose --env-file .env.docker up -d --no-build
+./herramientas/verificar-despliegue.sh
 ```
 
 Comprueba la versión antes y después:
@@ -363,7 +418,9 @@ curl -fk https://localhost/acerca-de    # tras iniciar sesión
 ```
 
 Las migraciones de SQLite se aplican solas al arrancar y son no destructivas.
-Haz copia de seguridad antes de actualizar.
+Haz copia de seguridad antes de actualizar. Para volver a la versión anterior,
+restaura el `VERSION`/`ACC_IMAGE_TAG` y las imágenes del paquete previo; los
+volúmenes se conservan mientras no uses `down -v`.
 
 ---
 
@@ -392,11 +449,15 @@ Vistas útiles de la interfaz (según rol):
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
+| `RuntimeError: Configuración insegura` | `ACC_ENV=production` sin clave o allowlist | Define `ACC_SECRET_KEY` y `ACC_ALLOWED_NETWORKS` en `.env.docker` |
+| El contenedor reinicia en bucle | `docker compose` sin `--env-file .env.docker` | Usa siempre `--env-file .env.docker` (o crea un `.env` equivalente) |
 | `image not found` con `--no-build` | El `.tar` no se cargó | `docker load -i imagenes/ansible-control-center-images.tar` |
 | `port is already allocated` | 80/443 ocupados | Cambia `ACC_HTTP_PORT`/`ACC_HTTPS_PORT` |
 | Nginx no arranca | Certificado corrupto | `sudo rm -f certs/*.pem` y reinicia nginx |
 | Aviso de certificado en el navegador | Autofirmado | Acéptalo una vez o instala uno real |
-| `permission denied` en `/data` | Volumen con propietario incorrecto | Recrea el volumen (`docker compose down -v` **borra datos**) o ajusta UID 10001 |
+| `permission denied` en `/data` | Volumen con propietario incorrecto | Ejecuta `restaurar-datos.sh --limpiar` o ajusta UID 10001 |
+| LDAPS no conecta | CA no montada o 636 bloqueado | Copia la CA en `certs-ca/`, define `ACC_LDAP_TLS_CA_FILE` y revisa el firewall |
+| La restauración no arranca | `.env.docker`/certs sin restaurar o UID incorrecto | Restaura `configuracion.tgz`, revisa `docker compose logs app` |
 | Ansible no conecta | `known_hosts` vacío o red | Añade claves o revisa `ACC_HOST_KEY_CHECKING` |
 | Progreso SSE se corta | Proxy/timeout intermedio | El timeout de Nginx es 360 s |
 | Lote queda `running` | Proceso reiniciado | Se marca `error` al arrancar; usa `reconcile-batches` |

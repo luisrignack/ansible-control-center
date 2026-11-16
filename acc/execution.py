@@ -600,6 +600,33 @@ def _run_preview_batch(
     return outcome
 
 
+_AUTH_ERROR_MARKERS = (
+    "authentication failed",
+    "authentication failure",
+    "invalid password",
+    "incorrect password",
+    "password incorrect",
+    "access denied",
+    "login failed",
+    "permission denied",
+    "too many authentication failures",
+    "sudo: a password is required",
+    "incorrect sudo password",
+)
+
+
+def _ping_error_is_authentication(error: str) -> bool:
+    """Distingue un fallo de credenciales de uno de red en la salida de Ansible.
+
+    Ansible no devuelve un código de error estructurado en el ping ad-hoc, así
+    que se inspeccionan los mensajes conocidos. Ante la duda se asume que es
+    de credenciales: es preferible probar otra candidata a descartar un host
+    que sí estaba accesible.
+    """
+    normalized = error.lower()
+    return any(marker in normalized for marker in _AUTH_ERROR_MARKERS)
+
+
 def _run_apply_batch(
     tid: str,
     batch_id: str,
@@ -634,9 +661,10 @@ def _run_apply_batch(
     """Aplica el cambio en todos los hosts (best-effort) y registra cada uno.
 
     Si una contraseña autentica pero el playbook falla, se prueban las
-    siguientes candidatas hasta ``ACC_MAX_PASSWORD_ATTEMPTS``. Un fallo
-    de un host nunca detiene el lote. Al agotarse el presupuesto de tiempo del
-    lote, los hosts pendientes quedan como ``skipped``.
+    siguientes candidatas hasta ``ACC_MAX_PASSWORD_ATTEMPTS``. Si el ping
+    falla por un problema de red, no se insiste con otras contraseñas. Un
+    fallo de un host nunca detiene el lote. Al agotarse el presupuesto de
+    tiempo del lote, los hosts pendientes quedan como ``skipped``.
 
     Devuelve ``completed``, ``incomplete`` (presupuesto agotado) o
     ``cancelled`` (cancelación solicitada por el usuario).
@@ -818,18 +846,34 @@ def _run_apply_batch(
                         continue
 
                     if not ping.get("success"):
-                        last_auth_error = ping.get("error") or "sin conexión"
+                        ping_error = str(ping.get("error") or "sin conexión")
+                        last_auth_error = ping_error
                         _append_log(
                             log_lines,
-                            f"Sin acceso a {host}: {str(last_auth_error)[:120]}",
+                            f"Sin acceso a {host}: {ping_error[:120]}",
                         )
                         _append_console(
                             console_lines,
                             tid,
                             f"Sin acceso (hash {candidate_hash}): "
-                            f"{str(last_auth_error)[:120]}",
+                            f"{ping_error[:120]}",
                             host=host,
                         )
+                        if not _ping_error_is_authentication(ping_error):
+                            # Un fallo de red o un timeout no se resuelve
+                            # probando otra contraseña: se deja de insistir.
+                            _append_log(
+                                log_lines,
+                                f"{host}: error de conexión; "
+                                "no se prueban más contraseñas",
+                            )
+                            _append_console(
+                                console_lines,
+                                tid,
+                                "Error de conexión; no se prueban más contraseñas",
+                                host=host,
+                            )
+                            break
                         continue
 
                     short_hash = candidate_hash

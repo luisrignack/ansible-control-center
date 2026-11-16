@@ -36,8 +36,8 @@ El procedimiento completo está en [AGENTS.md](AGENTS.md).
 Fases **P0–P4, P4.1, P4.2 y bloque de operación continua** completadas,
 junto con las correcciones de alta prioridad del
 [análisis profundo 2026-11-06](docs/ANALISIS_PROFUNDO_2026-11-06.md).
-Suite de pruebas: **569 tests en verde y 1 integración SSH opcional omitida
-por defecto** (570 recopilados). Incluye empaquetado Docker con Nginx y TLS.
+Suite de pruebas: **571 tests en verde y 1 integración SSH opcional omitida
+por defecto** (572 recopilados). Incluye empaquetado Docker con Nginx y TLS.
 
 | Fase | Contenido |
 |---|---|
@@ -415,12 +415,21 @@ reconstruir nada:
 ```bash
 ./docker/export-images.sh
 # genera dist/hora-admin-despliegue/
-#   (01-INICIO-RAPIDO.txt + 02-GUIA-COMPLETA-DESPLIEGUE.md)
+#   (01-INICIO-RAPIDO.txt, 02-GUIA-COMPLETA-DESPLIEGUE.md,
+#    04-CHECKLIST-PRODUCCION.md, herramientas/ y certs-ca/)
 
 # en la PC de destino, dentro de esa carpeta:
+sha256sum -c sha256sums.txt
 docker load -i imagenes/ansible-control-center-images.tar
 docker compose --env-file .env.docker up -d --no-build
+./herramientas/verificar-despliegue.sh
 ```
+
+Si vienes de otra PC con datos, el paquete incluye
+`herramientas/respaldo-datos.sh` y `herramientas/restaurar-datos.sh` para
+migrar SQLite, el vault y `known_hosts` (guía 02, §7). El procedimiento
+completo de paso a producción está en
+[04-CHECKLIST-PRODUCCION.md](docker/CHECKLIST-PRODUCCION.md).
 
 Ajusta `TLS_CN`/`TLS_SAN` al nombre o IP real de acceso para evitar avisos del
 navegador por el nombre del certificado. Guía completa, copias de seguridad,

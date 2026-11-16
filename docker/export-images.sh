@@ -13,10 +13,13 @@
 #   ./docker/export-images.sh                  # reconstruye desde HEAD
 #   ./docker/export-images.sh --no-build       # usa las imágenes locales
 #   ./docker/export-images.sh --output /ruta   # cambia la carpeta de salida
+#   ./docker/export-images.sh --allow-dirty    # permite empaquetar cambios
+#                                              # sin confirmar (no recomendado)
 #
 # Por defecto se reconstruyen SIEMPRE las imágenes desde el árbol de trabajo
 # actual (HEAD). Así el paquete no puede contener una imagen anterior al
-# código, como ocurría con el tar de 177 MB de versiones previas.
+# código, como ocurría con el tar de 177 MB de versiones previas. Si el árbol
+# tiene cambios sin confirmar, el script se detiene salvo con --allow-dirty.
 #
 # La arquitectura de las imágenes debe coincidir con la de la PC de destino.
 #
@@ -31,6 +34,7 @@ NGINX_IMAGE_NAME="ansible-control-center-nginx"
 BUNDLE_NAME="hora-admin-despliegue"
 BUILD_MODE="auto"
 OUTPUT_DIR=""
+ALLOW_DIRTY="no"
 GIT_COMMIT="$(git rev-parse --short=12 HEAD 2>/dev/null || printf 'desconocido')"
 GIT_DIRTY="no"
 if ! git diff --quiet --ignore-submodules HEAD 2>/dev/null; then
@@ -54,7 +58,8 @@ while [ $# -gt 0 ]; do
     --build)    BUILD_MODE="force" ;;
     --no-build) BUILD_MODE="never" ;;
     --output)   shift; OUTPUT_DIR="${1:-}" ;;
-    -h|--help)  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --allow-dirty) ALLOW_DIRTY="si" ;;
+    -h|--help)  sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)          die "Opción desconocida: $1 (usa --help)." ;;
   esac
   shift
@@ -76,6 +81,10 @@ fi
 ENV_FILE_ARGS=()
 if [ -f ".env.docker" ]; then
   ENV_FILE_ARGS=(--env-file .env.docker)
+fi
+
+if [ "$GIT_DIRTY" != "no" ] && [ "$ALLOW_DIRTY" != "si" ]; then
+  die "El árbol de trabajo tiene cambios sin confirmar. Confirma o descarta los cambios, o usa --allow-dirty para empaquetar una versión no reproducible."
 fi
 
 # ---------------------------------------------------------------------------
@@ -129,11 +138,39 @@ tag_release() {
 tag_release "$APP_IMAGE_NAME"
 tag_release "$NGINX_IMAGE_NAME"
 
+# El paquete de producción no puede contener una imagen de otra versión o de
+# otro commit. Sin esta comprobación es fácil exportar una imagen antigua con
+# el tag nuevo (fue el fallo del paquete 0.9.6).
+IMAGE_VERSION="$(docker image inspect "$APP_IMAGE" --format '{{ index .Config.Labels "org.opencontainers.image.version" }}')"
+IMAGE_REVISION="$(docker image inspect "$APP_IMAGE" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' 2>/dev/null || true)"
+[ "$IMAGE_VERSION" = "$VERSION" ] \
+  || die "La imagen $APP_IMAGE declara versión '$IMAGE_VERSION' y VERSION es '$VERSION'. Reconstruye con --build."
+if [ "$GIT_COMMIT" != "desconocido" ] && [ -n "$IMAGE_REVISION" ]; then
+  case "$IMAGE_REVISION" in
+    "$GIT_COMMIT"*) : ;;
+    *) die "La imagen $APP_IMAGE se construyó desde '$IMAGE_REVISION' y HEAD es '$GIT_COMMIT'. Reconstruye con --build." ;;
+  esac
+fi
+log "Imágenes verificadas: versión $IMAGE_VERSION, commit ${IMAGE_REVISION:-desconocido}."
+
 # ---------------------------------------------------------------------------
 # 3. Carpeta de salida
 # ---------------------------------------------------------------------------
 DEST="${OUTPUT_DIR:-$ROOT_DIR/dist/$BUNDLE_NAME}"
-mkdir -p "$DEST/imagenes" "$DEST/docker/nginx" "$DEST/certs"
+
+# Limpia artefactos de una exportación anterior para no mezclar versiones,
+# CA antiguas o certificados del equipo de origen. Se conserva respaldo/ si el
+# operador lo dejó dentro de la carpeta, pero certs/ se vacía: el certificado
+# debe generarse en la PC de destino.
+rm -rf "$DEST/imagenes" "$DEST/docker" "$DEST/herramientas" "$DEST/certs-ca"
+rm -f "$DEST"/01-* "$DEST"/02-* "$DEST"/03-* "$DEST"/04-* \
+      "$DEST/LEEME.txt" "$DEST/DESPLIEGUE.md" \
+      "$DEST/docker-compose.yml" "$DEST/Dockerfile" \
+      "$DEST/.env.docker.example" "$DEST/VERSION" "$DEST/sha256sums.txt"
+rm -f "$DEST/certs/"*.pem
+
+mkdir -p "$DEST/imagenes" "$DEST/docker/nginx" "$DEST/herramientas" \
+  "$DEST/certs" "$DEST/certs-ca"
 
 log "Exportando imágenes $VERSION a $DEST/imagenes/ansible-control-center-images.tar ..."
 SAVE_REFS=(
@@ -160,13 +197,12 @@ Ansible Control Center — despliegue en otra PC (arranque rápido)
 ================================================================
 
 ORDEN DE LECTURA DE ESTE PAQUETE
-  01-INICIO-RAPIDO.txt        este archivo: los 5 pasos mínimos
+  01-INICIO-RAPIDO.txt             este archivo: los pasos mínimos
   02-GUIA-COMPLETA-DESPLIEGUE.md   guía completa (configuración, TLS,
-                              SSH/WinRM, LDAPS, criticidad y ventanas,
-                              volúmenes, actualización, diagnóstico y
-                              seguridad)
+                                   SSH/WinRM, LDAPS, datos, diagnóstico)
+  04-CHECKLIST-PRODUCCION.md       lista de comprobación para producción
   imagenes/03-INFORMACION-IMAGENES.txt  arquitectura, digests y fecha
-                              de empaquetado de las imágenes
+                                   de empaquetado de las imágenes
 
 CONTENIDO DE LA CARPETA
   imagenes/ansible-control-center-images.tar  las imágenes listas para
@@ -177,6 +213,8 @@ CONTENIDO DE LA CARPETA
                               imágenes no hace falta (reconstruir requiere
                               el código fuente y Docker Hub)
   certs/                      vacío: el certificado se genera al arrancar
+  certs-ca/                   CA pública del directorio para LDAPS
+  herramientas/               respaldo, restauración y verificación
   sha256sums.txt              para verificar la integridad del paquete
 
 ARRANQUE EN 5 PASOS (detalles y comprobaciones: guía 02, §3)
@@ -190,18 +228,28 @@ ARRANQUE EN 5 PASOS (detalles y comprobaciones: guía 02, §3)
        openssl rand -hex 32        # pégalo en ACC_SECRET_KEY
 
   3) Editar .env.docker. Mínimo obligatorio (tabla completa: guía 02, §4):
+       ACC_ENV=production
        ACC_SECRET_KEY=<paso 2>
-       ACC_ADMIN_PASSWORD=/contraseña/mínimo/12/
+       ACC_ADMIN_PASSWORD=<mínimo 12 caracteres>
        ACC_ALLOWED_NETWORKS=10.0.0.0/8,192.168.1.0/24   # redes a administrar
-       TLS_SAN=DNS:servidor.local,IP:10.0.0.5           # cómo se accederá
+       TLS_SAN=DNS:servidor.local,IP=10.0.0.5           # cómo se accederá
 
   4) Arrancar (no es necesario código fuente ni internet):
        docker compose --env-file .env.docker up -d --no-build
 
   5) Comprobar y entrar:
-       curl -fk https://localhost/healthz
+       ./herramientas/verificar-despliegue.sh
        https://localhost  (acepta el aviso del certificado autofirmado)
        Usuario: ACC_ADMIN_USERNAME / ACC_ADMIN_PASSWORD
+
+SI VIENES DE OTRA PC CON DATOS
+  En el equipo de origen, dentro del paquete antiguo:
+       ./herramientas/respaldo-datos.sh
+  Copia la carpeta respaldo/ junto a este paquete y, en el destino:
+       tar xzf respaldo/<fecha>/configuracion.tgz -C .
+       chmod 600 .env.docker
+       ./herramientas/restaurar-datos.sh respaldo/<fecha>/datos.tgz
+  Detalles y advertencias: guía 02, §7.
 
 DESPUÉS DEL ARRANQUE
   - La tarjeta «Zona horaria» aplica America/Caracas (UTC-4) permanente en
@@ -229,18 +277,35 @@ DESPUÉS DEL ARRANQUE
     LDAPS se validan en el directorio y solo se activan/desactivan aquí
     (guía 02, §4).
   - El modo Simulación cambia desde la barra superior de la interfaz.
+    Valida primero con DRY RUN y desactívalo después del host de prueba.
   - Vistas: /ejecuciones (lotes e historial), /solicitudes (aprobaciones),
     /credenciales, /inventario, /programaciones, /usuarios, /sistema
     (auditoría, rendimiento, ajustes y acerca de) y /cuenta.
+
+ANTES DE PRODUCCIÓN
+  - Revisa 04-CHECKLIST-PRODUCCION.md de principio a fin.
+  - No uses ACC_ENV=development ni ACC_IMAGE_TAG=latest en producción.
+  - No ejecutes "docker compose down -v": borra los volúmenes con los datos.
 EOF
 
 cp -a docker-compose.yml Dockerfile .env.docker.example VERSION "$DEST/"
 cp -a docker/entrypoint.sh "$DEST/docker/"
 cp -a docker/nginx/Dockerfile docker/nginx/default.conf docker/nginx/self-signed.sh \
   "$DEST/docker/nginx/"
-# Guía completa, numerada como 02 en el orden de lectura.
+# Guía completa y checklist, numeradas en el orden de lectura.
 cp -a docker/despliegue-portable.md "$DEST/02-GUIA-COMPLETA-DESPLIEGUE.md"
+cp -a docker/CHECKLIST-PRODUCCION.md "$DEST/04-CHECKLIST-PRODUCCION.md"
+cp -a docker/herramientas/respaldo-datos.sh \
+      docker/herramientas/restaurar-datos.sh \
+      docker/herramientas/verificar-despliegue.sh "$DEST/herramientas/"
+chmod +x "$DEST/herramientas/"*.sh
 : > "$DEST/certs/.gitkeep"
+
+# CA pública del directorio (solo certificados, nunca claves privadas).
+cp -a docker/certs-ca/LEEME.txt "$DEST/certs-ca/LEEME.txt"
+for ca in "$ROOT_DIR"/certs-ca/*.pem "$ROOT_DIR"/certs-ca/*.crt "$ROOT_DIR"/certs-ca/*.cer; do
+  [ -f "$ca" ] && cp -a "$ca" "$DEST/certs-ca/"
+done
 
 # El paquete fija la etiqueta exacta: nunca latest para un despliegue
 # reproducible. El usuario puede sobrescribirla en su .env.docker.
@@ -290,6 +355,9 @@ $NGINX_IMAGE
 El paquete fija ACC_IMAGE_TAG=$VERSION en .env.docker.example. Usa siempre
 esa etiqueta exacta; latest es solo un alias de consulta.
 
+Incluye además herramientas/respaldo-datos.sh, restaurar-datos.sh y
+verificar-despliegue.sh, la guía 02 y la checklist 04 de producción.
+
 Cargar con:
   docker load -i imagenes/ansible-control-center-images.tar
 
@@ -311,8 +379,11 @@ cat <<EOF
   Imagen .tar  : $SIZE
   Punto de entrada: $DEST/01-INICIO-RAPIDO.txt
   Guía completa   : $DEST/02-GUIA-COMPLETA-DESPLIEGUE.md
+  Checklist       : $DEST/04-CHECKLIST-PRODUCCION.md
 
   Copia toda la carpeta a la otra PC y empieza por 01-INICIO-RAPIDO.txt. Allí
-  no hace falta ni el código fuente ni acceso a Docker Hub.
+  no hace falta ni el código fuente ni acceso a Docker Hub. Para migrar datos
+  existentes usa herramientas/respaldo-datos.sh en origen y
+  herramientas/restaurar-datos.sh en destino (guía 02, §7).
 
 EOF

@@ -34,3 +34,6 @@ dist/
 # Secretos de Docker Compose (.dockerignore también los excluye)
 secrets.d/
 certs-ca/*.pem
+
+# Respaldos locales de despliegue (pueden contener vault, pepper y secretos)
+respaldo/

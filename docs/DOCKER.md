@@ -314,7 +314,12 @@ imágenes), empaqueta todo en el origen:
 ./docker/export-images.sh              # construye si hace falta
 # ./docker/export-images.sh --build    # fuerza la reconstrucción con --pull
 # ./docker/export-images.sh --no-build # usa las imágenes locales
+# ./docker/export-images.sh --allow-dirty  # empaqueta cambios sin confirmar
 ```
+
+El script se niega a empaquetar si el árbol tiene cambios sin confirmar (salvo
+`--allow-dirty`) y comprueba que la imagen declara la misma versión y commit
+que `VERSION`/`HEAD`, para no repetir el fallo de un tar con imágenes viejas.
 
 El script deja una carpeta autocontenida (ignorada por git) en
 `dist/hora-admin-despliegue/`, con los documentos numerados por orden
@@ -327,9 +332,14 @@ de lectura:
 | `docker-compose.yml` | Stack App + Nginx con TLS |
 | `.env.docker.example` | Plantilla de configuración |
 | `certs/` | Vacío; el certificado se genera al arrancar |
+| `certs-ca/` | CA pública del directorio para LDAPS (`LEEME.txt`) |
+| `herramientas/respaldo-datos.sh` | Respaldo de volúmenes y configuración para migrar |
+| `herramientas/restaurar-datos.sh` | Restauración en la PC destino |
+| `herramientas/verificar-despliegue.sh` | Comprobación de imágenes, config y `/healthz` |
 | `docker/` | Entrypoint, configuración de Nginx y el propio script |
 | `Dockerfile` | Solo para reconstruir; no se usa con `--no-build` |
 | `02-GUIA-COMPLETA-DESPLIEGUE.md` | Guía completa, autocontenida |
+| `04-CHECKLIST-PRODUCCION.md` | Checklist de paso a producción |
 | `01-INICIO-RAPIDO.txt` | Pasos mínimos (punto de entrada) |
 | `sha256sums.txt` | Integridad de todo el paquete |
 

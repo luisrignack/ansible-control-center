@@ -14,6 +14,7 @@ instance
 data
 secrets
 secrets.d
+respaldo
 logs
 certs
 *.db
@@ -36,6 +37,7 @@ DEPLOYMENT.md
 README.md
 install.sh
 docker-compose.yml
+/*.yml
 docker/nginx
 passwords.example.txt
 # Paquetes de despliegue y artefactos de build: nunca deben entrar en la

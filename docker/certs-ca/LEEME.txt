@@ -1,0 +1,28 @@
+CA del directorio para LDAPS
+============================
+
+Este directorio se monta en el contenedor como /certs (solo lectura) y lo usa
+la aplicación para validar el certificado del servidor LDAPS.
+
+Qué poner aquí
+--------------
+Solo el certificado PÚBLICO de la CA del directorio, nunca su clave privada.
+Formatos válidos: .pem, .crt o .cer (PEM o DER). Ejemplo:
+
+  ca-etecsa.pem
+
+Configuración en .env.docker
+----------------------------
+  ACC_LDAP_TLS_VERIFY=1
+  ACC_LDAP_TLS_CA_FILE=/certs/ca-etecsa.pem
+
+Comprobación
+------------
+  docker compose --env-file .env.docker exec app \
+    sh -c 'ls -l /certs && openssl x509 -in /certs/ca-etecsa.pem -noout -subject -dates'
+
+Si el directorio usa una CA pública conocida por el sistema, deja este
+directorio vacío y ACC_LDAP_TLS_CA_FILE sin definir.
+
+No copies aquí claves privadas, contraseñas ni el certificado TLS de Nginx:
+esos viven en certs/ y en el volumen acc_secrets.

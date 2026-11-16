@@ -8,8 +8,26 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+### Añadido
+
+- **Paquete de producción completo**: `docker/export-images.sh` incluye ahora
+  la checklist de producción (`04-CHECKLIST-PRODUCCION.md`), la CA del
+  directorio (`certs-ca/`) y las herramientas `respaldo-datos.sh`,
+  `restaurar-datos.sh` y `verificar-despliegue.sh`. El paquete permite migrar
+  SQLite, vault y `known_hosts` a otra PC y validar el despliegue antes y
+  después de arrancar.
+- **Guardas de empaquetado**: el script se niega a exportar con cambios sin
+  confirmar (salvo `--allow-dirty`) y verifica que las imágenes declaren la
+  misma versión y commit que `VERSION`/`HEAD`.
+
 ### Corregido
 
+- **Reintentos con error de conexión**: un fallo de red en el ping ya no prueba
+  todas las contraseñas candidatas. Solo se reintenta si Ansible rechaza la
+  credencial; un `UNREACHABLE`/timeout detiene los intentos para ese host.
+- **Documentación de `known_hosts`**: la guía portable decía que
+  `ACC_SSH_HOST_KEYS_AUTO` venía activado cuando el compose lo deja en `0`.
+  Ahora describe el valor seguro y cómo precargar huellas verificadas.
 - **Contraseña válida reportada como «Sin acceso»**: el ping de Ansible se
   ejecuta con `become` (activado en `ansible.cfg`), pero solo recibía
   `ansible_password`. Cuando la contraseña SSH era correcta, `sudo` pedía la
