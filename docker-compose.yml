@@ -8,6 +8,10 @@ services:
       args:
         APP_VERSION: "${APP_VERSION:-0.0.0}"
         APP_COMMIT: "${APP_COMMIT:-}"
+        # Mirror opcional para construir sin salida a deb.debian.org ni pypi.org.
+        APT_MIRROR: "${APT_MIRROR:-}"
+        PIP_INDEX_URL: "${PIP_INDEX_URL:-}"
+        PIP_TRUSTED_HOST: "${PIP_TRUSTED_HOST:-}"
     image: ansible-control-center:${ACC_IMAGE_TAG:-latest}
     restart: unless-stopped
     # La app no necesita privilegios: corre como ``acc`` y solo abre el 8000.

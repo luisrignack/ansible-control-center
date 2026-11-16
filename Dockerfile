@@ -3,6 +3,14 @@ FROM python:3.12-slim
 ARG APP_VERSION=0.0.0
 ARG APP_COMMIT=
 
+# Mirror opcional para redes sin salida a deb.debian.org ni pypi.org.
+# ``APT_MIRROR`` es la base de los repositorios APT (p. ej.
+# http://nexus.local:8081/repository) y ``PIP_INDEX_URL`` el índice de PyPI.
+# Vacíos, se usan los repositorios oficiales de la imagen base.
+ARG APT_MIRROR=
+ARG PIP_INDEX_URL=
+ARG PIP_TRUSTED_HOST=
+
 LABEL org.opencontainers.image.title="Ansible Control Center" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${APP_COMMIT}" \
@@ -24,7 +32,34 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # sshpass y openssh-client son necesarios para la autenticación por contraseña
 # que usa Ansible. tini actúa como PID 1 y propaga las señales.
-RUN apt-get update \
+#
+# Con ``APT_MIRROR`` se reescriben las fuentes de Debian para el proxy Nexus
+# (una entrada por suite, porque cada una vive en un repositorio distinto).
+# La firma PGP de Debian se sigue validando con el keyring de la imagen base.
+RUN if [ -n "$APT_MIRROR" ]; then \
+        . /etc/os-release; \
+        codename="${VERSION_CODENAME:-trixie}"; \
+        { \
+            echo "Types: deb"; \
+            echo "URIs: ${APT_MIRROR}/${codename}"; \
+            echo "Suites: ${codename}"; \
+            echo "Components: main"; \
+            echo "Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp"; \
+            echo; \
+            echo "Types: deb"; \
+            echo "URIs: ${APT_MIRROR}/${codename}-updates"; \
+            echo "Suites: ${codename}-updates"; \
+            echo "Components: main"; \
+            echo "Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp"; \
+            echo; \
+            echo "Types: deb"; \
+            echo "URIs: ${APT_MIRROR}/${codename}-security"; \
+            echo "Suites: ${codename}-security"; \
+            echo "Components: main"; \
+            echo "Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp"; \
+        } > /etc/apt/sources.list.d/debian.sources; \
+    fi \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         openssh-client \
@@ -42,8 +77,11 @@ WORKDIR /app
 # permite resolver ldap3/pyasn1 sin red cuando el índice no responde.
 COPY requirements.lock ./
 COPY vendor/wheels/ /wheels/
-RUN python -m pip install --upgrade pip \
-    && python -m pip install -r requirements.lock --find-links /wheels
+RUN pip_args=""; \
+    if [ -n "$PIP_INDEX_URL" ]; then pip_args="--index-url $PIP_INDEX_URL"; fi; \
+    if [ -n "$PIP_TRUSTED_HOST" ]; then pip_args="$pip_args --trusted-host $PIP_TRUSTED_HOST"; fi; \
+    python -m pip install --upgrade pip $pip_args \
+    && python -m pip install -r requirements.lock --find-links /wheels $pip_args
 
 COPY --chown=acc:acc . .
 
