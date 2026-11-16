@@ -158,9 +158,13 @@ def test_ansible_ping(
 
     La contraseña se pasa en un fichero temporal 0600 mediante
     ``--extra-vars @fichero``, no como argumento de línea de comandos.
-    Con ``private_key``, la autenticación SSH usa la clave y la contraseña
-    queda solo para el become (sudo). Con ``connection == "winrm"`` se usa el
-    módulo ``win_ping`` y las variables de conexión de WinRM.
+    La misma contraseña se envía como ``ansible_become_password``: el
+    ``ansible.cfg`` activa ``become`` de forma global, así que sin ella el
+    ping autentica por SSH pero falla en ``sudo`` y una contraseña válida se
+    reportaría como inválida. Con ``private_key``, la autenticación SSH usa la
+    clave y la contraseña queda solo para el become (sudo). Con
+    ``connection == "winrm"`` se usa el módulo ``win_ping`` y las variables de
+    conexión de WinRM.
     """
     result: dict[str, Any] = {"success": False, "host": host, "error": ""}
 
@@ -192,7 +196,10 @@ def test_ansible_ping(
     try:
         with secure_temp_file(
             json.dumps(
-                {"ansible_password": password}
+                {
+                    "ansible_password": password,
+                    "ansible_become_password": password,
+                }
                 | connection_vars
                 | ({"ansible_ssh_private_key_file": private_key} if private_key else {})
             ),
@@ -216,7 +223,6 @@ def test_ansible_ping(
                 user,
                 "-T",
                 str(CONNECT_TIMEOUT),
-                "-o",
                 "--extra-vars",
                 f"@{vars_file}",
             ]

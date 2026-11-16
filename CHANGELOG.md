@@ -8,6 +8,18 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+### Corregido
+
+- **Contraseña válida reportada como «Sin acceso»**: el ping de Ansible se
+  ejecuta con `become` (activado en `ansible.cfg`), pero solo recibía
+  `ansible_password`. Cuando la contraseña SSH era correcta, `sudo` pedía la
+  suya y el ping fallaba; la app lo interpretaba como credencial inválida y no
+  llegaba a probar el playbook. Ahora el ping envía también
+  `ansible_become_password` con la misma contraseña, igual que el playbook.
+- **Errores de Ansible ilegibles**: se elimina el flag `-o` (`oneline`, obsoleto
+  en ansible-core 2.19). Era el que convertía fallos como «sudo: se requiere
+  una contraseña» en el mensaje genérico «(traceback unavailable)».
+
 ## [0.9.8] — 2026-11-14
 
 ### Añadido

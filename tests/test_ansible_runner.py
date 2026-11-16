@@ -136,6 +136,9 @@ def test_ping_runs_even_in_dry_run(monkeypatch):
     assert result["success"] is True
     assert result.get("dry_run") is not True
     assert captured["vars"]["ansible_password"] == "clave-ping"
+    # El ping corre con become: sin esta clave una contraseña válida falla en
+    # sudo y se reportaría como "Sin acceso".
+    assert captured["vars"]["ansible_become_password"] == "clave-ping"
 
 
 def test_ping_uses_extra_vars_and_cleans_up(monkeypatch):
@@ -157,6 +160,7 @@ def test_ping_uses_extra_vars_and_cleans_up(monkeypatch):
 
     assert result["success"] is True
     assert captured["vars"]["ansible_password"] == "clave-ping"
+    assert captured["vars"]["ansible_become_password"] == "clave-ping"
     assert "clave-ping" not in " ".join(captured["cmd"])
     assert not os.path.exists(captured["vars_path"])
 
