@@ -184,7 +184,7 @@
                             <small>{{ batch.created_at.strftime('%Y-%m-%d %H:%M:%S') if batch.created_at else 'N/A' }}</small>
                         </td>
                         <td>
-                            <a href="{{ url_for('batch_detail', batch_id=batch.batch_id) }}">
+                            <a href="{{ url_for('batch_detail', batch_id=batch.batch_id, all=1 if show_all else None) }}">
                                 <code>{{ batch.batch_id[:8] }}</code>
                             </a>
                         </td>
@@ -220,6 +220,9 @@
                         <td>
                             <span class="badge {% if batch.status == 'success' %}bg-success{% elif batch.status in ['partial', 'incomplete'] %}bg-warning text-dark{% elif batch.status == 'preview' %}bg-info text-dark{% elif batch.status == 'cancelled' %}bg-secondary{% else %}bg-danger{% endif %}"
                                   data-status="{{ batch.status }}">{{ status_labels.get(batch.status, batch.status) }}</span>
+                            {% if batch.interrupted %}
+                            <span class="badge bg-warning text-dark" title="El proceso se interrumpió y el resultado remoto es desconocido">Interrumpido</span>
+                            {% endif %}
                             {% if batch.dry_run %}
                             <span class="badge bg-warning text-dark" title="Ejecución simulada">DRY RUN</span>
                             {% endif %}

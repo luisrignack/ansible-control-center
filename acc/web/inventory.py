@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import os
 
-from flask import abort, flash, redirect, render_template, request, url_for
+from flask import (
+    Response,
+    abort,
+    flash,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
 from flask_login import current_user, login_required
 
 from acc import runtime
@@ -13,12 +23,15 @@ from acc.security import (
     _current_owner_id,
     _owner_scope,
     _view_all_requested,
+    roles_required,
 )
 from acc.web.registry import RouteRegistry
 from config import (
     MAX_CONTENT_LENGTH,
+    MAX_HOSTS,
     SECRETS_DIR,
 )
+from models.batch import ExecutionBatch
 from models.ops import (
     HostGroup,
     InventoryHost,
@@ -34,6 +47,25 @@ app = RouteRegistry()
 
 INVENTORY_KEYS_DIR = SECRETS_DIR / "inventory_keys"
 
+# Cabeceras admitidas (español e inglés) para importar CSV.
+_CSV_ADDRESS_KEYS = ("address", "direccion", "dirección", "ip", "host")
+_CSV_LABEL_KEYS = ("label", "etiqueta", "nombre")
+_CSV_CRITICALITY_KEYS = ("criticality", "criticidad")
+_MAX_IMPORT_ERRORS = 10
+
+
+def _csv_cell(value: object) -> str:
+    """Neutraliza fórmulas al abrir el CSV en una hoja de cálculo.
+
+    Un valor que empieza por ``=``, ``+``, ``-`` o ``@`` puede ejecutarse como
+    fórmula en Excel/LibreOffice. El inventario lo controla el operador, pero
+    la exportación se comparte por correo; se antepone un apóstrofo.
+    """
+    text = "" if value is None else str(value)
+    if text[:1] in {"=", "+", "-", "@", "\t", "\r"}:
+        return "'" + text
+    return text
+
 
 def _inventario_group_and_hosts(owner_user_id: int | None = None):
     groups = [
@@ -42,12 +74,151 @@ def _inventario_group_and_hosts(owner_user_id: int | None = None):
             db_path=runtime.get_db_path(), owner_user_id=owner_user_id
         )
     ]
+    outcomes = ExecutionBatch.latest_host_outcomes(
+        db_path=runtime.get_db_path()
+    )
     for group in groups:
-        group["hosts"] = [
+        hosts = [
             h.to_dict()
             for h in HostGroup.hosts_of(group["id"], db_path=runtime.get_db_path())
         ]
+        for host in hosts:
+            outcome = outcomes.get(host["address"], {})
+            host["last_result"] = outcome.get("last_result", "")
+            host["last_run"] = outcome.get("last_run", "")
+        group["hosts"] = hosts
     return groups
+
+
+def _csv_key(row: dict[str, str], keys: tuple[str, ...]) -> str:
+    for key, value in row.items():
+        if (key or "").strip().lower() in keys:
+            return (value or "").strip()
+    return ""
+
+
+@app.route("/inventario/exportar.csv")
+@login_required
+def inventario_exportar_csv():
+    """Exporta el inventario visible en CSV (UTF-8 con BOM para Excel)."""
+    groups = _inventario_group_and_hosts(_owner_scope())
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(
+        [
+            "grupo",
+            "descripcion",
+            "plataforma",
+            "conexion",
+            "direccion",
+            "etiqueta",
+            "criticidad",
+            "añadido",
+            "ultima_ejecucion",
+            "ultimo_resultado",
+        ]
+    )
+    for group in groups:
+        for host in group["hosts"]:
+            writer.writerow(
+                [
+                    _csv_cell(group["name"]),
+                    _csv_cell(group.get("description", "")),
+                    _csv_cell(group.get("os_flavor", "")),
+                    _csv_cell(group.get("connection", "")),
+                    _csv_cell(host.get("address", "")),
+                    _csv_cell(host.get("label", "")),
+                    _csv_cell(host.get("criticality", "")),
+                    _csv_cell(host.get("created_at", "")),
+                    _csv_cell(host.get("last_run", "")),
+                    _csv_cell(host.get("last_result", "")),
+                ]
+            )
+    response = Response(
+        "\ufeff" + buffer.getvalue(),
+        mimetype="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="inventario.csv"',
+            "Cache-Control": "no-store",
+        },
+    )
+    return response
+
+
+@app.route("/inventario/importar", methods=["POST"])
+@roles_required("operator")
+def inventario_importar_csv():
+    """Importa hosts a un grupo desde un CSV (solo añade, nunca borra)."""
+    db_path = runtime.get_db_path()
+    group_id = request.form.get("group_id", "").strip()
+    group = HostGroup.get(int(group_id), db_path=db_path) if group_id.isdigit() else None
+    if group is None:
+        flash("Selecciona un grupo válido para importar.", "warning")
+        return redirect(url_for("inventario"))
+    if not _can_manage_owner(group.owner_user_id):
+        abort(403)
+
+    uploaded = request.files.get("csv_file")
+    if uploaded is None or not uploaded.filename:
+        flash("Selecciona un fichero CSV.", "warning")
+        return redirect(url_for("inventario"))
+
+    raw = uploaded.read(MAX_CONTENT_LENGTH + 1)
+    if len(raw) > MAX_CONTENT_LENGTH:
+        flash("El CSV es demasiado grande.", "danger")
+        return redirect(url_for("inventario"))
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        flash("El CSV debe estar codificado en UTF-8.", "danger")
+        return redirect(url_for("inventario"))
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames or not any(
+        (name or "").strip().lower() in _CSV_ADDRESS_KEYS
+        for name in reader.fieldnames
+    ):
+        flash(
+            "El CSV necesita una columna 'address' (o 'direccion'/'ip').",
+            "danger",
+        )
+        return redirect(url_for("inventario"))
+
+    added = 0
+    skipped = 0
+    errors: list[str] = []
+    for line_number, row in enumerate(reader, start=2):
+        if line_number - 1 > MAX_HOSTS + 1:
+            errors.append(f"Se superó el máximo de {MAX_HOSTS} filas; resto ignorado.")
+            break
+        address = _csv_key(row, _CSV_ADDRESS_KEYS)
+        if not address:
+            skipped += 1
+            continue
+        label = _csv_key(row, _CSV_LABEL_KEYS)
+        criticality = _csv_key(row, _CSV_CRITICALITY_KEYS)
+        _host, error = InventoryHost.add(
+            group.id,
+            address,
+            label=label,
+            db_path=db_path,
+            criticality=criticality,
+        )
+        if error:
+            if "UNIQUE" in error or "duplic" in error.lower():
+                skipped += 1
+            else:
+                if len(errors) < _MAX_IMPORT_ERRORS:
+                    errors.append(f"Línea {line_number}: {error}")
+                skipped += 1
+        else:
+            added += 1
+
+    message = f"Importación CSV: {added} host(s) añadido(s), {skipped} omitido(s)."
+    flash(message, "success" if added else "info")
+    for error in errors:
+        flash(error, "danger")
+    return redirect(url_for("inventario"))
 
 
 @app.route("/inventario", methods=["GET", "POST"])

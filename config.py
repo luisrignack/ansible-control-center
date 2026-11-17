@@ -543,6 +543,13 @@ REQUEST_METRICS_WINDOW = _env_int(
 # Umbral para registrar una petición lenta en el log (además de la métrica).
 SLOW_REQUEST_MS = _env_int("ACC_SLOW_REQUEST_MS", 1000, minimum=100, maximum=60000)
 
+# Endpoint Prometheus. Con ``ACC_PROMETHEUS_TOKEN`` (o su fichero
+# ``ACC_PROMETHEUS_TOKEN_FILE``) el scrape se autentica con Bearer; sin token,
+# solo un administrador con sesión puede leerlo. Desactivado por completo con
+# ``ACC_PROMETHEUS=0``.
+PROMETHEUS_ENABLED = _env_bool("ACC_PROMETHEUS", True)
+PROMETHEUS_TOKEN = _env_secret("ACC_PROMETHEUS_TOKEN")
+
 # Cola de trabajos: concurrencia acotada y tamaño máximo de la cola.
 JOB_MAX_WORKERS = _env_int("ACC_JOB_WORKERS", 2, minimum=1, maximum=32)
 JOB_QUEUE_SIZE = _env_int("ACC_JOB_QUEUE_SIZE", 10, minimum=1)

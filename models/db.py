@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 
 
 def _secure_sqlite_files(path: str) -> None:
@@ -68,6 +68,81 @@ def _default_db_path() -> str:
     from config import resolve_db_path
 
     return str(resolve_db_path())
+
+
+def integrity_check(db_path: str, *, quick: bool = False) -> dict:
+    """Comprueba la integridad física del fichero SQLite.
+
+    ``quick=True`` ejecuta ``PRAGMA quick_check`` (más rápido y suficiente para
+    un chequeo rutinario); por defecto se usa ``integrity_check`` completo.
+    Devuelve un diccionario estable para healthchecks y scripts.
+    """
+    pragma = "PRAGMA quick_check" if quick else "PRAGMA integrity_check"
+    try:
+        with get_connection(db_path) as conn:
+            rows = conn.execute(pragma).fetchall()
+    except (sqlite3.Error, OSError) as exc:
+        return {"ok": False, "details": [str(exc)]}
+    details = [str(row[0]) for row in rows]
+    return {"ok": details == ["ok"], "details": details}
+
+
+def backup_database(db_path: str, destination: str | Path) -> Path:
+    """Copia consistente de SQLite con la API de backup en línea.
+
+    No se copia el fichero a mano: con WAL activo eso puede producir una copia
+    incoherente. ``Connection.backup`` toma una instantánea consistente aunque
+    haya escrituras en curso. La copia se escribe en un temporal 0600 y se
+    renombra de forma atómica, de modo que un fallo no deja un backup a medias
+    con el nombre definitivo.
+    """
+    source_path = str(db_path)
+    target = Path(destination)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(f".{target.name}.tmp")
+    try:
+        source = sqlite3.connect(source_path, timeout=10)
+        try:
+            dest_conn = sqlite3.connect(str(tmp))
+            try:
+                source.backup(dest_conn)
+            finally:
+                dest_conn.close()
+        finally:
+            source.close()
+        os.chmod(tmp, 0o600)
+        check = integrity_check(str(tmp), quick=True)
+        if not check["ok"]:
+            raise sqlite3.DatabaseError(
+                f"La copia de seguridad no pasó quick_check: {check['details']}"
+            )
+        os.replace(tmp, target)
+    finally:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:  # pragma: no cover - limpieza best-effort
+            pass
+    return target
+
+
+def checkpoint_wal(db_path: str) -> dict:
+    """Fuerza un checkpoint WAL y devuelve el resultado de ``PRAGMA``.
+
+    Antes de copiar el fichero a mano (por ejemplo, con ``cp``) conviene
+    ejecutar esto para volcar el WAL al fichero principal. Aun así se
+    recomienda ``backup_database``, que no depende de este paso.
+    """
+    with get_connection(db_path) as conn:
+        row = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+    if row is None:  # pragma: no cover - SQLite siempre devuelve una fila
+        return {"busy": 0, "log": 0, "checkpointed": 0}
+    return {
+        "busy": int(row[0]),
+        "log": int(row[1]),
+        "checkpointed": int(row[2]),
+    }
+
 
 
 def get_setting(
@@ -662,6 +737,84 @@ def _migrate_v20(conn: sqlite3.Connection, backfill: bool = True) -> None:
         """)
 
 
+def _migrate_v21(conn: sqlite3.Connection, backfill: bool = True) -> None:
+    """Integridad de auditoría y estado «interrumpido».
+
+    - ``auth_events`` gana ``event_id``, ``prev_hash`` y ``event_hash`` para
+      formar una cadena SHA-256 verificable (ver ``services/audit_chain.py``).
+    - ``audit_checkpoints`` guarda anclas firmadas con HMAC que permiten
+      detectar el borrado de la cola de eventos y exportar el estado a un
+      sistema externo.
+    - ``execution_batches.interrupted`` distingue un lote que quedó a medias
+      por un reinicio (resultado remoto desconocido) de un fallo real.
+
+    La migración es no destructiva: añade columnas y tablas. ``backfill`` solo
+    es cierto la primera vez y encadena los eventos históricos para que la
+    verificación cubra también la auditoría anterior a la v21.
+    """
+    for column, ddl in (
+        ("event_id", "event_id TEXT"),
+        ("prev_hash", "prev_hash TEXT NOT NULL DEFAULT ''"),
+        ("event_hash", "event_hash TEXT NOT NULL DEFAULT ''"),
+    ):
+        _ensure_column(conn, "auth_events", column, ddl)
+    _ensure_column(
+        conn,
+        "execution_batches",
+        "interrupted",
+        "interrupted INTEGER NOT NULL DEFAULT 0",
+    )
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS audit_checkpoints (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            upto_event_id INTEGER NOT NULL,
+            last_hash TEXT NOT NULL,
+            signature TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_auth_events_event_id
+            ON auth_events (event_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_checkpoints_created
+            ON audit_checkpoints (created_at);
+        """)
+    if not backfill:
+        return
+
+    from services.audit_chain import canonical_event, compute_hash
+
+    previous = ""
+    rows = conn.execute(
+        """
+        SELECT id, timestamp, username, ip, event, detail, event_id, event_hash
+        FROM auth_events
+        ORDER BY id
+        """
+    ).fetchall()
+    for row in rows:
+        event_id = row["event_id"] or f"legacy-{row['id']}"
+        canonical = canonical_event(
+            event_id=event_id,
+            timestamp=row["timestamp"],
+            username=row["username"],
+            ip=row["ip"],
+            event=row["event"],
+            detail=row["detail"],
+        )
+        current = compute_hash(previous, canonical)
+        if row["event_hash"] != current or row["event_id"] != event_id:
+            conn.execute(
+                """
+                UPDATE auth_events
+                SET event_id = ?, prev_hash = ?, event_hash = ?
+                WHERE id = ?
+                """,
+                (event_id, previous, current, row["id"]),
+            )
+        previous = current
+
+
 def init_schema(db_path: str) -> None:
     """Crea o migra el esquema de forma idempotente y no destructiva.
 
@@ -703,6 +856,7 @@ def init_schema(db_path: str) -> None:
         _migrate_v18(conn)
         _migrate_v19(conn)
         _migrate_v20(conn, backfill=version < 20)
+        _migrate_v21(conn, backfill=version < 21)
         # No se rebaja la versión de una base creada por una versión más nueva.
         if version < SCHEMA_VERSION:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

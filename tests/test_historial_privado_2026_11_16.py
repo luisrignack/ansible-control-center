@@ -148,7 +148,7 @@ def test_migracion_v20_es_idempotente_y_crea_el_indice(entorno):
         }
         assert "idx_execution_batches_owner" in indices
         version = int(conn.execute("PRAGMA user_version").fetchone()[0])
-        assert version == SCHEMA_VERSION == 20
+        assert version == SCHEMA_VERSION
 
         # Simula una fila heredada y comprueba que sin ``backfill`` no se
         # recorre la tabla: la atribución queda para la primera migración.
@@ -176,7 +176,7 @@ def test_init_schema_no_retrocede_la_version(entorno):
     db_path = entorno["db_path"]
     init_schema(db_path)
     with get_connection(db_path) as conn:
-        assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == 20
+        assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == SCHEMA_VERSION
 
 
 # ---------------------------------------------------------------------------

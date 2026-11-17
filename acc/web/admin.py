@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
 import sqlite3
+from datetime import UTC, datetime, timedelta
 
-from flask import abort, flash, jsonify, redirect, render_template, request, url_for
+from flask import (
+    Response,
+    abort,
+    flash,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
 from flask_login import current_user
 
 from acc import runtime
@@ -27,10 +38,15 @@ from acc.task_state import (
     _active_task_count,
     _queue_snapshot,
 )
+from acc.version import __version__
 from config import (
     ADMIN_PASSWORD_MIN_LENGTH,
+    ENVIRONMENT,
+    PROMETHEUS_ENABLED,
+    PROMETHEUS_TOKEN,
     SLOW_REQUEST_MS,
 )
+from models.db import get_connection
 from models.ops import (
     HostGroup,
     Schedule,
@@ -70,6 +86,141 @@ def api_metricas():
             "queue": _queue_snapshot(),
             "endpoints": snapshot,
         }
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def _prometheus_authorized() -> bool:
+    """Autoriza el scrape por Bearer token o por sesión de administrador.
+
+    Con ``ACC_PROMETHEUS_TOKEN`` configurado, Prometheus no necesita sesión ni
+    formulario: envía ``Authorization: Bearer <token>``. Sin token, el endpoint
+    queda restringido a un administrador autenticado para no exponer métricas
+    internas a cualquiera que alcance la red.
+    """
+    if PROMETHEUS_TOKEN:
+        header = request.headers.get("Authorization", "")
+        if hmac.compare_digest(header, f"Bearer {PROMETHEUS_TOKEN}"):
+            return True
+    return bool(
+        getattr(current_user, "is_authenticated", False)
+        and current_user.has_role("admin")
+    )
+
+
+def _prom_label(value: object) -> str:
+    """Escapa un valor de etiqueta Prometheus y acota su longitud."""
+    text = str(value or "").replace("\\", "\\\\").replace('"', '\\"')
+    text = text.replace("\n", " ").replace("\r", " ")
+    return text[:80]
+
+
+@app.route("/metrics")
+def prometheus_metrics():
+    """Métricas en formato Prometheus, con etiquetas acotadas.
+
+    No expone usuarios, IPs, nombres de host ni credenciales: solo agregados
+    por endpoint, estado de lote y tipo de evento de autenticación.
+    """
+    if not PROMETHEUS_ENABLED:
+        abort(404)
+    if not _prometheus_authorized():
+        return Response(
+            "forbidden\n",
+            status=403,
+            mimetype="text/plain",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    lines: list[str] = []
+
+    def add(name: str, help_text: str, kind: str = "gauge") -> None:
+        lines.append(f"# HELP {name} {help_text}")
+        lines.append(f"# TYPE {name} {kind}")
+
+    add("acc_info", "Versión e instancia de Ansible Control Center")
+    lines.append(
+        f'acc_info{{version="{_prom_label(__version__)}",'
+        f'environment="{_prom_label(ENVIRONMENT)}"}} 1'
+    )
+
+    snapshot = request_metrics.snapshot()
+    add("acc_requests_total", "Peticiones HTTP por endpoint", "counter")
+    for endpoint, data in snapshot.items():
+        label = _prom_label(endpoint)
+        lines.append(f'acc_requests_total{{endpoint="{label}"}} {data["count"]}')
+    add(
+        "acc_request_errors_total",
+        "Respuestas 5xx por endpoint",
+        "counter",
+    )
+    for endpoint, data in snapshot.items():
+        label = _prom_label(endpoint)
+        lines.append(
+            f'acc_request_errors_total{{endpoint="{label}"}} {data["errors"]}'
+        )
+    add("acc_request_duration_p95_ms", "Latencia p95 por endpoint")
+    for endpoint, data in snapshot.items():
+        label = _prom_label(endpoint)
+        lines.append(
+            f'acc_request_duration_p95_ms{{endpoint="{label}"}} {data["p95_ms"]}'
+        )
+
+    queue = _queue_snapshot()
+    add("acc_jobs_pending", "Trabajos esperando en la cola")
+    lines.append(f"acc_jobs_pending {int(queue.get('depth', 0))}")
+    add("acc_jobs_running", "Trabajos en ejecución")
+    lines.append(f"acc_jobs_running {int(queue.get('tasks_running', 0))}")
+    add("acc_jobs_workers", "Workers configurados")
+    lines.append(f"acc_jobs_workers {int(queue.get('workers', 0))}")
+    add("acc_host_locks_active", "Reservas de host activas")
+    lines.append(f"acc_host_locks_active {int(queue.get('active_host_locks', 0))}")
+
+    db_path = runtime.get_db_path()
+    try:
+        with get_connection(db_path) as conn:
+            batch_rows = conn.execute(
+                "SELECT status, COUNT(*) AS total FROM execution_batches "
+                "GROUP BY status"
+            ).fetchall()
+            event_rows = conn.execute(
+                """
+                SELECT event, COUNT(*) AS total FROM auth_events
+                WHERE timestamp >= ?
+                GROUP BY event
+                """,
+                (
+                    (
+                        datetime.now(UTC) - timedelta(hours=24)
+                    ).isoformat(timespec="seconds"),
+                ),
+            ).fetchall()
+    except (sqlite3.Error, OSError):
+        logger.warning("Métricas: no se pudo leer el estado de SQLite", exc_info=True)
+        batch_rows = []
+        event_rows = []
+
+    add("acc_batches_total", "Lotes registrados por estado", "counter")
+    for row in batch_rows:
+        lines.append(
+            f'acc_batches_total{{status="{_prom_label(row["status"])}"}} '
+            f"{int(row['total'])}"
+        )
+    add(
+        "acc_auth_events_24h",
+        "Eventos de autenticación en las últimas 24 horas",
+        "counter",
+    )
+    for row in event_rows:
+        lines.append(
+            f'acc_auth_events_24h{{event="{_prom_label(row["event"])}"}} '
+            f"{int(row['total'])}"
+        )
+
+    response = Response(
+        "\n".join(lines) + "\n",
+        mimetype="text/plain; version=0.0.4; charset=utf-8",
     )
     response.headers["Cache-Control"] = "no-store"
     return response

@@ -6,6 +6,41 @@ como historial.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [Unreleased] — Auditoría de seguridad y hardening (2026-11-17)
+
+### Añadido
+
+- **Cadena de integridad de auditoría** (esquema v21): cada evento de
+  `auth_events` guarda `event_id`, `prev_hash` y `event_hash`
+  (`SHA256(prev_hash + evento canónico)`). Se añaden `audit_checkpoints`
+  firmados con HMAC y los comandos `flask audit-verify`, `audit-checkpoint` y
+  `audit-export` (export JSON con permisos `0600`).
+- **Estado «interrumpido»**: las tareas y lotes que quedan a medias por un
+  reinicio se distinguen de un fallo real (`interrupted`, mensaje de resultado
+  remoto desconocido). No se reintentan automáticamente.
+- **Inventario CSV**: exportación (`/inventario/exportar.csv`) e importación
+  (`/inventario/importar`) con validación IPv4/allowlist, límites y protección
+  frente a fórmulas. La vista muestra la última ejecución y su resultado.
+- **Métricas Prometheus** (`/metrics`): protegido por token Bearer o sesión de
+  administrador, con etiquetas acotadas. No expone datos personales.
+- **API de catálogo** (`/api/catalogo`): contrato JSON de solo lectura
+  filtrado por rol.
+- **Backup consistente de SQLite** (`flask backup-db`) con `quick_check` y
+  permisos `0600`; utilidades `integrity_check` y `checkpoint_wal`.
+- Documentación de auditoría en `docs/audit/` y `docs/features/`.
+
+### Corregido
+
+- La vista global del historial conserva `?all=1` en los enlaces al detalle del
+  lote y al PDF, de modo que un administrador autorizado ya no recibe 404.
+- Los fallos al escribir un evento de auditoría dejan de ignorarse en silencio:
+  se registran como advertencia.
+
+### Pruebas
+
+- 17 pruebas nuevas (`tests/test_hardening_2026_11_16.py`); suite completa en
+  609 passed, 1 skipped, cobertura 82 %.
+
 ## [0.9.9] — 2026-11-16
 
 ### Añadido

@@ -11,8 +11,13 @@
         <h1>Inventario de hosts</h1>
         <p class="sub">Grupos persistentes de hosts con clave SSH opcional. Cada usuario ve los suyos y los compartidos; los administradores pueden abrir la vista global.</p>
     </div>
-    {% if current_user.has_role('admin') %}
     <div class="head-actions">
+        <a class="btn btn-sm btn-secondary"
+           href="{{ url_for('inventario_exportar_csv', all=1 if show_all else None) }}"
+           title="Descargar el inventario visible en CSV">
+            <i class="bi bi-download" aria-hidden="true"></i> Exportar CSV
+        </a>
+        {% if current_user.has_role('admin') %}
         {% if show_all %}
         <a class="btn btn-sm btn-secondary" href="{{ url_for('inventario') }}">
             <i class="bi bi-person" aria-hidden="true"></i> Ver solo los míos
@@ -22,8 +27,8 @@
             <i class="bi bi-people" aria-hidden="true"></i> Ver todo
         </a>
         {% endif %}
+        {% endif %}
     </div>
-    {% endif %}
 </div>
 
 {% if show_all %}
@@ -116,6 +121,40 @@
 </div>
 {% endif %}
 
+{% if can_create_group and groups %}
+<div class="card fade-in mb-4">
+    <div class="card-header">
+        <h2 class="card-title"><i class="bi bi-upload" aria-hidden="true"></i> Importar hosts desde CSV</h2>
+    </div>
+    <div class="card-body p-4">
+        <form method="post" action="{{ url_for('inventario_importar_csv') }}"
+              enctype="multipart/form-data" class="row g-3 align-items-end">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-4">
+                <label for="importGroup" class="form-label fw-medium">Grupo de destino</label>
+                <select class="form-select" id="importGroup" name="group_id" required>
+                    {% for group in groups if group.can_manage %}
+                    <option value="{{ group.id }}">{{ group.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-5">
+                <label for="importCsv" class="form-label fw-medium">Fichero CSV</label>
+                <input type="file" class="form-control" id="importCsv" name="csv_file"
+                       accept=".csv,text/csv" required>
+                <div class="form-text">
+                    Columnas: <code>address</code> (obligatoria), <code>label</code> y
+                    <code>criticality</code>. Solo añade hosts; nunca borra ni modifica
+                    los existentes.
+                </div>
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-acento">Importar CSV</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
 {% if groups %}
     {% for group in groups %}
     <div class="card fade-in mb-4">
@@ -172,6 +211,7 @@
                             <th scope="col">Host</th>
                             <th scope="col">Etiqueta</th>
                             <th scope="col">Criticidad</th>
+                            <th scope="col">Última ejecución</th>
                             <th scope="col">Añadido</th>
                             {% if group.can_manage %}<th scope="col"></th>{% endif %}
                         </tr>
@@ -204,6 +244,16 @@
                                 </span>
                                 {% endif %}
                             </td>
+                            <td>
+                                {% if host.last_run %}
+                                <small title="{{ host.last_run }}">{{ host.last_run[:16] }}</small>
+                                <span class="badge {% if host.last_result == 'success' %}bg-success{% elif host.last_result in ['failure', 'error'] %}bg-danger{% elif host.last_result == 'attention' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                                    {{ host_result_labels.get(host.last_result, host.last_result or '—') }}
+                                </span>
+                                {% else %}
+                                <small class="text-secondary">Sin ejecuciones</small>
+                                {% endif %}
+                            </td>
                             <td><small>{{ host.created_at[:16] if host.created_at else '—' }}</small></td>
                             {% if group.can_manage %}
                             <td class="text-end">
@@ -221,7 +271,7 @@
                             {% endif %}
                         </tr>
                         {% else %}
-                        <tr><td colspan="5" class="text-center py-3"><small class="text-secondary">El grupo está vacío.</small></td></tr>
+                        <tr><td colspan="6" class="text-center py-3"><small class="text-secondary">El grupo está vacío.</small></td></tr>
                         {% endfor %}
                     </tbody>
                 </table>

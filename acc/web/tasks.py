@@ -794,6 +794,40 @@ def api_task_status(task_id: str):
     return response
 
 
+@app.route("/api/catalogo")
+@login_required
+def api_catalogo():
+    """Catálogo de automatizaciones en JSON, filtrado por rol.
+
+    Solo se publican los campos declarativos y operativos; nunca rutas de
+    playbooks, comandos ni parámetros internos. Un usuario ``viewer`` no ve las
+    tareas que exigen ``operator`` o ``admin``.
+    """
+    exposed = (
+        "id",
+        "name",
+        "summary",
+        "status",
+        "min_role",
+        "destructive",
+        "platforms",
+        "actions",
+        "schedulable",
+        "fixed_value",
+    )
+    tasks = []
+    for task in task_catalog.TASK_CATALOG:
+        min_role = task.get("min_role", "operator")
+        if not (current_user.is_admin or current_user.has_role(min_role)):
+            continue
+        item = {key: task.get(key) for key in exposed if key in task}
+        item["requires_approval"] = bool(task.get("destructive"))
+        tasks.append(item)
+    response = jsonify({"version": 1, "tasks": tasks})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.route("/tasks/<task_id>/cancel", methods=["POST"])
 @roles_required("operator")
 def cancel_task(task_id: str):

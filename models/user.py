@@ -2,8 +2,10 @@
 # Usuarios administradores de la aplicación (login con Flask-Login).
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from flask_login import UserMixin
@@ -11,6 +13,14 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import resolve_db_path
 from models.db import get_connection, init_schema
+from services.audit_chain import (
+    canonical_event,
+    compute_hash,
+    sign_checkpoint,
+    verify_checkpoint,
+)
+
+logger = logging.getLogger("acc")
 
 VALID_ROLES = ("viewer", "operator", "admin")
 
@@ -432,7 +442,29 @@ class User(UserMixin):
 
 
 class AuthEvent:
-    """Registro duradero de intentos de autenticación."""
+    """Registro duradero de intentos de autenticación.
+
+    Cada evento se encadena con el anterior mediante SHA-256
+    (``event_hash = SHA256(prev_hash + canonical_event)``). La cadena se
+    escribe dentro de una transacción ``BEGIN IMMEDIATE`` para que dos
+    procesos no calculen el mismo ``prev_hash`` y la bifurquen.
+
+    Nota de modelo de amenazas: la cadena detecta modificaciones y borrados
+    internos, pero quien controla el fichero SQLite y el código puede
+    reescribirla entera. Para detectar truncamientos se usan los checkpoints
+    firmados (``create_checkpoint``/``verify_chain``) y su exportación.
+    """
+
+    @staticmethod
+    def _last_hash(conn: sqlite3.Connection) -> str:
+        row = conn.execute(
+            """
+            SELECT event_hash FROM auth_events
+            WHERE event_hash <> ''
+            ORDER BY id DESC LIMIT 1
+            """
+        ).fetchone()
+        return str(row["event_hash"]) if row is not None else ""
 
     @staticmethod
     def record(
@@ -444,18 +476,51 @@ class AuthEvent:
     ) -> None:
         if db_path is None:
             db_path = _default_db_path()
+        timestamp = _now_iso()
+        event_id = uuid.uuid4().hex
+        username = username or ""
+        ip = ip or ""
+        detail = detail or ""
+        canonical = canonical_event(
+            event_id=event_id,
+            timestamp=timestamp,
+            username=username,
+            ip=ip,
+            event=event,
+            detail=detail,
+        )
         try:
             with get_connection(db_path) as conn:
+                # Serializa el cálculo de prev_hash+hash con el resto de
+                # escritores; SQLite no permite dos BEGIN IMMEDIATE a la vez.
+                conn.execute("BEGIN IMMEDIATE")
+                previous = AuthEvent._last_hash(conn)
+                current = compute_hash(previous, canonical)
                 conn.execute(
                     """
                     INSERT INTO auth_events
-                        (timestamp, username, ip, event, detail)
-                    VALUES (?, ?, ?, ?, ?)
+                        (timestamp, username, ip, event, detail,
+                         event_id, prev_hash, event_hash)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (_now_iso(), username or "", ip or "", event, detail or ""),
+                    (
+                        timestamp,
+                        username,
+                        ip,
+                        event,
+                        detail,
+                        event_id,
+                        previous,
+                        current,
+                    ),
                 )
-        except sqlite3.Error:  # auditoría best-effort
-            pass
+        except sqlite3.Error as exc:
+            # La auditoría es importante, pero no debe tumbar la operación
+            # principal (por ejemplo, un login correcto). Se registra el
+            # fallo para que sea visible y no se pierda en silencio.
+            logger.warning(
+                "No se pudo registrar el evento de auditoría '%s': %s", event, exc
+            )
 
     @staticmethod
     def recent(limit: int = 100, db_path: str | None = None):
@@ -465,6 +530,223 @@ class AuthEvent:
             return conn.execute(
                 "SELECT * FROM auth_events ORDER BY id DESC LIMIT ?", (limit,)
             ).fetchall()
+
+    @staticmethod
+    def export_events(
+        since_id: int = 0,
+        limit: int = 10_000,
+        db_path: str | None = None,
+    ) -> list[dict]:
+        """Exporta eventos en orden de inserción para anclaje externo."""
+        if db_path is None:
+            db_path = _default_db_path()
+        limit = max(1, min(int(limit), 100_000))
+        with get_connection(db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT id, timestamp, username, ip, event, detail,
+                       event_id, prev_hash, event_hash
+                FROM auth_events
+                WHERE id > ?
+                ORDER BY id
+                LIMIT ?
+                """,
+                (int(since_id), limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    @staticmethod
+    def create_checkpoint(
+        secret: str,
+        note: str = "",
+        db_path: str | None = None,
+    ) -> dict:
+        """Firma y guarda un ancla del estado actual de la cadena."""
+        if db_path is None:
+            db_path = _default_db_path()
+        created_at = _now_iso()
+        with get_connection(db_path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                """
+                SELECT id, event_hash FROM auth_events
+                WHERE event_hash <> ''
+                ORDER BY id DESC LIMIT 1
+                """
+            ).fetchone()
+            upto = int(row["id"]) if row is not None else 0
+            last_hash = str(row["event_hash"]) if row is not None else ""
+            signature = sign_checkpoint(secret, upto, last_hash, created_at)
+            conn.execute(
+                """
+                INSERT INTO audit_checkpoints
+                    (created_at, upto_event_id, last_hash, signature, note)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (created_at, upto, last_hash, signature, note or ""),
+            )
+        return {
+            "created_at": created_at,
+            "upto_event_id": upto,
+            "last_hash": last_hash,
+            "signature": signature,
+            "note": note or "",
+        }
+
+    @staticmethod
+    def latest_checkpoint(db_path: str | None = None) -> dict | None:
+        if db_path is None:
+            db_path = _default_db_path()
+        with get_connection(db_path) as conn:
+            row = conn.execute(
+                "SELECT * FROM audit_checkpoints ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    @staticmethod
+    def verify_chain(
+        db_path: str | None = None,
+        secret: str | None = None,
+    ) -> dict:
+        """Recalcula la cadena y comprueba el último checkpoint.
+
+        Devuelve un diccionario con ``ok`` (bool), el número de eventos
+        verificados, el hash de cabeza y, si falla, el evento y el motivo.
+        Los eventos anteriores a la v21 sin ``event_hash`` se consideran
+        legado y solo se toleran al principio de la tabla.
+        """
+        if db_path is None:
+            db_path = _default_db_path()
+        with get_connection(db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT id, timestamp, username, ip, event, detail,
+                       event_id, prev_hash, event_hash
+                FROM auth_events ORDER BY id
+                """
+            ).fetchall()
+
+        previous: str | None = None
+        head = ""
+        hashed = 0
+        legacy = 0
+        seen_ids: set[str] = set()
+        for row in rows:
+            event_hash = str(row["event_hash"] or "")
+            if not event_hash:
+                if hashed:
+                    return {
+                        "ok": False,
+                        "events": len(rows),
+                        "hashed": hashed,
+                        "legacy": legacy,
+                        "head": head,
+                        "broken_at": int(row["id"]),
+                        "reason": "evento sin hash después de eventos encadenados",
+                    }
+                legacy += 1
+                continue
+            event_id = str(row["event_id"] or "")
+            if not event_id:
+                return {
+                    "ok": False,
+                    "events": len(rows),
+                    "hashed": hashed,
+                    "legacy": legacy,
+                    "head": head,
+                    "broken_at": int(row["id"]),
+                    "reason": "evento encadenado sin event_id",
+                }
+            if event_id in seen_ids:
+                return {
+                    "ok": False,
+                    "events": len(rows),
+                    "hashed": hashed,
+                    "legacy": legacy,
+                    "head": head,
+                    "broken_at": int(row["id"]),
+                    "reason": f"event_id duplicado: {event_id}",
+                }
+            seen_ids.add(event_id)
+            if previous is not None and str(row["prev_hash"] or "") != previous:
+                return {
+                    "ok": False,
+                    "events": len(rows),
+                    "hashed": hashed,
+                    "legacy": legacy,
+                    "head": head,
+                    "broken_at": int(row["id"]),
+                    "reason": "el enlace con el evento anterior no coincide",
+                }
+            canonical = canonical_event(
+                event_id=event_id,
+                timestamp=row["timestamp"],
+                username=row["username"],
+                ip=row["ip"],
+                event=row["event"],
+                detail=row["detail"],
+            )
+            expected = compute_hash(str(row["prev_hash"] or ""), canonical)
+            if expected != event_hash:
+                return {
+                    "ok": False,
+                    "events": len(rows),
+                    "hashed": hashed,
+                    "legacy": legacy,
+                    "head": head,
+                    "broken_at": int(row["id"]),
+                    "reason": "el hash del evento no coincide con su contenido",
+                }
+            previous = event_hash
+            head = event_hash
+            hashed += 1
+
+        result = {
+            "ok": True,
+            "events": len(rows),
+            "hashed": hashed,
+            "legacy": legacy,
+            "head": head,
+            "broken_at": None,
+            "reason": "",
+            "checkpoint": None,
+        }
+        checkpoint = AuthEvent.latest_checkpoint(db_path=db_path)
+        if checkpoint is not None:
+            result["checkpoint"] = {
+                "upto_event_id": int(checkpoint["upto_event_id"]),
+                "created_at": checkpoint["created_at"],
+                "verified_signature": (
+                    verify_checkpoint(
+                        secret or "",
+                        int(checkpoint["upto_event_id"]),
+                        str(checkpoint["last_hash"]),
+                        str(checkpoint["created_at"]),
+                        str(checkpoint["signature"]),
+                    )
+                    if secret
+                    else None
+                ),
+            }
+            last_row = rows[-1] if rows else None
+            last_id = int(last_row["id"]) if last_row is not None else 0
+            if int(checkpoint["upto_event_id"]) > last_id:
+                result.update(
+                    ok=False,
+                    broken_at=last_id or None,
+                    reason="el checkpoint apunta a eventos que ya no existen",
+                )
+            elif (
+                last_row is not None
+                and int(checkpoint["upto_event_id"]) == int(last_row["id"])
+                and str(checkpoint["last_hash"]) != str(last_row["event_hash"] or "")
+            ):
+                result.update(
+                    ok=False,
+                    broken_at=last_id,
+                    reason="la cabeza de la cadena no coincide con el checkpoint",
+                )
+        return result
 
     @staticmethod
     def purge_old(days: int, db_path: str | None = None) -> int:

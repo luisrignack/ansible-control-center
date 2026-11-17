@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import os
+from datetime import UTC, datetime
+from pathlib import Path
+
 import click
-from flask import Flask
+from flask import Flask, current_app
 
 from acc import runtime
 from acc.runtime import (
@@ -18,8 +23,9 @@ from config import (
     ROLES,
 )
 from models.batch import ExecutionBatch
+from models.db import backup_database, integrity_check
 from models.ops import HostGroup
-from models.user import User
+from models.user import AuthEvent, User
 from services import scheduler
 from services.demo_data import purge_demo_data, seed_demo_data
 from services.ssh_host_keys import ensure_host_keys
@@ -104,6 +110,81 @@ def register_cli(flask_app: Flask) -> None:
         """Marca como error los lotes que quedaron en curso."""
         count = ExecutionBatch.reconcile_orphans(db_path=runtime.get_db_path())
         click.echo(f"Lotes huérfanos reconciliados: {count}")
+
+    @flask_app.cli.command("audit-verify")
+    def audit_verify_command():
+        """Verifica la cadena SHA-256 de eventos y el último checkpoint."""
+        result = AuthEvent.verify_chain(
+            db_path=runtime.get_db_path(),
+            secret=str(current_app.secret_key or ""),
+        )
+        click.echo(json.dumps(result, ensure_ascii=False, indent=2))
+        if not result["ok"]:
+            raise click.ClickException(
+                f"Cadena de auditoría inválida: {result['reason']}"
+            )
+        checkpoint = result.get("checkpoint")
+        if checkpoint and checkpoint.get("verified_signature") is False:
+            raise click.ClickException("La firma del checkpoint no es válida.")
+
+    @flask_app.cli.command("audit-checkpoint")
+    @click.option("--note", default="", help="Comentario para el ancla.")
+    def audit_checkpoint_command(note: str):
+        """Firma un ancla del estado actual de la cadena de auditoría."""
+        checkpoint = AuthEvent.create_checkpoint(
+            str(current_app.secret_key or ""),
+            note=note,
+            db_path=runtime.get_db_path(),
+        )
+        click.echo(json.dumps(checkpoint, ensure_ascii=False, indent=2))
+
+    @flask_app.cli.command("audit-export")
+    @click.option(
+        "--output",
+        type=click.Path(dir_okay=False, path_type=Path),
+        default=None,
+        help="Fichero JSON de destino (por defecto, stdout).",
+    )
+    @click.option("--since-id", default=0, type=int, show_default=True)
+    def audit_export_command(output: Path | None, since_id: int):
+        """Exporta eventos y checkpoints para custodia externa."""
+        db_path = runtime.get_db_path()
+        payload = {
+            "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "chain": AuthEvent.verify_chain(
+                db_path=db_path, secret=str(current_app.secret_key or "")
+            ),
+            "checkpoint": AuthEvent.latest_checkpoint(db_path=db_path),
+            "events": AuthEvent.export_events(since_id=since_id, db_path=db_path),
+        }
+        text = json.dumps(payload, ensure_ascii=False, indent=2)
+        if output is None:
+            click.echo(text)
+        else:
+            # El export contiene usuarios, IPs y eventos: se escribe privado
+            # (0600) para que no quede legible por otros usuarios del host.
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(text, encoding="utf-8")
+            os.chmod(output, 0o600)
+            click.echo(f"Auditoría exportada en {output}")
+
+    @flask_app.cli.command("backup-db")
+    @click.option(
+        "--output",
+        type=click.Path(dir_okay=False, path_type=Path),
+        required=True,
+        help="Fichero SQLite de destino.",
+    )
+    def backup_db_command(output: Path):
+        """Copia consistente de la base (API de backup de SQLite)."""
+        source = runtime.get_db_path()
+        target = backup_database(source, output)
+        check = integrity_check(str(target), quick=True)
+        if not check["ok"]:
+            raise click.ClickException(
+                f"El backup no pasó quick_check: {check['details']}"
+            )
+        click.echo(f"Backup consistente en {target}")
 
     @flask_app.cli.command("seed-demo")
     @click.option(

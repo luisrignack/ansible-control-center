@@ -84,12 +84,14 @@ _RESULT_UPDATE_SQL = {
 _RECONCILE_ALL_SQL = (
     "UPDATE execution_batches "
     "SET status = 'error', "
+    "interrupted = 1, "
     "finished_at = COALESCE(finished_at, ?) "
     "WHERE status = 'running'"
 )
 _RECONCILE_STALE_SQL = (
     "UPDATE execution_batches "
     "SET status = 'error', "
+    "interrupted = 1, "
     "finished_at = COALESCE(finished_at, ?) "
     "WHERE status = 'running' "
     "AND created_at < ? "
@@ -219,6 +221,7 @@ class ExecutionBatch:
         task_id: str = "",
         min_free_gb: float | None = None,
         owner_user_id: int = 0,
+        interrupted: bool = False,
     ):
         self.id = id
         self.batch_id = batch_id
@@ -254,6 +257,10 @@ class ExecutionBatch:
         # una fila antigua o desatendida sin dueño (solo visible en la vista
         # global de administración).
         self.owner_user_id = int(owner_user_id or 0)
+        # El proceso murió con el lote en curso: el resultado remoto de los
+        # hosts pendientes es desconocido. ``status`` sigue siendo ``error``
+        # por compatibilidad; ``interrupted`` lo distingue de un fallo real.
+        self.interrupted = bool(interrupted)
 
     @property
     def processed_count(self) -> int:
@@ -305,6 +312,7 @@ class ExecutionBatch:
             "task_id": self.task_id,
             "min_free_gb": self.min_free_gb,
             "owner_user_id": self.owner_user_id,
+            "interrupted": self.interrupted,
         }
 
     # ------------------------------------------------------------------
@@ -844,6 +852,37 @@ class ExecutionBatch:
             return int(cursor.rowcount or 0)
 
     @staticmethod
+    def latest_host_outcomes(db_path: str | None = None) -> dict[str, dict[str, Any]]:
+        """Último resultado de ejecución por dirección de host.
+
+        Solo lectura: alimenta el inventario con «última ejecución» sin
+        ejecutar nada contra los equipos. Usa el ``id`` más alto de
+        ``execution_hosts`` por host, que corresponde al resultado más
+        reciente.
+        """
+        if db_path is None:
+            db_path = _default_db_path()
+        with get_connection(db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT h.host, h.result, h.created_at
+                FROM execution_hosts h
+                JOIN (
+                    SELECT host, MAX(id) AS last_id
+                    FROM execution_hosts
+                    GROUP BY host
+                ) latest ON latest.last_id = h.id
+                """
+            ).fetchall()
+        return {
+            str(row["host"]): {
+                "last_result": row["result"],
+                "last_run": row["created_at"],
+            }
+            for row in rows
+        }
+
+    @staticmethod
     def export_history(
         db_path: str | None = None, owner_user_id: int | None = None
     ) -> list[dict[str, Any]]:
@@ -1010,6 +1049,9 @@ def _row_to_batch(row) -> ExecutionBatch:
         ),
         owner_user_id=(
             row["owner_user_id"] if "owner_user_id" in row.keys() else 0  # noqa: SIM118
+        ),
+        interrupted=bool(
+            row["interrupted"] if "interrupted" in row.keys() else 0  # noqa: SIM118
         ),
     )
 

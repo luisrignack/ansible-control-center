@@ -14,6 +14,7 @@ from acc import runtime, task_state
 # (endpoint, regla, métodos) en el orden en que se registran.
 URL_MAP_ESPERADO = [
     ("acerca_de", "/acerca-de", ["GET"]),
+    ("api_catalogo", "/api/catalogo", ["GET"]),
     ("api_metricas", "/api/metricas", ["GET"]),
     ("api_task_status", "/api/task-status/<task_id>", ["GET"]),
     ("aprobaciones", "/aprobaciones", ["GET", "POST"]),
@@ -41,6 +42,8 @@ URL_MAP_ESPERADO = [
     ("healthz", "/healthz", ["GET"]),
     ("history", "/history", ["GET"]),
     ("inventario", "/inventario", ["GET", "POST"]),
+    ("inventario_exportar_csv", "/inventario/exportar.csv", ["GET"]),
+    ("inventario_importar_csv", "/inventario/importar", ["POST"]),
     ("login", "/login", ["GET", "POST"]),
     ("logout", "/logout", ["POST"]),
     ("metricas", "/metricas", ["GET"]),
@@ -58,6 +61,7 @@ URL_MAP_ESPERADO = [
     ("programaciones", "/programaciones", ["GET", "POST"]),
     ("progress_page", "/progress/<task_id>", ["GET"]),
     ("progress_sse", "/progress/<task_id>/events", ["GET"]),
+    ("prometheus_metrics", "/metrics", ["GET"]),
     ("schedule_edit", "/programaciones/<int:schedule_id>/editar", ["GET", "POST"]),
     ("sistema", "/sistema", ["GET"]),
     ("solicitudes", "/solicitudes", ["GET"]),

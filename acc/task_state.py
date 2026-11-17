@@ -430,9 +430,18 @@ def _recover_task_state(stale_minutes: int | None = None) -> None:
             continue
         task.update(
             {
+                # ``status`` se mantiene en ``error`` por compatibilidad con el
+                # historial y las plantillas; ``interrupted`` y
+                # ``overall_result`` distinguen una interrupción (resultado
+                # remoto desconocido) de un fallo funcional.
                 "status": "error",
-                "message": "El proceso se reinició durante la ejecución.",
-                "overall_result": "error",
+                "interrupted": True,
+                "message": (
+                    "El proceso se reinició durante la ejecución. El resultado "
+                    "remoto de los hosts pendientes es desconocido: verifica su "
+                    "estado antes de reintentar."
+                ),
+                "overall_result": "interrupted",
                 "completed": True,
                 "updated_at": _utc_now_iso(),
             }
