@@ -134,10 +134,10 @@ hay que aceptar una vez. `curl` necesita `-k` (o `--cacert certs/fullchain.pem`)
 | `TLS_SAN` | `DNS:localhost,IP:127.0.0.1` | Nombres/IPs válidos del certificado |
 | `TLS_DAYS` | `825` | Validez del certificado en días |
 | `ACC_LDAP_ENABLED` | `0` | Estado **inicial** del acceso por LDAPS; después se conmuta en la web (`/usuarios`, solo admin local) |
-| `ACC_LDAP_URL` | `ldaps://lds.etecsa.cu:636` | URL del directorio corporativo |
-| `ACC_LDAP_BIND_DN` | `uid=rouser,ou=Special Users,dc=etecsa,dc=cu` | Usuario de solo lectura para buscar |
+| `ACC_LDAP_URL` | `ldaps://ldap.example.local:636` | URL del directorio corporativo (ajusta el dominio) |
+| `ACC_LDAP_BIND_DN` | `uid=rouser,ou=Special Users,dc=example,dc=local` | Usuario de solo lectura para buscar |
 | `ACC_LDAP_BIND_PASSWORD` / `_FILE` | — | Contraseña del bind (preferible `ACC_LDAP_BIND_PASSWORD_FILE` como secret) |
-| `ACC_LDAP_USER_BASE` | `ou=etecsa.cu,ou=people,dc=etecsa,dc=cu` | Base de búsqueda de usuarios |
+| `ACC_LDAP_USER_BASE` | `ou=people,dc=example,dc=local` | Base de búsqueda de usuarios |
 | `ACC_LDAP_USER_FILTER` | `(objectClass=person)` | Filtro de búsqueda |
 | `ACC_LDAP_USER_SCOPE` | `onelevel` | `onelevel` o `subtree` |
 | `ACC_LDAP_USERNAME_ATTR` | `uid` | Atributo que contiene el nombre de usuario |

@@ -376,17 +376,19 @@ HSTS_MAX_AGE = _env_int("ACC_HSTS_MAX_AGE", 31536000, minimum=0, maximum=6307200
 # LDAP no guardan contraseña local: en su primer login se crea una cuenta
 # sombra con rol ``viewer`` que el admin local promueve en /usuarios.
 LDAP_ENABLED = _env_bool("ACC_LDAP_ENABLED", False)
-LDAP_URL = os.environ.get("ACC_LDAP_URL", "").strip() or "ldaps://lds.etecsa.cu:636"
+# Los valores por defecto son genéricos a propósito: el directorio real se
+# declara en el entorno de cada despliegue y no se publica en el repositorio.
+LDAP_URL = (
+    os.environ.get("ACC_LDAP_URL", "").strip() or "ldaps://ldap.example.local:636"
+)
 # Usuario de solo lectura del directorio (como el ``rouser`` de operaciones).
 LDAP_BIND_DN = os.environ.get(
-    "ACC_LDAP_BIND_DN", "uid=rouser,ou=Special Users,dc=etecsa,dc=cu"
+    "ACC_LDAP_BIND_DN", "uid=rouser,ou=Special Users,dc=example,dc=local"
 )
 # Se admite en el entorno, o como Docker secret vía ACC_LDAP_BIND_PASSWORD_FILE.
 LDAP_BIND_PASSWORD = _env_secret("ACC_LDAP_BIND_PASSWORD")
 # Base de búsqueda de usuarios y filtro (mismo modelo que el ejemplo Nuxeo).
-LDAP_USER_BASE = os.environ.get(
-    "ACC_LDAP_USER_BASE", "ou=etecsa.cu,ou=people,dc=etecsa,dc=cu"
-)
+LDAP_USER_BASE = os.environ.get("ACC_LDAP_USER_BASE", "ou=people,dc=example,dc=local")
 LDAP_USER_FILTER = os.environ.get("ACC_LDAP_USER_FILTER", "(objectClass=person)")
 LDAP_USER_SCOPE = os.environ.get("ACC_LDAP_USER_SCOPE", "onelevel").strip().lower()
 if LDAP_USER_SCOPE not in ("onelevel", "subtree"):
