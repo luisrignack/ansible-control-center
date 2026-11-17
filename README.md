@@ -246,7 +246,9 @@ conserva una copia de `VERSION`.
 - **Resultado por host** (`execution_hosts`): resultado, error, duración,
   estado previo, estado posterior, hash corto de la contraseña usada y origen.
 - **Ejecuciones** (`/ejecuciones`) con lotes en curso, historial y detalle por host
-  (`/batches/<batch_id>`). El historial se puede **exportar en JSON** y un
+  (`/batches/<batch_id>`). Cada usuario ve **su propio historial**; el
+  administrador puede abrir la vista global con `?all=1` (igual que en
+  Inventario y Programaciones). El historial se puede **exportar en JSON** y un
   administrador puede **borrarlo**; antes de borrar se guarda una copia en
   `data/backups/`, la acción queda registrada en Auditoría y nunca elimina
   lotes en curso.
@@ -533,10 +535,10 @@ una `ACC_SECRET_KEY` aleatoria.
 | Variable | Por defecto | Descripción |
 |---|---|---|
 | `ACC_LDAP_ENABLED` | `0` | Estado INICIAL del acceso LDAPS; después se conmuta en la web (`/usuarios`, solo admin local) |
-| `ACC_LDAP_URL` | `ldaps://lds.etecsa.cu:636` | URL del directorio (636/TLS) |
-| `ACC_LDAP_BIND_DN` | `uid=rouser,ou=Special Users,dc=etecsa,dc=cu` | Usuario de solo lectura para buscar |
+| `ACC_LDAP_URL` | `ldaps://ldap.example.local:636` | URL del directorio (636/TLS); ajusta el dominio a tu entorno |
+| `ACC_LDAP_BIND_DN` | `uid=rouser,ou=Special Users,dc=example,dc=local` | Usuario de solo lectura para buscar |
 | `ACC_LDAP_BIND_PASSWORD` / `_FILE` | — | Contraseña del bind (usar `_FILE` como Docker secret) |
-| `ACC_LDAP_USER_BASE` | `ou=etecsa.cu,ou=people,dc=etecsa,dc=cu` | Base de búsqueda de usuarios |
+| `ACC_LDAP_USER_BASE` | `ou=people,dc=example,dc=local` | Base de búsqueda de usuarios |
 | `ACC_LDAP_USER_FILTER` | `(objectClass=person)` | Filtro de búsqueda |
 | `ACC_LDAP_USER_SCOPE` | `onelevel` | `onelevel` o `subtree` |
 | `ACC_LDAP_USERNAME_ATTR` | `uid` | Atributo del nombre de usuario |
@@ -702,9 +704,9 @@ administrador desactiva el interruptor **Simulación** de la barra superior
 | GET/POST | `/inventario` | Sí | Grupos, hosts y clave SSH (admin para cambios) |
 | GET/POST | `/programaciones` | Sí | Programaciones (admin para cambios) |
 | GET | `/programaciones/nueva` | Admin | Selector de tarea para crear una programación |
-| GET | `/ejecuciones` | Sí | Ejecuciones: `tab=curso` (por defecto) e historial |
+| GET | `/ejecuciones` | Sí | Ejecuciones: `tab=curso` (por defecto) e historial propio (`?all=1` solo admin: vista global) |
 | POST | `/ejecuciones/borrar` | Admin | Borra el historial terminado (confirmación `BORRAR`) tras copiarlo a `data/backups/` |
-| GET | `/ejecuciones/exportar` | Sí | Descarga el historial completo en JSON |
+| GET | `/ejecuciones/exportar` | Sí | Descarga en JSON el historial visible (el propio, o todo con `?all=1` si es admin) |
 | GET | `/solicitudes` | Operador | `tab=mias` y, para admin, `tab=aprobaciones` |
 | GET/POST | `/solicitudes/<id>/ejecutar` | Operador | Ejecuta una solicitud propia aprobada y vigente |
 | GET | `/credenciales` | Sí | Gestión del vault de credenciales |
@@ -754,7 +756,9 @@ flask --app app seed-demo --yes [--reset | --purge] [--no-running] [--force]
 `batch_id`, `created_at`, `finished_at`, `operator`, `action`, `value`,
 `target`, `time_mode`, `ntp_policy`, `status`, `total_hosts`,
 `success_count`, `failure_count`, `skipped_count`, `error_count`,
-`preview_count`, `attention_count`, `min_free_gb`.
+`preview_count`, `attention_count`, `min_free_gb`, `task_id`,
+`owner_user_id` (usuario que lanzó el lote; `0` = solo vista global de
+administración, como los datos de demostración y el historial no atribuible).
 
 Estados: `running`, `success`, `partial`, `failure`, `preview`, `error`.
 `attention_count` cuenta estaciones que no se modificaron por política de
@@ -975,6 +979,12 @@ nada y se ejecuta también en `DRY_RUN` y en la vista previa.
 - **Cancelación con propiedad**: un operador solo puede cancelar las
   operaciones que lanzó; un administrador puede cancelar cualquiera. La
   denegación y la cancelación quedan en `auth_events`.
+- **Historial con propiedad**: cada lote guarda el usuario que lo lanzó
+  (`execution_batches.owner_user_id`). El historial, los informes PDF y la
+  exportación JSON solo muestran los lotes propios; los lotes desatendidos
+  heredan el dueño de la programación. El administrador abre la vista global
+  con `?all=1`. La migración v20 atribuye el historial anterior por su
+  operador y, si no es posible, lo deja visible solo en esa vista global.
 - **Sin API/CLI de ejecución**: solo endpoints internos de la interfaz.
 - **IPv6**: `ipaddress` lo acepta, pero el flujo con Ansible no está probado.
 

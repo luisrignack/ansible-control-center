@@ -10,6 +10,14 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Añadido
 
+- **Historial privado por usuario**: cada lote guarda su dueño
+  (`execution_batches.owner_user_id`, migración v20). `/ejecuciones`, el
+  detalle del lote, los informes PDF y la exportación JSON muestran solo los
+  lotes propios; los administradores abren la vista global con `?all=1`. Los
+  lotes desatendidos heredan el dueño de la programación que los lanza y el
+  historial anterior se atribuye por su operador.
+- **`ansible-lint` en CI**: los playbooks se validan con el perfil
+  `production` definido en `.ansible-lint`, además del parseo YAML.
 - **Paquete de producción completo**: `docker/export-images.sh` incluye ahora
   la checklist de producción (`04-CHECKLIST-PRODUCCION.md`), la CA del
   directorio (`certs-ca/`) y las herramientas `respaldo-datos.sh`,
@@ -22,6 +30,19 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Corregido
 
+- **Cuentas desactivadas**: un intento de acceso con una cuenta desactivada ya
+  no suma intentos fallidos ni puede bloquearla; se registra como
+  `login_disabled` en auditoría y el mensaje al usuario sigue siendo genérico.
+- **Error 500 coherente**: las llamadas `fetch`/API reciben JSON también en el
+  error interno (mensaje genérico, detalle solo en el log), como ya ocurría con
+  400/403/404/429.
+- **Playbooks no idempotentes**: se corrigen los hallazgos de `ansible-lint`
+  (líneas largas, `shell` innecesario en la detección de `chrony`, `pipefail`
+  en la recolección de APT, `changed_when` en el cambio de zona de Windows y
+  espaciado Jinja).
+- **Valores de ejemplo sin infraestructura interna**: los defaults de LDAPS
+  (`ACC_LDAP_URL`, `ACC_LDAP_BIND_DN`, `ACC_LDAP_USER_BASE`) usan
+  `example.local`; cada despliegue declara los reales en su entorno.
 - **Reintentos con error de conexión**: un fallo de red en el ping ya no prueba
   todas las contraseñas candidatas. Solo se reintenta si Ansible rechaza la
   credencial; un `UNREACHABLE`/timeout detiene los intentos para ese host.
