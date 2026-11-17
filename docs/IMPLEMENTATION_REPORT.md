@@ -3,8 +3,8 @@
 Fecha: 2026-11-17
 Repositorio: `ansible-control-center`
 Base: `83228cf` (0.9.9), rama `master`
-Estado del árbol: cambios locales **sin commit ni push** (el mandato prohíbe
-publicar sin autorización).
+Publicación: commit `fa77053`, versión **0.9.10**.
+Estado del árbol: limpio tras la publicación autorizada.
 
 ## 1. Resumen ejecutivo
 
@@ -258,11 +258,15 @@ No se requiere migración de datos manual ni cambio de configuración.
 
 ## 11. Nota sobre publicación
 
-Conforme al mandato, **no se ha hecho commit, tag, push ni release**. Los
-cambios están en el árbol de trabajo para revisión. Cuando se autorice:
+Los cambios se publicaron con autorización expresa:
 
 ```bash
 git add -A
 git commit -m "feat(security): integridad de auditoría, inventario CSV y observabilidad"
-git push origin master
+git push origin master        # 83228cf..fa77053
 ```
+
+La versión `0.9.10` solo incrementa el patch: no cambia el contrato de la API
+ni requiere un tag nuevo para desplegar. La imagen Docker se etiqueta
+`ansible-control-center:0.9.10` y `ansible-control-center-nginx:0.9.10`; no se
+reutiliza el tag `0.9.9`, que corresponde al artefacto anterior.

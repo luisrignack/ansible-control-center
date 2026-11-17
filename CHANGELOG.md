@@ -6,7 +6,7 @@ como historial.
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
-## [Unreleased] — Auditoría de seguridad y hardening (2026-11-17)
+## [0.9.10] — 2026-11-17
 
 ### Añadido
 
