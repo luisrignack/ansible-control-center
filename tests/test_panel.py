@@ -68,6 +68,9 @@ def test_panel_muestra_kpis_inventario_y_ejecucion(tmp_path, monkeypatch):
         "Aulas",
         total_hosts=2,
         status="running",
+        owner_user_id=int(
+            User.get_by_username("admin", db_path=db_path).id  # type: ignore[union-attr]
+        ),
         db_path=db_path,
     )
     ExecutionBatch.add_host_result(

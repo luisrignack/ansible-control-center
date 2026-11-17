@@ -597,6 +597,8 @@ def test_batch_page_offers_rerun_when_applicable(operator_client, monkeypatch):
     client = operator_client
     _login(client)
     db_path = runtime.get_db_path()
+    owner = User.get_by_username("admin", db_path=db_path)
+    owner_id = int(owner.id) if owner is not None else 0
     batch_id = "rerunbatch001"
     ExecutionBatch.create_batch(
         batch_id=batch_id,
@@ -608,6 +610,7 @@ def test_batch_page_offers_rerun_when_applicable(operator_client, monkeypatch):
         ntp_policy="keep",
         total_hosts=1,
         status="success",
+        owner_user_id=owner_id,
         db_path=db_path,
     )
     ExecutionBatch.finish_batch(batch_id, total_hosts=1, db_path=db_path)
@@ -627,6 +630,7 @@ def test_batch_page_offers_rerun_when_applicable(operator_client, monkeypatch):
         ntp_policy="keep",
         total_hosts=1,
         status="preview",
+        owner_user_id=owner_id,
         db_path=db_path,
     )
     body_preview = client.get(f"/batches/{preview_id}").get_data(as_text=True)

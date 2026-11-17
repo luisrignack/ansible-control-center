@@ -51,6 +51,16 @@ def _csrf(client) -> str:
         return sess.get("_csrf_token")
 
 
+def _admin_id(db_path: str) -> int:
+    """Identificador del admin de la fixture: dueño de los lotes de prueba.
+
+    Las pruebas de modelo usan una base vacía sin usuarios; en ese caso el
+    lote queda sin dueño (``0``), igual que una fila antigua.
+    """
+    user = User.get_by_username("admin", db_path=db_path)
+    return int(user.id) if user is not None else 0
+
+
 def _make_batch(db_path: str, batch_id: str, status: str = "success") -> None:
     ExecutionBatch.create_batch(
         batch_id,
@@ -60,6 +70,7 @@ def _make_batch(db_path: str, batch_id: str, status: str = "success") -> None:
         "10.0.0.0/24",
         total_hosts=1,
         status="running",
+        owner_user_id=_admin_id(db_path),
         db_path=db_path,
     )
     ExecutionBatch.add_host_result(batch_id, "10.0.0.10", "success", db_path=db_path)

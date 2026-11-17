@@ -218,6 +218,7 @@ class ExecutionBatch:
         time_zone: str = "",
         task_id: str = "",
         min_free_gb: float | None = None,
+        owner_user_id: int = 0,
     ):
         self.id = id
         self.batch_id = batch_id
@@ -249,6 +250,10 @@ class ExecutionBatch:
         self.task_id = task_id or ""
         # Umbral de espacio libre usado por la tarjeta APT (GiB).
         self.min_free_gb = float(min_free_gb) if min_free_gb is not None else None
+        # Usuario que lanzó el lote: define quién ve su historial. ``0`` es
+        # una fila antigua o desatendida sin dueño (solo visible en la vista
+        # global de administración).
+        self.owner_user_id = int(owner_user_id or 0)
 
     @property
     def processed_count(self) -> int:
@@ -299,6 +304,7 @@ class ExecutionBatch:
             "time_zone": self.time_zone,
             "task_id": self.task_id,
             "min_free_gb": self.min_free_gb,
+            "owner_user_id": self.owner_user_id,
         }
 
     # ------------------------------------------------------------------
@@ -323,8 +329,16 @@ class ExecutionBatch:
 
     @staticmethod
     def get_batches(
-        limit: int = 50, offset: int = 0, db_path: str | None = None
+        limit: int = 50,
+        offset: int = 0,
+        db_path: str | None = None,
+        owner_user_id: int | None = None,
     ) -> list[ExecutionBatch]:
+        """Lotes ordenados del más reciente al más antiguo.
+
+        ``owner_user_id`` acota el resultado al historial de ese usuario;
+        ``None`` equivale a la vista global (solo administradores).
+        """
         if db_path is None:
             db_path = _default_db_path()
 
@@ -332,22 +346,26 @@ class ExecutionBatch:
             rows = conn.execute(
                 """
                 SELECT * FROM execution_batches
+                WHERE (? IS NULL OR owner_user_id = ?)
                 ORDER BY created_at DESC, id DESC
                 LIMIT ? OFFSET ?
                 """,
-                (limit, offset),
+                (owner_user_id, owner_user_id, limit, offset),
             ).fetchall()
         return [_row_to_batch(row) for row in rows]
 
     @staticmethod
     def get_latest_by_task(
-        task_id: str, db_path: str | None = None
+        task_id: str,
+        db_path: str | None = None,
+        owner_user_id: int | None = None,
     ) -> ExecutionBatch | None:
         """Último lote lanzado por una tarea del catálogo.
 
         Los lotes anteriores a la migración v9 no guardan ``task_id``
         (queda como cadena vacía); en ese caso esta consulta no los
         encuentra, y el llamante puede recurrir al último lote global.
+        ``owner_user_id`` limita la búsqueda al historial de ese usuario.
         """
         if not task_id:
             return None
@@ -359,10 +377,11 @@ class ExecutionBatch:
                 """
                 SELECT * FROM execution_batches
                 WHERE task_id = ?
+                  AND (? IS NULL OR owner_user_id = ?)
                 ORDER BY created_at DESC, id DESC
                 LIMIT 1
                 """,
-                (task_id,),
+                (task_id, owner_user_id, owner_user_id),
             ).fetchone()
         return _row_to_batch(row) if row else None
 
@@ -464,37 +483,57 @@ class ExecutionBatch:
         return durations
 
     @staticmethod
-    def get_stats(db_path: str | None = None) -> dict[str, Any]:
-        """Estadísticas globales de lotes y hosts.
+    def get_stats(
+        db_path: str | None = None, owner_user_id: int | None = None
+    ) -> dict[str, Any]:
+        """Estadísticas de lotes y hosts.
 
         Los contadores de éxito/fallo son solo de ejecuciones reales: los
         lotes simulados (``dry_run=1``) se agregan aparte para no presentar
         una simulación como un cambio aplicado. ``preview`` cuenta las
-        inspecciones reales de solo lectura.
+        inspecciones reales de solo lectura. Con ``owner_user_id`` las cifras
+        se acotan al historial de ese usuario.
         """
         if db_path is None:
             db_path = _default_db_path()
 
+        scope = (owner_user_id, owner_user_id)
         with get_connection(db_path) as conn:
             batches = int(
-                conn.execute("SELECT COUNT(*) FROM execution_batches").fetchone()[0]
+                conn.execute(
+                    "SELECT COUNT(*) FROM execution_batches "
+                    "WHERE (? IS NULL OR owner_user_id = ?)",
+                    scope,
+                ).fetchone()[0]
             )
             simulated_batches = int(
                 conn.execute(
                     "SELECT COUNT(*) FROM execution_batches "
-                    "WHERE dry_run = 1 AND status != 'preview'"
+                    "WHERE dry_run = 1 AND status != 'preview' "
+                    "AND (? IS NULL OR owner_user_id = ?)",
+                    scope,
                 ).fetchone()[0]
             )
             hosts = int(
-                conn.execute("SELECT COUNT(*) FROM execution_hosts").fetchone()[0]
+                conn.execute(
+                    "SELECT COUNT(*) FROM execution_hosts "
+                    "WHERE batch_id IN ("
+                    "SELECT batch_id FROM execution_batches "
+                    "WHERE (? IS NULL OR owner_user_id = ?))",
+                    scope,
+                ).fetchone()[0]
             )
-            rows = conn.execute("""
+            rows = conn.execute(
+                """
                 SELECT b.status AS batch_status, b.dry_run AS dry_run,
                        h.result AS result, COUNT(*) AS total
                 FROM execution_hosts h
                 JOIN execution_batches b ON b.batch_id = h.batch_id
+                WHERE (? IS NULL OR b.owner_user_id = ?)
                 GROUP BY b.status, b.dry_run, h.result
-                """).fetchall()
+                """,
+                scope,
+            ).fetchall()
 
         real = {
             row["result"]: int(row["total"])
@@ -549,6 +588,7 @@ class ExecutionBatch:
         time_zone: str = "",
         task_id: str = "",
         min_free_gb: float | None = None,
+        owner_user_id: int = 0,
         db_path: str | None = None,
     ) -> ExecutionBatch:
         if db_path is None:
@@ -563,8 +603,8 @@ class ExecutionBatch:
                     (batch_id, created_at, operator, action, value, target,
                      time_mode, ntp_policy, status, total_hosts, dry_run,
                      admin_user, password_origin, ntp_servers, sync_rtc, force,
-                     local_fold, time_zone, task_id, min_free_gb)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     local_fold, time_zone, task_id, min_free_gb, owner_user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     batch_id,
@@ -587,6 +627,7 @@ class ExecutionBatch:
                     time_zone or "",
                     task_id or "",
                     float(min_free_gb) if min_free_gb is not None else None,
+                    int(owner_user_id or 0),
                 ),
             )
 
@@ -803,22 +844,39 @@ class ExecutionBatch:
             return int(cursor.rowcount or 0)
 
     @staticmethod
-    def export_history(db_path: str | None = None) -> list[dict[str, Any]]:
-        """Serializa todo el historial (lotes y resultados por host).
+    def export_history(
+        db_path: str | None = None, owner_user_id: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Serializa el historial (lotes y resultados por host).
 
         Se usa para exportar antes de un borrado y para la descarga desde la
         interfaz. No incluye el ``id`` interno de SQLite: el identificador
         estable es ``batch_id``. Las fechas ya son cadenas ISO en la base, así
         que el resultado es serializable con ``json`` sin conversiones.
+        ``owner_user_id`` limita la exportación al historial de ese usuario.
         """
         if db_path is None:
             db_path = _default_db_path()
+        scope = (owner_user_id, owner_user_id)
         with get_connection(db_path) as conn:
             batch_rows = conn.execute(
-                "SELECT * FROM execution_batches ORDER BY created_at ASC, id ASC"
+                """
+                SELECT * FROM execution_batches
+                WHERE (? IS NULL OR owner_user_id = ?)
+                ORDER BY created_at ASC, id ASC
+                """,
+                scope,
             ).fetchall()
             host_rows = conn.execute(
-                "SELECT * FROM execution_hosts ORDER BY batch_id, position ASC, id ASC"
+                """
+                SELECT * FROM execution_hosts
+                WHERE batch_id IN (
+                    SELECT batch_id FROM execution_batches
+                    WHERE (? IS NULL OR owner_user_id = ?)
+                )
+                ORDER BY batch_id, position ASC, id ASC
+                """,
+                scope,
             ).fetchall()
 
         hosts_by_batch: dict[str, list[dict[str, Any]]] = {}
@@ -949,6 +1007,9 @@ def _row_to_batch(row) -> ExecutionBatch:
             if "min_free_gb" in row.keys()  # noqa: SIM118
             and row["min_free_gb"] is not None
             else None
+        ),
+        owner_user_id=(
+            row["owner_user_id"] if "owner_user_id" in row.keys() else 0  # noqa: SIM118
         ),
     )
 

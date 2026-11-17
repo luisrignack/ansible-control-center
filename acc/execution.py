@@ -42,6 +42,7 @@ from acc.safety import _safety_gate
 from acc.security import (
     _check_rate_limit,
     _client_ip,
+    _current_owner_id,
     _rate_limited_response,
     _wants_json,
 )
@@ -297,6 +298,7 @@ def handle_execution(default_mode: str = "execute", form_data=None, files=None):
             wallpaper_name=form.get("wallpaper_name", ""),
             min_free_gb=form.get("min_free_gb"),
             new_password=form.get("new_password", ""),
+            owner_user_id=_current_owner_id(),
         )
     except JobQueueFull as exc:
         remove_task(tid)
@@ -1254,6 +1256,7 @@ def execute_with_progress(
     wallpaper_name: str = "",
     min_free_gb: float | None = None,
     new_password: str = "",
+    owner_user_id: int = 0,
 ) -> None:
     """Ejecuta una vista previa o un lote completo sobre todos los hosts.
 
@@ -1441,6 +1444,7 @@ def execute_with_progress(
             time_zone=time_zone,
             task_id=task_id or "",
             min_free_gb=min_free_gb if ac == "APT" else None,
+            owner_user_id=owner_user_id,
             db_path=db_path,
         )
         update_task(

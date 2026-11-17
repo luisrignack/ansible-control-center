@@ -58,6 +58,12 @@ def _login(client):
     return response
 
 
+def _owner_id(operator: str = "admin") -> int:
+    """Dueño del lote: el usuario con ese nombre, si existe en la base."""
+    user = User.get_by_username(operator, db_path=runtime.get_db_path())
+    return int(user.id) if user is not None else 0
+
+
 def _create_batch(
     task_id: str = "zona-todas",
     operator: str = "admin",
@@ -79,6 +85,7 @@ def _create_batch(
         admin_user="admin",
         password_origin="stored",
         task_id=task_id,
+        owner_user_id=_owner_id(operator),
         db_path=runtime.get_db_path(),
     )
     ExecutionBatch.finish_batch(

@@ -252,7 +252,9 @@ def panel():
         for schedule in upcoming
     ]
 
-    batches = ExecutionBatch.get_batches(limit=20, db_path=db_path)
+    batches = ExecutionBatch.get_batches(
+        limit=20, db_path=db_path, owner_user_id=owner_scope
+    )
     running_batch = next(
         (batch for batch in batches if batch.status == "running"), None
     )
@@ -384,9 +386,17 @@ def panel_alias():
 @app.route("/ejecuciones")
 @login_required
 def ejecuciones():
-    """Ejecuciones en curso e historial de lotes en una sola sección."""
+    """Ejecuciones en curso e historial de lotes en una sola sección.
+
+    Cada usuario ve su propio historial; los administradores pueden abrir la
+    vista global con ``?all=1``, igual que en inventario y programaciones.
+    """
     db_path = runtime.get_db_path()
-    batches = ExecutionBatch.get_batches(limit=100, db_path=db_path)
+    owner_scope = _owner_scope()
+    show_all = owner_scope is None
+    batches = ExecutionBatch.get_batches(
+        limit=100, db_path=db_path, owner_user_id=owner_scope
+    )
     running_batches = [batch for batch in batches if batch.status == "running"]
     history_batches = [batch for batch in batches if batch.status != "running"]
     tab = "historial" if request.args.get("tab") == "historial" else "curso"
@@ -394,8 +404,9 @@ def ejecuciones():
         "ejecuciones.html",
         running_batches=running_batches,
         batches=history_batches,
-        stats=ExecutionBatch.get_stats(db_path=db_path),
+        stats=ExecutionBatch.get_stats(db_path=db_path, owner_user_id=owner_scope),
         tab=tab,
+        show_all=show_all,
     )
 
 
@@ -451,10 +462,13 @@ def ejecuciones_borrar():
 def ejecuciones_exportar():
     """Descarga el historial completo en JSON (lotes y resultados por host).
 
-    Se ofrece antes de cualquier limpieza y como informe portable. No expone
-    nada que el usuario no pueda ver ya en la pestaña Historial.
+    Se ofrece antes de cualquier limpieza y como informe portable. Exporta lo
+    mismo que el usuario ve en la pestaña Historial: su propio historial, o
+    todo el historial si es administrador y pidió la vista global.
     """
-    history = ExecutionBatch.export_history(db_path=runtime.get_db_path())
+    history = ExecutionBatch.export_history(
+        db_path=runtime.get_db_path(), owner_user_id=_owner_scope()
+    )
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     payload = {
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -595,6 +609,23 @@ def task_view(task_id):
     )
 
 
+def _visible_batch(batch_id: str) -> ExecutionBatch | None:
+    """Lote que el usuario actual puede consultar, o ``None``.
+
+    El historial es privado: un operador solo ve los lotes que lanzó. El
+    administrador ve todo (o solo lo suyo si no pidió la vista global). Se
+    devuelve ``None`` —y las rutas responden 404— para no revelar que el
+    identificador pertenece a otro usuario.
+    """
+    batch = ExecutionBatch.get_batch(batch_id, db_path=runtime.get_db_path())
+    if batch is None:
+        return None
+    scope = _owner_scope()
+    if scope is not None and batch.owner_user_id != scope:
+        return None
+    return batch
+
+
 @app.route("/tarea/<task_id>/informe.pdf", methods=["GET"])
 @login_required
 def task_report_pdf(task_id: str):
@@ -604,14 +635,19 @@ def task_report_pdf(task_id: str):
         abort(404)
 
     db_path = runtime.get_db_path()
-    batch = ExecutionBatch.get_latest_by_task(task_id, db_path=db_path)
+    owner_scope = _owner_scope()
+    batch = ExecutionBatch.get_latest_by_task(
+        task_id, db_path=db_path, owner_user_id=owner_scope
+    )
     report_task_name = task["name"]
     if batch is None:
-        # Solo se recurre al último lote global si es anterior a la migración
+        # Solo se recurre al último lote visible si es anterior a la migración
         # v9 (no guarda ``task_id``). Nunca se presenta el lote de otra tarea
         # como si fuera el de esta; en ese caso el informe se etiqueta como
         # "última corrida general".
-        batches = ExecutionBatch.get_batches(limit=1, db_path=db_path)
+        batches = ExecutionBatch.get_batches(
+            limit=1, db_path=db_path, owner_user_id=owner_scope
+        )
         candidate = batches[0] if batches else None
         if candidate is not None and not candidate.task_id:
             batch = candidate
@@ -649,7 +685,9 @@ def task_migration_pdf(task_id: str):
     if task is None:
         abort(404)
     db_path = runtime.get_db_path()
-    batch = ExecutionBatch.get_latest_by_task(task_id, db_path=db_path)
+    batch = ExecutionBatch.get_latest_by_task(
+        task_id, db_path=db_path, owner_user_id=_owner_scope()
+    )
     if batch is None:
         flash(
             "Esta tarea aún no tiene ejecuciones registradas: lanza una "
@@ -678,7 +716,7 @@ def task_migration_pdf(task_id: str):
 @login_required
 def batch_migration_pdf(batch_id: str):
     """Informe de migración de un lote concreto."""
-    batch = ExecutionBatch.get_batch(batch_id, db_path=runtime.get_db_path())
+    batch = _visible_batch(batch_id)
     if batch is None:
         abort(404)
     host_results = ExecutionBatch.get_host_results(
@@ -834,7 +872,7 @@ def cancel_task(task_id: str):
 @app.route("/batches/<batch_id>")
 @login_required
 def batch_detail(batch_id: str):
-    batch = ExecutionBatch.get_batch(batch_id, db_path=runtime.get_db_path())
+    batch = _visible_batch(batch_id)
     if batch is None:
         abort(404)
     host_results = ExecutionBatch.get_host_results(

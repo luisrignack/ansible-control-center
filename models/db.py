@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 # Versión de esquema actual. Se guarda en ``PRAGMA user_version``.
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 
 
 def _secure_sqlite_files(path: str) -> None:
@@ -610,14 +610,68 @@ def _migrate_v19(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v20(conn: sqlite3.Connection, backfill: bool = True) -> None:
+    """Propiedad por usuario del historial de ejecuciones.
+
+    Cada lote guarda el ``id`` del usuario que lo lanzó para que el historial
+    sea privado. Las filas antiguas se atribuyen por su columna ``operator``
+    (el usuario que las lanzó) y, en el caso de las programaciones, por el
+    dueño de la programación homónima. Lo que no se pueda atribuir queda en
+    ``0``, que solo ven los administradores en la vista global.
+
+    ``backfill`` solo es cierto la primera vez: en arranques posteriores no
+    hay filas antiguas que atribuir, así que se evita recorrer la tabla.
+    """
+    _ensure_column(
+        conn,
+        "execution_batches",
+        "owner_user_id",
+        "owner_user_id INTEGER NOT NULL DEFAULT 0",
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_execution_batches_owner "
+        "ON execution_batches (owner_user_id, created_at)"
+    )
+    if not backfill:
+        return
+    # Lotes lanzados a mano: el operador es el nombre de usuario.
+    conn.execute("""
+        UPDATE execution_batches
+        SET owner_user_id = (
+            SELECT users.id FROM users
+            WHERE users.username = execution_batches.operator
+        )
+        WHERE owner_user_id = 0
+          AND EXISTS (
+              SELECT 1 FROM users
+              WHERE users.username = execution_batches.operator
+          )
+        """)
+    # Lotes desatendidos: ``operator`` es ``agenda:<nombre>``; se hereda el
+    # dueño de la programación con ese nombre (la más reciente).
+    conn.execute("""
+        UPDATE execution_batches
+        SET owner_user_id = COALESCE((
+            SELECT schedules.owner_user_id FROM schedules
+            WHERE 'agenda:' || schedules.name = execution_batches.operator
+            ORDER BY schedules.id DESC
+            LIMIT 1
+        ), 0)
+        WHERE owner_user_id = 0
+          AND operator LIKE 'agenda:%'
+        """)
+
+
 def init_schema(db_path: str) -> None:
     """Crea o migra el esquema de forma idempotente y no destructiva.
 
     ``_migrate_v1``, ``_migrate_v3``, ``_migrate_v4`` y ``_migrate_v5`` se
     ejecutan siempre porque usan ``CREATE ... IF NOT EXISTS`` o
     ``_ensure_column``: así se reparan bases de datos parciales o creadas por
-    versiones antiguas. Las migraciones que transforman datos solo se aplican
-    si la versión registrada en ``PRAGMA user_version`` es anterior.
+    versiones antiguas. ``_migrate_v20`` también repara la columna, pero solo
+    atribuye el historial antiguo la primera vez. Las migraciones que
+    transforman datos se aplican si la versión registrada en
+    ``PRAGMA user_version`` es anterior.
     """
     with get_connection(db_path) as conn:
         version = int(conn.execute("PRAGMA user_version").fetchone()[0])
@@ -648,6 +702,7 @@ def init_schema(db_path: str) -> None:
         _migrate_v17(conn)
         _migrate_v18(conn)
         _migrate_v19(conn)
+        _migrate_v20(conn, backfill=version < 20)
         # No se rebaja la versión de una base creada por una versión más nueva.
         if version < SCHEMA_VERSION:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

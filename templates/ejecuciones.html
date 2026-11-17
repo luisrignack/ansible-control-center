@@ -11,12 +11,24 @@
         <h1>Ejecuciones</h1>
         <p class="sub">
             Lotes en curso y registro histórico de ejecuciones, con su resultado
-            global y el detalle por host.
+            global y el detalle por host. Cada usuario ve su propio historial;
+            los administradores pueden abrir la vista global.
         </p>
     </div>
     <div class="head-actions">
+        {% if current_user.has_role('admin') %}
+            {% if show_all %}
+            <a class="btn btn-sm btn-secondary" href="{{ url_for('ejecuciones', tab=tab) }}">
+                <i class="bi bi-person" aria-hidden="true"></i> Ver solo lo mío
+            </a>
+            {% else %}
+            <a class="btn btn-sm btn-secondary" href="{{ url_for('ejecuciones', tab=tab, all=1) }}">
+                <i class="bi bi-people" aria-hidden="true"></i> Ver todo
+            </a>
+            {% endif %}
+        {% endif %}
         {% if tab == 'historial' %}
-        <a class="btn btn-outline-secondary" href="{{ url_for('ejecuciones_exportar') }}">
+        <a class="btn btn-outline-secondary" href="{{ url_for('ejecuciones_exportar', all=1 if show_all else None) }}">
             <i class="bi bi-download" aria-hidden="true"></i> Exportar historial
         </a>
         {% endif %}
@@ -34,18 +46,28 @@
 
 <nav class="seg-tabs section-tabs" aria-label="Vistas de ejecuciones">
     <a class="seg-tab{% if tab == 'curso' %} is-active{% endif %}"
-       href="{{ url_for('ejecuciones', tab='curso') }}"
+       href="{{ url_for('ejecuciones', tab='curso', all=1 if show_all else None) }}"
        {% if tab == 'curso' %}aria-current="page"{% endif %}>
         <i class="bi bi-activity" aria-hidden="true"></i> En curso
         <span class="count">{{ running_batches | length }}</span>
     </a>
     <a class="seg-tab{% if tab == 'historial' %} is-active{% endif %}"
-       href="{{ url_for('ejecuciones', tab='historial') }}"
+       href="{{ url_for('ejecuciones', tab='historial', all=1 if show_all else None) }}"
        {% if tab == 'historial' %}aria-current="page"{% endif %}>
         <i class="bi bi-clock-history" aria-hidden="true"></i> Historial
         <span class="count">{{ batches | length }}</span>
     </a>
 </nav>
+
+{% if show_all %}
+<div class="banner banner-info mb-3" role="status">
+    <div class="banner-icon" aria-hidden="true"><i class="bi bi-people"></i></div>
+    <div>
+        <div class="banner-title">Vista global de administración</div>
+        <div class="banner-text">Estás viendo también el historial de otros usuarios.</div>
+    </div>
+</div>
+{% endif %}
 
 <div class="stat-grid fade-in">
     <div class="stat">

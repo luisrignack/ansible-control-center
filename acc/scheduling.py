@@ -463,6 +463,20 @@ def _handle_schedule_from_task_form():
     return redirect(url_for("programaciones"))
 
 
+def _schedule_owner_id(schedule) -> int:
+    """Dueño de la programación, para atribuirle el lote que dispara.
+
+    ``schedule`` puede ser la fila cruda de SQLite (bucle del planificador) o
+    un ``dict`` (pruebas y llamadas manuales); en ambos casos
+    ``owner_user_id`` existe desde la migración v19. ``0`` significa que el
+    lote queda solo en la vista global de administración.
+    """
+    try:
+        return int(schedule["owner_user_id"] or 0)
+    except (KeyError, IndexError, TypeError, ValueError):
+        return 0
+
+
 def launch_scheduled(schedule, params: dict[str, Any]) -> bool:
     """Dispara una programación vencida purando la cola de trabajos normal.
 
@@ -629,6 +643,7 @@ def launch_scheduled(schedule, params: dict[str, Any]) -> bool:
             wallpaper_uri=wallpaper_uri,
             wallpaper_name=wallpaper_name,
             new_password=scheduled_new_password,
+            owner_user_id=_schedule_owner_id(schedule),
         )
     except JobQueueFull as exc:
         remove_task(tid)
