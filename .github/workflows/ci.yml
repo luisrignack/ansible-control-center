@@ -67,6 +67,12 @@ jobs:
       - name: Bandit (código de producción)
         run: python -m bandit -q -r app.py config.py acc models services -ll
 
+      # Los playbooks se ejecutan como root en los equipos administrados: un
+      # ``changed_when`` ausente o un ``shell`` innecesario se detecta aquí y
+      # no en producción. El perfil y el alcance viven en ``.ansible-lint``.
+      - name: Ansible Lint
+        run: python -m ansiblelint ansible/
+
   test:
     runs-on: ubuntu-latest
     strategy:

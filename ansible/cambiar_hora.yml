@@ -75,7 +75,11 @@
 
     - name: Avisar de que NTP puede revertir la hora
       ansible.builtin.set_fact:
-        hora_advertencias: "{{ hora_advertencias + ['TIME con NTP activo y política keep: el reloj puede volver a sincronizarse. Usa off, restore o configure.'] }}"
+        hora_advertencias: "{{ hora_advertencias + [_hora_aviso_ntp] }}"
+      vars:
+        _hora_aviso_ntp: >-
+          TIME con NTP activo y política keep: el reloj puede volver a
+          sincronizarse. Usa off, restore o configure.
       when:
         - accion == 'TIME'
         - ntp_policy == 'keep'
@@ -151,7 +155,8 @@
     # NTP
     # ------------------------------------------------------------------
     - name: Comprobar si chrony está instalado
-      ansible.builtin.shell: command -v chronyc
+      ansible.builtin.command:
+        argv: [chronyc, --version]
       register: _hora_chrony
       changed_when: false
       failed_when: false
@@ -315,7 +320,12 @@
 
     - name: Verificar la hora antes de reactivar NTP
       ansible.builtin.set_fact:
-        hora_errores: "{{ hora_errores + ['Desviación intermedia de ' ~ (((hora_estado.epoch | int) - (hora_objetivo_epoch | int)) | abs) ~ 's (tolerancia ' ~ tolerancia ~ 's)'] }}"
+        hora_errores: "{{ hora_errores + [_hora_error_desviacion] }}"
+      vars:
+        _hora_error_desviacion: >-
+          Desviación intermedia de
+          {{ ((hora_estado.epoch | int) - (hora_objetivo_epoch | int)) | abs }}s
+          (tolerancia {{ tolerancia }}s)
       when:
         - accion == 'TIME'
         - (((hora_estado.epoch | int) - (hora_objetivo_epoch | default(0) | int)) | abs) > (tolerancia | int)

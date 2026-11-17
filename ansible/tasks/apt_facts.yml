@@ -13,7 +13,7 @@
 # Variables de salida: ``acc_apt_*`` y el diccionario ``acc_apt_state``.
 - name: Recolectar hechos y evaluar la política de actualización
   ansible.builtin.shell: |
-    set -u
+    set -uo pipefail
 
     min_free_gb="${ACC_APT_MIN_FREE_GB:-2}"
     blocked_list="${ACC_APT_BLOCKED_OS:-ubuntu:20.04,linuxmint:20,linuxlite:5,mx:19}"
@@ -171,7 +171,8 @@
         if (ok == "true") {
           printf "APT_SPACE_REASON=\n"
         } else {
-          printf "APT_SPACE_REASON=Espacio insuficiente: %.2f GiB libres en / y %.2f GiB en la caché de APT; se requieren %.2f GiB y %.2f GiB (umbral %.2f GiB).\n", rf / 1073741824, cf / 1073741824, need_root / 1073741824, need_cache / 1073741824, min_gb
+          printf "APT_SPACE_REASON=Espacio insuficiente: %.2f GiB libres en / y %.2f GiB en la caché de APT;", rf / 1073741824, cf / 1073741824
+          printf " se requieren %.2f GiB y %.2f GiB (umbral %.2f GiB).\n", need_root / 1073741824, need_cache / 1073741824, min_gb
         }
       }
     '

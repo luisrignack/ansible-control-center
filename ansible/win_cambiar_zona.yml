@@ -64,6 +64,7 @@
     - name: Cambiar la zona horaria solo si difiere (idempotente)
       ansible.builtin.raw: tzutil /s "{{ iana_to_windows[valor] }}"
       register: _win_tz_cambio
+      changed_when: _win_tz_cambio.rc == 0
       when: force | default(false) | bool or zona_antes != iana_to_windows[valor]
 
     - name: Publicar si hubo cambio (HORA_CHANGED)

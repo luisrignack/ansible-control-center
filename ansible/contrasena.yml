@@ -120,14 +120,12 @@
 
     - name: Publicar el estado final
       ansible.builtin.debug:
-        msg: "PASSWORD_STATE_B64={{ {
-          'user': target_user,
+        msg: "PASSWORD_STATE_B64={{ {'user': target_user,
           'exists': true,
           'status': password_status,
           'changed': password_change.changed,
           'verified': password_verified | bool,
-          'reboot_required': false
-        } | to_json | b64encode }}"
+          'reboot_required': false} | to_json | b64encode }}"
 
     - name: Publicar el cambio
       ansible.builtin.debug:

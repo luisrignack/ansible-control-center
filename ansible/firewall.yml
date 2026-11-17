@@ -182,8 +182,7 @@
         argv: [firewall-cmd, --permanent, "--add-source={{ fw_source }}"]
       register: _fw_firewalld_allow
       when: fw_manager == 'firewalld' and fw_mode == 'allow'
-      changed_when: >-
-        {{ 'ALREADY_ENABLED' not in (_fw_firewalld_allow.stderr | default('')) }}
+      changed_when: "'ALREADY_ENABLED' not in _fw_firewalld_allow.stderr | default('')"
 
     - name: Recargar firewalld para aplicar la regla
       ansible.builtin.command:

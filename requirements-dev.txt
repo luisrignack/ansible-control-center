@@ -17,3 +17,6 @@ black==26.10.1
 # Auditoría de dependencias (SCA). Consulta PyPI/OSV; tools/audit_dependencies.py
 # añade el fallback de índice para redes corporativas.
 pip-audit>=2.7,<3.0
+
+# Validación de los playbooks de Ansible (incluye ansible-core).
+ansible-lint==26.11.0

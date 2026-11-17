@@ -1,0 +1,18 @@
+---
+# Perfil y alcance de ansible-lint para los playbooks desplegables.
+#
+# El perfil ``production`` es el más estricto de los que se aplican sin
+# configuración adicional: exige nombres, modo y permisos explícitos, y
+# prohíbe comandos que no sean idempotentes cuando no se declara
+# ``changed_when``. Los playbooks de ``ansible/`` lo cumplen, así que una
+# regresión se detecta en la pull request en vez de en producción.
+profile: production
+
+# Solo se analiza contenido del proyecto. ``dist/`` y ``respaldo/`` son
+# paquetes y copias locales; ``instance/`` guarda datos de ejecución.
+exclude_paths:
+  - .venv/
+  - dist/
+  - instance/
+  - respaldo/
+  - tests/
