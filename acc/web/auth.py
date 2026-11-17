@@ -102,9 +102,15 @@ def _finish_session_login(user: User, client_ip: str, event: str, detail: str):
 def _register_login_failure(
     user: User | None, username: str, client_ip: str, detail: str = ""
 ) -> None:
-    """Registra un intento fallido (bloqueo, evento y flash)."""
+    """Registra un intento fallido (bloqueo, evento y flash).
+
+    Una cuenta desactivada no acumula intentos fallidos: ya está fuera de
+    servicio y bloquearla solo añadiría ruido a la auditoría (y un mensaje
+    engañoso al usuario). El intento sí queda registrado como evento.
+    """
     locked = False
-    if user is not None:
+    disabled = user is not None and not user.is_active
+    if user is not None and not disabled:
         try:
             locked = user.register_failure(
                 LOGIN_LOCKOUT_THRESHOLD,
@@ -116,8 +122,16 @@ def _register_login_failure(
     AuthEvent.record(
         username,
         client_ip,
-        "account_locked" if locked else "login_failure",
-        ("Cuenta bloqueada por intentos fallidos" if locked else detail)
+        (
+            "login_disabled"
+            if disabled
+            else ("account_locked" if locked else "login_failure")
+        ),
+        (
+            "Intento de acceso con una cuenta desactivada"
+            if disabled
+            else ("Cuenta bloqueada por intentos fallidos" if locked else detail)
+        )
         or "Credenciales incorrectas",
         db_path=runtime.get_db_path(),
     )
