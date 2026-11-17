@@ -54,7 +54,14 @@ def too_many_requests(error):
 
 @app.errorhandler(500)
 def internal_error(error):
+    # Igual que 400/403/404/429: quien llama por ``fetch`` espera JSON. El
+    # mensaje es genérico a propósito; el detalle solo va al log.
     logger.error("Error interno: %s", error)
+    if _wants_json():
+        return (
+            jsonify({"success": False, "message": "Error interno del servidor."}),
+            500,
+        )
     return render_template("500.html"), 500
 
 
